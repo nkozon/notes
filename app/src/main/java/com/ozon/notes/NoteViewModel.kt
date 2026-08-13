@@ -4,8 +4,11 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.documentfile.provider.DocumentFile
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.launch
 
 class NoteViewModel(private val repository: NoteRepository) : ViewModel() {
@@ -271,6 +274,15 @@ class NoteViewModel(private val repository: NoteRepository) : ViewModel() {
             initialValue = 0L
         )
 
+    val autoBackupEnabled: StateFlow<Boolean> = repository.getAutoBackupEnabled()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val backupUri: StateFlow<String?> = repository.getBackupUri()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val hasPendingChanges: StateFlow<Boolean> = repository.getHasPendingChanges()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     val ratingIndicatorsEnabled: StateFlow<Boolean> = repository.getRatingIndicatorsEnabled()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
@@ -330,6 +342,9 @@ class NoteViewModel(private val repository: NoteRepository) : ViewModel() {
             is NoteEvent.UpdateChecklistBehavior -> viewModelScope.launch { repository.setChecklistBehavior(event.behavior) }
             is NoteEvent.UpdateShowEntryCount -> viewModelScope.launch { repository.setShowEntryCount(event.show) }
             is NoteEvent.UpdateLastBackupTime -> viewModelScope.launch { repository.setLastBackupTime(event.time) }
+            is NoteEvent.UpdateAutoBackupEnabled -> viewModelScope.launch { repository.setAutoBackupEnabled(event.enabled) }
+            is NoteEvent.UpdateBackupUri -> viewModelScope.launch { repository.setBackupUri(event.uri) }
+            is NoteEvent.UpdateHasPendingChanges -> viewModelScope.launch { repository.setHasPendingChanges(event.hasChanges) }
             is NoteEvent.UpdateRatingIndicatorsEnabled -> viewModelScope.launch { repository.setRatingIndicatorsEnabled(event.enabled) }
             is NoteEvent.UpdateHighScoreEnabled -> viewModelScope.launch { repository.setHighScoreEnabled(event.enabled) }
             is NoteEvent.UpdateHighScoreThreshold -> viewModelScope.launch { repository.setHighScoreThreshold(event.threshold) }
@@ -343,6 +358,39 @@ class NoteViewModel(private val repository: NoteRepository) : ViewModel() {
             }
             is NoteEvent.SetSidePanelVisible -> {
                 _isSidePanelVisible.value = event.visible
+            }
+            is NoteEvent.TriggerAutoBackup -> triggerAutoBackup()
+        }
+    }
+
+    private fun triggerAutoBackup() {
+        val enabled = autoBackupEnabled.value
+        val uriString = backupUri.value
+        val hasChanges = hasPendingChanges.value
+
+        if (!enabled || uriString == null || !hasChanges) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val treeUri = android.net.Uri.parse(uriString)
+                val context = repository.getContext()
+                val pickedDir = DocumentFile.fromTreeUri(context, treeUri) ?: return@launch
+                
+                val fileName = "auto_backup_${System.currentTimeMillis()}.json"
+                val file = pickedDir.createFile("application/json", fileName) ?: return@launch
+                
+                val data = repository.getBackupData()
+                val jsonString = Json.encodeToString(data)
+                
+                context.contentResolver.openOutputStream(file.uri)?.use { 
+                    it.write(jsonString.toByteArray())
+                }
+                
+                repository.setLastBackupTime(System.currentTimeMillis())
+                repository.setHasPendingChanges(false)
+                Log.d("NoteViewModel", "Auto backup successful: $fileName")
+            } catch (e: Exception) {
+                Log.e("NoteViewModel", "Auto backup failed", e)
             }
         }
     }
@@ -382,6 +430,9 @@ sealed interface NoteEvent {
     data class UpdateChecklistBehavior(val behavior: ChecklistBehavior) : NoteEvent
     data class UpdateShowEntryCount(val show: Boolean) : NoteEvent
     data class UpdateLastBackupTime(val time: Long) : NoteEvent
+    data class UpdateAutoBackupEnabled(val enabled: Boolean) : NoteEvent
+    data class UpdateBackupUri(val uri: String?) : NoteEvent
+    data class UpdateHasPendingChanges(val hasChanges: Boolean) : NoteEvent
     data class UpdateRatingIndicatorsEnabled(val enabled: Boolean) : NoteEvent
     data class UpdateHighScoreEnabled(val enabled: Boolean) : NoteEvent
     data class UpdateHighScoreThreshold(val threshold: Float) : NoteEvent
@@ -392,4 +443,5 @@ sealed interface NoteEvent {
     data class SetSidePanelVisible(val visible: Boolean) : NoteEvent
     data class UpdateForceStylusOnly(val enabled: Boolean) : NoteEvent
     data class UpdateLastDrawingColor(val color: Int) : NoteEvent
+    data object TriggerAutoBackup : NoteEvent
 }

@@ -9,8 +9,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.ozon.notes.ui.theme.NotesTheme
@@ -26,6 +29,20 @@ class MainActivity : ComponentActivity() {
             val noteViewModel: NoteViewModel = viewModel(
                 factory = NoteViewModel.provideFactory(AppContainer.provideRepository(applicationContext))
             )
+
+            // Auto-backup trigger
+            DisposableEffect(lifecycle) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_STOP) {
+                        noteViewModel.onEvent(NoteEvent.TriggerAutoBackup)
+                    }
+                }
+                lifecycle.addObserver(observer)
+                onDispose {
+                    lifecycle.removeObserver(observer)
+                }
+            }
+
             val appTheme by noteViewModel.themeState.collectAsStateWithLifecycle()
 
             NotesTheme(

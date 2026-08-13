@@ -54,18 +54,22 @@ class RoomNoteRepository(
         if (rowId == -1L) {
             database.noteDao().updateNote(entity)
         }
+        setHasPendingChanges(true)
     }
 
     override suspend fun togglePinNote(noteId: String) {
         database.noteDao().togglePin(noteId)
+        setHasPendingChanges(true)
     }
 
     override suspend fun deleteNote(noteId: String) {
         database.noteDao().deleteNote(noteId)
+        setHasPendingChanges(true)
     }
 
     override suspend fun deleteNotes(noteIds: List<String>) {
         database.noteDao().deleteNotes(noteIds)
+        setHasPendingChanges(true)
     }
 
     // --- Lists ---
@@ -95,14 +99,17 @@ class RoomNoteRepository(
         if (rowId == -1L) {
             database.listDao().updateList(entity)
         }
+        setHasPendingChanges(true)
     }
 
     override suspend fun togglePinList(listId: String) {
         database.listDao().togglePin(listId)
+        setHasPendingChanges(true)
     }
 
     override suspend fun deleteList(listId: String) {
         database.listDao().deleteListAndEntries(listId)
+        setHasPendingChanges(true)
     }
 
     override fun getAllEntries(): Flow<List<ListEntry>> {
@@ -151,10 +158,12 @@ class RoomNoteRepository(
         if (rowId == -1L) {
             database.listDao().updateEntry(entity)
         }
+        setHasPendingChanges(true)
     }
 
     override suspend fun deleteEntry(entryId: String) {
         database.listDao().deleteEntry(entryId)
+        setHasPendingChanges(true)
     }
 
     override suspend fun clearAllData() {
@@ -166,6 +175,9 @@ class RoomNoteRepository(
             _checklistBehavior.value = ChecklistBehavior.GREY_OUT
             _showEntryCount.value = false
             _listsSortOrder.value = ListSortOrder.NEWEST
+            _autoBackupEnabled.value = false
+            _backupUri.value = null
+            _hasPendingChanges.value = false
             _sortOrderUpdateTrigger.tryEmit(Unit)
         }
     }
@@ -361,6 +373,29 @@ class RoomNoteRepository(
     override suspend fun setLastBackupTime(time: Long) {
         prefs.edit().putLong("last_backup_time", time).apply()
         _lastBackupTime.value = time
+    }
+
+    // --- Backup & Restore ---
+    private val _autoBackupEnabled = MutableStateFlow(prefs.getBoolean("auto_backup_enabled", false))
+    private val _backupUri = MutableStateFlow(prefs.getString("backup_uri", null))
+    private val _hasPendingChanges = MutableStateFlow(prefs.getBoolean("has_pending_changes", false))
+
+    override fun getAutoBackupEnabled(): Flow<Boolean> = _autoBackupEnabled
+    override suspend fun setAutoBackupEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("auto_backup_enabled", enabled).apply()
+        _autoBackupEnabled.value = enabled
+    }
+
+    override fun getBackupUri(): Flow<String?> = _backupUri
+    override suspend fun setBackupUri(uri: String?) {
+        prefs.edit().putString("backup_uri", uri).apply()
+        _backupUri.value = uri
+    }
+
+    override fun getHasPendingChanges(): Flow<Boolean> = _hasPendingChanges
+    override suspend fun setHasPendingChanges(hasChanges: Boolean) {
+        prefs.edit().putBoolean("has_pending_changes", hasChanges).apply()
+        _hasPendingChanges.value = hasChanges
     }
 
     // --- Rating Indicators ---

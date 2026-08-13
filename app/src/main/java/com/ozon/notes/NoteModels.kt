@@ -11,6 +11,7 @@ sealed class DetailRoute {
     data class Note(val id: String?) : DetailRoute()
     data class Drawing(val id: String?) : DetailRoute()
     data class List(val id: String) : DetailRoute()
+    data object BackupRestore : DetailRoute()
     data object Settings : DetailRoute()
     data object About : DetailRoute()
 }

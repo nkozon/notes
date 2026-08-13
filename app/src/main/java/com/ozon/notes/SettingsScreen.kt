@@ -38,17 +38,15 @@ import kotlin.math.roundToInt
 @Composable
 fun SettingsScreen(
     viewModel: NoteViewModel,
+    onNavigateToBackupRestore: () -> Unit,
     onNavigateToAbout: () -> Unit,
     onNavigateUp: () -> Unit
 ) {
-    val scope = rememberCoroutineScope()
-    
     val startupView by viewModel.startupViewState.collectAsStateWithLifecycle()
     val theme by viewModel.themeState.collectAsStateWithLifecycle()
     val tabletMode by viewModel.tabletModeState.collectAsStateWithLifecycle()
     val checklistBehavior by viewModel.checklistBehaviorState.collectAsStateWithLifecycle()
     val showEntryCount by viewModel.showEntryCountState.collectAsStateWithLifecycle()
-    val lastBackupTime by viewModel.lastBackupTimeState.collectAsStateWithLifecycle()
     
     val ratingIndicatorsEnabled by viewModel.ratingIndicatorsEnabled.collectAsStateWithLifecycle()
     val highScoreEnabled by viewModel.highScoreEnabled.collectAsStateWithLifecycle()
@@ -58,41 +56,6 @@ fun SettingsScreen(
     val forceStylusOnly by viewModel.forceStylusOnly.collectAsStateWithLifecycle()
 
     var showClearDataDialog by remember { mutableStateOf(false) }
-
-    val createDocumentLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/json")
-    ) { uri ->
-        uri?.let {
-            viewModel.onEvent(NoteEvent.BackupData { data ->
-                scope.launch {
-                    val currentTime = System.currentTimeMillis()
-                    withContext(Dispatchers.IO) {
-                        val json = Json.encodeToString(data)
-                        viewModel.getRepository().getContext().contentResolver.openOutputStream(it)?.use { outputStream ->
-                            outputStream.write(json.toByteArray())
-                        }
-                    }
-                    viewModel.onEvent(NoteEvent.UpdateLastBackupTime(currentTime))
-                }
-            })
-        }
-    }
-
-    val openDocumentLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri?.let {
-            scope.launch {
-                withContext(Dispatchers.IO) {
-                    viewModel.getRepository().getContext().contentResolver.openInputStream(it)?.use { inputStream ->
-                        val json = inputStream.bufferedReader().use { it.readText() }
-                        val data = Json.decodeFromString<BackupData>(json)
-                        viewModel.onEvent(NoteEvent.RestoreData(data))
-                    }
-                }
-            }
-        }
-    }
 
     Scaffold(
         topBar = {
@@ -235,46 +198,22 @@ fun SettingsScreen(
             }
 
             // Data Management Section
-            SettingsSection(title = "Backup & Restore") {
-                val lastBackupFormatted = remember(lastBackupTime) {
-                    if (lastBackupTime == 0L) {
-                        "Never"
-                    } else {
-                        val date = Date(lastBackupTime)
-                        val format = SimpleDateFormat("dd/MM/yyyy 'at' HH:mm", Locale.getDefault())
-                        format.format(date)
-                    }
-                }
-
-                SettingsItemContainer(index = 0, total = 2, onClick = { 
-                    createDocumentLauncher.launch("notes_backup_${System.currentTimeMillis()}.json") 
-                }) {
+            SettingsSection(title = "Data Management") {
+                SettingsItemContainer(index = 0, total = 1, onClick = onNavigateToBackupRestore) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Rounded.FileDownload, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Icon(Icons.Rounded.CloudSync, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(16.dp))
                         Column {
-                            Text("Backup Data", style = MaterialTheme.typography.titleMedium)
+                            Text("Backup & Restore", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                text = "Last time backed up: $lastBackupFormatted",
+                                text = "Configure automatic and manual backups",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                    }
-                }
-                SettingsItemContainer(index = 1, total = 2, onClick = { 
-                    openDocumentLauncher.launch(arrayOf("application/json")) 
-                }) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Rounded.FileUpload, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(16.dp))
-                        Text("Restore Data", style = MaterialTheme.typography.titleMedium)
                     }
                 }
             }

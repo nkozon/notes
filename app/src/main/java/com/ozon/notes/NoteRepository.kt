@@ -47,6 +47,14 @@ interface NoteRepository {
     fun getLastBackupTime(): Flow<Long>
     suspend fun setLastBackupTime(time: Long)
 
+    // --- Backup & Restore ---
+    fun getAutoBackupEnabled(): Flow<Boolean>
+    suspend fun setAutoBackupEnabled(enabled: Boolean)
+    fun getBackupUri(): Flow<String?>
+    suspend fun setBackupUri(uri: String?)
+    fun getHasPendingChanges(): Flow<Boolean>
+    suspend fun setHasPendingChanges(hasChanges: Boolean)
+
     // --- Rating Indicators ---
     fun getRatingIndicatorsEnabled(): Flow<Boolean>
     suspend fun setRatingIndicatorsEnabled(enabled: Boolean)
