@@ -306,46 +306,53 @@ private fun AddNoteScreenContent(
         val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = topPadding + 64.dp, bottom = bottomPadding + 80.dp)
-        ) {
-            Column(
-                modifier = Modifier.fillMaxSize()
+        Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(top = topPadding + 64.dp, bottom = bottomPadding + 80.dp)
+                    .zIndex(2f)
             ) {
-                TextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    placeholder = { Text("Title", style = MaterialTheme.typography.headlineMedium) },
-                    textStyle = MaterialTheme.typography.headlineMedium,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester),
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent
+                Column(
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    TextField(
+                        value = title,
+                        onValueChange = { title = it },
+                        placeholder = { Text("Title", style = MaterialTheme.typography.headlineMedium) },
+                        textStyle = MaterialTheme.typography.headlineMedium,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester),
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent
+                        )
                     )
-                )
 
-                RichTextEditor(
-                    state = richTextState,
-                    placeholder = { Text("Type your note here...") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    colors = RichTextEditorDefaults.richTextEditorColors(
-                        containerColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent
+                    RichTextEditor(
+                        state = richTextState,
+                        placeholder = { Text("Type your note here...") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        colors = RichTextEditorDefaults.richTextEditorColors(
+                            containerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent
+                        )
                     )
-                )
+                }
             }
 
             SystemBarGradients(modifier = Modifier.zIndex(1f))
+            
+            // To ensure title/editor are above gradient, we can give the padded Box a higher zIndex
+            // Or just put SystemBarGradients BEFORE the padded Box in the rendering order.
+            // Let's use zIndex(0f) for SystemBarGradients and zIndex(1f) for the padded Box.
         }
     }
 }

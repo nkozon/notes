@@ -6,7 +6,10 @@ import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
 import android.view.MotionEvent
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -95,6 +98,13 @@ fun DrawingNoteScreen(
     var lastStylusTouchTime by remember { mutableLongStateOf(0L) }
 
     val viewConfiguration = LocalViewConfiguration.current
+
+    // Force dark status bar
+    LaunchedEffect(Unit) {
+        (context as? ComponentActivity)?.enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        )
+    }
 
     val updatedStrokes by rememberUpdatedState(strokes)
     val updatedSelectedIds by rememberUpdatedState(selectedStrokeIds)
@@ -239,15 +249,6 @@ fun DrawingNoteScreen(
                             DropdownMenuItem(text = { Text("Export as PDF (Vector)") }, onClick = { showExportMenu = false; launchExport(pdfVectorLauncher, "pdf") })
                         }
                     }
-                    IconButton(onClick = { if (strokes.isNotEmpty()) { redoStack = redoStack + strokes.last(); strokes = strokes.dropLast(1) } }, enabled = strokes.isNotEmpty()) {
-                        Icon(Icons.AutoMirrored.Rounded.Undo, contentDescription = "Undo")
-                    }
-                    IconButton(onClick = { handlePaste() }, enabled = clipboardStrokes != null) {
-                        Icon(Icons.Rounded.ContentPaste, contentDescription = "Paste")
-                    }
-                    IconButton(onClick = { if (redoStack.isNotEmpty()) { strokes = strokes + redoStack.last(); redoStack = redoStack.dropLast(1) } }, enabled = redoStack.isNotEmpty()) {
-                        Icon(Icons.AutoMirrored.Rounded.Redo, contentDescription = "Redo")
-                    }
                     IconButton(onClick = { saveDrawing(); onNavigateUp() }) {
                         Icon(Icons.Rounded.Save, contentDescription = "Save")
                     }
@@ -264,10 +265,12 @@ fun DrawingNoteScreen(
                 .background(Color.White)
                 .onSizeChanged { canvasSize = it }
         ) {
+            // 1. Canvas Layer (Bottom)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(top = topPadding, bottom = bottomPadding)
+                    .zIndex(0f)
                     .pointerInput(updatedTool, updatedForceStylus) {
                         awaitPointerEventScope {
                             while (true) {
@@ -497,10 +500,76 @@ fun DrawingNoteScreen(
                 }
             }
 
+            // 2. Gradients Layer (Middle)
+            SystemBarGradients(color = Color.White, modifier = Modifier.zIndex(1f))
+
+            // 3. UI Layer (Top)
+            // Utility Toolbar (Undo/Redo/Paste)
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = topPadding + 64.dp)
+                    .zIndex(10f),
+                color = Color.Transparent
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp),
+                        shadowElevation = 2.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = { if (strokes.isNotEmpty()) { redoStack = redoStack + strokes.last(); strokes = strokes.dropLast(1) } },
+                                enabled = strokes.isNotEmpty(),
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Rounded.Undo,
+                                    contentDescription = "Undo",
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = { handlePaste() },
+                                enabled = clipboardStrokes != null,
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.Rounded.ContentPaste,
+                                    contentDescription = "Paste",
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = { if (redoStack.isNotEmpty()) { strokes = strokes + redoStack.last(); redoStack = redoStack.dropLast(1) } },
+                                enabled = redoStack.isNotEmpty(),
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Rounded.Redo,
+                                    contentDescription = "Redo",
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Drawing Toolbar Box
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .zIndex(4f) // Above header and gradient
+                    .zIndex(11f) // Above gradients
             ) {
                 DrawingToolbar(
                     currentTool = currentTool,
@@ -557,8 +626,6 @@ fun DrawingNoteScreen(
                 }
             }
         }
-
-        SystemBarGradients(color = Color.White, modifier = Modifier.zIndex(1f))
     }
 }
 
@@ -603,7 +670,14 @@ fun DrawingToolbar(
             ToolbarAnchor.LEFT -> Alignment.CenterStart
             ToolbarAnchor.RIGHT -> Alignment.CenterEnd
         }
-        Column(modifier = Modifier.align(alignment).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        Column(
+            modifier = Modifier
+                .align(alignment)
+                .padding(16.dp)
+                .padding(bottom = if (anchor == ToolbarAnchor.BOTTOM) navBarPadding + 16.dp else 0.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
             if (!isCollapsed && showThicknessPopup) {
                 ThicknessPopup(
                     thickness = if (currentTool == DrawingTool.PEN) penThickness else eraserThickness,
