@@ -371,26 +371,28 @@ class NoteViewModel(private val repository: NoteRepository) : ViewModel() {
         if (!enabled || uriString == null || !hasChanges) return
 
         viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val treeUri = android.net.Uri.parse(uriString)
-                val context = repository.getContext()
-                val pickedDir = DocumentFile.fromTreeUri(context, treeUri) ?: return@launch
-                
-                val fileName = "auto_backup_${System.currentTimeMillis()}.json"
-                val file = pickedDir.createFile("application/json", fileName) ?: return@launch
-                
-                val data = repository.getBackupData()
-                val jsonString = Json.encodeToString(data)
-                
-                context.contentResolver.openOutputStream(file.uri)?.use { 
-                    it.write(jsonString.toByteArray())
+            withContext(NonCancellable) {
+                try {
+                    val treeUri = android.net.Uri.parse(uriString)
+                    val context = repository.getContext()
+                    val pickedDir = DocumentFile.fromTreeUri(context, treeUri) ?: return@withContext
+                    
+                    val fileName = "auto_backup_${System.currentTimeMillis()}.json"
+                    val file = pickedDir.createFile("application/json", fileName) ?: return@withContext
+                    
+                    val data = repository.getBackupData()
+                    val jsonString = Json.encodeToString(data)
+                    
+                    context.contentResolver.openOutputStream(file.uri)?.use { 
+                        it.write(jsonString.toByteArray())
+                    }
+                    
+                    repository.setLastBackupTime(System.currentTimeMillis())
+                    repository.setHasPendingChanges(false)
+                    Log.d("NoteViewModel", "Auto backup successful: $fileName")
+                } catch (e: Exception) {
+                    Log.e("NoteViewModel", "Auto backup failed", e)
                 }
-                
-                repository.setLastBackupTime(System.currentTimeMillis())
-                repository.setHasPendingChanges(false)
-                Log.d("NoteViewModel", "Auto backup successful: $fileName")
-            } catch (e: Exception) {
-                Log.e("NoteViewModel", "Auto backup failed", e)
             }
         }
     }

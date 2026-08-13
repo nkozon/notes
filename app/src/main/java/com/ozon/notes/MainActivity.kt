@@ -33,7 +33,7 @@ class MainActivity : ComponentActivity() {
             // Auto-backup trigger
             DisposableEffect(lifecycle) {
                 val observer = LifecycleEventObserver { _, event ->
-                    if (event == Lifecycle.Event.ON_STOP) {
+                    if (event == Lifecycle.Event.ON_PAUSE) {
                         noteViewModel.onEvent(NoteEvent.TriggerAutoBackup)
                     }
                 }
