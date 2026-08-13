@@ -54,8 +54,16 @@ fun SettingsScreen(
     val lowScoreEnabled by viewModel.lowScoreEnabled.collectAsStateWithLifecycle()
     val lowScoreThreshold by viewModel.lowScoreThreshold.collectAsStateWithLifecycle()
     val forceStylusOnly by viewModel.forceStylusOnly.collectAsStateWithLifecycle()
+    val updateState by viewModel.updateState.collectAsStateWithLifecycle()
 
     var showClearDataDialog by remember { mutableStateOf(false) }
+    var showUpdateDialog by remember { mutableStateOf<UpdateState.UpdateAvailable?>(null) }
+
+    LaunchedEffect(updateState) {
+        if (updateState is UpdateState.UpdateAvailable) {
+            showUpdateDialog = updateState as UpdateState.UpdateAvailable
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -235,7 +243,41 @@ fun SettingsScreen(
             }
 
             SettingsSection(title = "Info") {
-                SettingsItemContainer(index = 0, total = 1, onClick = onNavigateToAbout) {
+                SettingsItemContainer(index = 0, total = 2, onClick = { viewModel.onEvent(NoteEvent.CheckForUpdate) }) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Rounded.SystemUpdate, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(16.dp))
+                            Column {
+                                Text("Check for updates", style = MaterialTheme.typography.titleMedium)
+                                when (val state = updateState) {
+            is UpdateState.Checking -> Text("Checking...", style = MaterialTheme.typography.bodySmall)
+                                    is UpdateState.UpdateAvailable -> Text("New version available: ${state.version}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                    is UpdateState.Downloading -> Text("Downloading update... ${(state.progress * 100).toInt()}%", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                    is UpdateState.UpToDate -> Text("App is up to date", style = MaterialTheme.typography.bodySmall)
+                                    is UpdateState.Error -> Text("Error: ${state.message}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                    else -> {}
+                                }
+                            }
+                        }
+                        if (updateState is UpdateState.Checking || updateState is UpdateState.Downloading) {
+                            if (updateState is UpdateState.Downloading) {
+                                CircularProgressIndicator(
+                                    progress = { (updateState as UpdateState.Downloading).progress },
+                                    modifier = Modifier.size(24.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                            }
+                        }
+                    }
+                }
+                SettingsItemContainer(index = 1, total = 2, onClick = onNavigateToAbout) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -267,6 +309,52 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showClearDataDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    showUpdateDialog?.let { update ->
+        AlertDialog(
+            onDismissRequest = { showUpdateDialog = null },
+            title = { Text("New Version Available") },
+            text = {
+                Column {
+                    Text("Version ${update.version} is available to download.")
+                    if (!update.body.isNullOrBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = update.body,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.onEvent(NoteEvent.InstallUpdate(update.downloadUrl, update.version))
+                        showUpdateDialog = null
+                    },
+                    enabled = updateState !is UpdateState.Downloading
+                ) {
+                    if (updateState is UpdateState.Downloading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Downloading...")
+                    } else {
+                        Text("Download & Install")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUpdateDialog = null }) {
+                    Text("Later")
+                }
             }
         )
     }

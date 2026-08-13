@@ -13,6 +13,8 @@ import kotlinx.coroutines.launch
 
 class NoteViewModel(private val repository: NoteRepository) : ViewModel() {
 
+    private val updateManager = UpdateManager(repository.getContext())
+
     fun getRepository() = repository
 
     // 1. Search State
@@ -23,6 +25,10 @@ class NoteViewModel(private val repository: NoteRepository) : ViewModel() {
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val noteSortOrder: StateFlow<ListSortOrder> = repository.getNoteSortOrder()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ListSortOrder.NEWEST)
+
+    // 3. Update State
+    private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
+    val updateState = _updateState.asStateFlow()
 
     // 3. Combined Notes State (Filters by Search AND Sort)
     val notesState: StateFlow<List<Note>> = combine(
@@ -360,6 +366,31 @@ class NoteViewModel(private val repository: NoteRepository) : ViewModel() {
                 _isSidePanelVisible.value = event.visible
             }
             is NoteEvent.TriggerAutoBackup -> triggerAutoBackup()
+            is NoteEvent.CheckForUpdate -> checkForUpdate()
+            is NoteEvent.InstallUpdate -> {
+                val id = updateManager.downloadAndInstallUpdate(event.url, event.version)
+                if (id != null) {
+                    startDownloadProgressPolling(id)
+                }
+            }
+        }
+    }
+
+    private fun startDownloadProgressPolling(id: Long) {
+        viewModelScope.launch {
+            while (true) {
+                val progress = updateManager.getDownloadProgress(id)
+                _updateState.value = UpdateState.Downloading(progress)
+                if (progress >= 1f) break
+                delay(500)
+            }
+        }
+    }
+
+    private fun checkForUpdate() {
+        viewModelScope.launch {
+            _updateState.value = UpdateState.Checking
+            _updateState.value = updateManager.checkForUpdate()
         }
     }
 
@@ -446,4 +477,6 @@ sealed interface NoteEvent {
     data class UpdateForceStylusOnly(val enabled: Boolean) : NoteEvent
     data class UpdateLastDrawingColor(val color: Int) : NoteEvent
     data object TriggerAutoBackup : NoteEvent
+    data object CheckForUpdate : NoteEvent
+    data class InstallUpdate(val url: String, val version: String) : NoteEvent
 }
