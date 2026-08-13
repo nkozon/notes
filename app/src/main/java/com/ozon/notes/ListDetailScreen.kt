@@ -63,6 +63,7 @@ import kotlin.math.roundToInt
 fun ListDetailScreen(
     listId: String,
     viewModel: NoteViewModel,
+    isTabletUi: Boolean = false,
     onNavigateUp: () -> Unit
 ) {
     val list = remember(listId) { viewModel.getListById(listId) } ?: return
@@ -522,85 +523,171 @@ fun ListDetailScreen(
         ) {
             Surface(
                 modifier = Modifier
-                    .width(400.dp)
+                    .width(if (isTabletUi) 640.dp else 400.dp)
                     .wrapContentHeight()
                     .padding(16.dp),
-                shape = RoundedCornerShape(48.dp),
+                shape = RoundedCornerShape(if (isTabletUi) 32.dp else 48.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHighest,
                 tonalElevation = 8.dp
             ) {
-                Column(
-                    modifier = Modifier
-                        .padding(24.dp)
-                        .fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    // Artwork Placeholder
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .aspectRatio(0.75f)
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Movie,
-                            contentDescription = null,
-                            modifier = Modifier.size(80.dp),
-                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    // Text Content
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        if (parentEntry != null) {
-                            Text(
-                                text = parentEntry.title,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Text(
-                            text = entry.title,
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    // Rating and Close Button
+                if (isTabletUi) {
+                    // Tablet Design: Horizontal Row
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier
+                            .padding(24.dp)
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Min),
+                        horizontalArrangement = Arrangement.spacedBy(24.dp)
                     ) {
-                        if (list.type == ListType.RATING) {
-                            val ratingText = if (entry.rating % 1f == 0f) entry.rating.toInt().toString() else entry.rating.toString()
-                            Text(
-                                text = "$ratingText/10",
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
-                            )
-                        } else {
-                            Spacer(Modifier.weight(1f))
-                        }
-                        
-                        TextButton(
-                            onClick = { previewEntry = null },
-                            contentPadding = PaddingValues(0.dp)
+                        // Left: Artwork Placeholder (Portrait)
+                        Box(
+                            modifier = Modifier
+                                .width(240.dp)
+                                .aspectRatio(0.85f)
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                            contentAlignment = Alignment.Center
                         ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Movie,
+                                contentDescription = null,
+                                modifier = Modifier.size(80.dp),
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                            )
+                        }
+
+                        // Right: Text Content and Buttons
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                            verticalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                if (parentEntry != null) {
+                                    Text(
+                                        text = parentEntry.title,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                Text(
+                                    text = entry.title,
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            // Rating and Close Button at the bottom
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.Bottom
+                            ) {
+                                if (list.type == ListType.RATING) {
+                                    val ratingText = if (entry.rating % 1f == 0f) entry.rating.toInt().toString() else entry.rating.toString()
+                                    Text(
+                                        text = "$ratingText/10",
+                                        style = MaterialTheme.typography.headlineSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                } else {
+                                    Spacer(Modifier.weight(1f))
+                                }
+                                
+                                TextButton(
+                                    onClick = { previewEntry = null },
+                                    contentPadding = PaddingValues(horizontal = 12.dp)
+                                ) {
+                                    Text(
+                                        "Close",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Mobile Design: Original Vertical Column
+                    Column(
+                        modifier = Modifier
+                            .padding(24.dp)
+                            .fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        // Artwork Placeholder
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(0.75f)
+                                .clip(RoundedCornerShape(24.dp))
+                                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Movie,
+                                contentDescription = null,
+                                modifier = Modifier.size(80.dp),
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // Text Content
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            if (parentEntry != null) {
+                                Text(
+                                    text = parentEntry.title,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                             Text(
-                                "Close",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
+                                text = entry.title,
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.ExtraBold,
                                 color = MaterialTheme.colorScheme.primary
                             )
+                        }
+
+                        // Rating and Close Button
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (list.type == ListType.RATING) {
+                                val ratingText = if (entry.rating % 1f == 0f) entry.rating.toInt().toString() else entry.rating.toString()
+                                Text(
+                                    text = "$ratingText/10",
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            } else {
+                                Spacer(Modifier.weight(1f))
+                            }
+                            
+                            TextButton(
+                                onClick = { previewEntry = null },
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text(
+                                    "Close",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                     }
                 }
@@ -795,7 +882,7 @@ fun ListEntryItem(
                             val ratingText = if (entry.rating % 1f == 0f) entry.rating.toInt().toString() else entry.rating.toString()
                             Text(
                                 text = ratingText,
-                                style = if (isSubentry) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodyMedium,
+                                style = if (isSubentry) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
                                 color = ratingColor,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(end = if (hasChildren) 4.dp else 0.dp)

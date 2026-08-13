@@ -105,8 +105,8 @@ fun NoteListScreen(
 
     Scaffold(
         topBar = { 
-            TopAppBar(
-                title = { Text("Notes & Lists") },
+            CenterAlignedTopAppBar(
+                title = { Text("Notes") },
                 actions = {
                     IconButton(onClick = { showSortMenu = true }) {
                         Icon(Icons.AutoMirrored.Rounded.Sort, contentDescription = "Sort")

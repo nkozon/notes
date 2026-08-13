@@ -38,6 +38,7 @@ import kotlin.math.roundToInt
 @Composable
 fun SettingsScreen(
     viewModel: NoteViewModel,
+    onNavigateToAbout: () -> Unit,
     onNavigateUp: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -173,7 +174,7 @@ fun SettingsScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "Show Entry Counts",
-                                style = MaterialTheme.typography.bodyLarge
+                                style = MaterialTheme.typography.titleMedium
                             )
                             Text(
                                 text = "Show counts on lists",
@@ -217,7 +218,7 @@ fun SettingsScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "Force Stylus Only",
-                                style = MaterialTheme.typography.bodyLarge
+                                style = MaterialTheme.typography.titleMedium
                             )
                             Text(
                                 text = "Finger can only pan and paste",
@@ -255,7 +256,7 @@ fun SettingsScreen(
                         Icon(Icons.Rounded.FileDownload, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(16.dp))
                         Column {
-                            Text("Backup Data", style = MaterialTheme.typography.bodyLarge)
+                            Text("Backup Data", style = MaterialTheme.typography.titleMedium)
                             Text(
                                 text = "Last time backed up: $lastBackupFormatted",
                                 style = MaterialTheme.typography.bodySmall,
@@ -273,7 +274,7 @@ fun SettingsScreen(
                     ) {
                         Icon(Icons.Rounded.FileUpload, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(16.dp))
-                        Text("Restore Data", style = MaterialTheme.typography.bodyLarge)
+                        Text("Restore Data", style = MaterialTheme.typography.titleMedium)
                     }
                 }
             }
@@ -287,9 +288,22 @@ fun SettingsScreen(
                         Icon(Icons.Rounded.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                         Spacer(Modifier.width(16.dp))
                         Column {
-                            Text("Clear All Data", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error)
+                            Text("Clear All Data", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
                             Text("Permanently delete all notes and lists", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                    }
+                }
+            }
+
+            SettingsSection(title = "Info") {
+                SettingsItemContainer(index = 0, total = 1, onClick = onNavigateToAbout) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Rounded.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(16.dp))
+                        Text("About this app", style = MaterialTheme.typography.titleMedium)
                     }
                 }
             }
@@ -352,7 +366,7 @@ fun RatingIndicatorsSetting(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Rating Indicators",
-                        style = MaterialTheme.typography.bodyLarge
+                        style = MaterialTheme.typography.titleMedium
                     )
                     Text(
                         text = "Highlight entries based on score",
@@ -512,7 +526,7 @@ fun <T> SettingsDropdown(
         ) {
             Text(
                 text = label,
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f)
             )
             

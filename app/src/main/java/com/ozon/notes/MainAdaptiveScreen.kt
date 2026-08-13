@@ -84,6 +84,12 @@ fun MainAdaptiveScreen(
             composable("settings") {
                 SettingsScreen(
                     viewModel = viewModel,
+                    onNavigateToAbout = { navController.navigate("about") },
+                    onNavigateUp = { navController.popBackStack() }
+                )
+            }
+            composable("about") {
+                AboutScreen(
                     onNavigateUp = { navController.popBackStack() }
                 )
             }
@@ -248,13 +254,20 @@ fun MainAdaptiveScreen(
                             ListDetailScreen(
                                 listId = route.id,
                                 viewModel = viewModel,
+                                isTabletUi = true,
                                 onNavigateUp = { currentDetailRoute = null }
                             )
                         }
                         is DetailRoute.Settings -> {
                             SettingsScreen(
                                 viewModel = viewModel,
+                                onNavigateToAbout = { currentDetailRoute = DetailRoute.About },
                                 onNavigateUp = { currentDetailRoute = null }
+                            )
+                        }
+                        is DetailRoute.About -> {
+                            AboutScreen(
+                                onNavigateUp = { currentDetailRoute = DetailRoute.Settings }
                             )
                         }
                         null -> {
