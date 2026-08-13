@@ -70,6 +70,12 @@ fun DrawingNoteScreen(
     val isSidePanelVisible by viewModel.isSidePanelVisible.collectAsStateWithLifecycle()
     val forceStylusOnly by viewModel.forceStylusOnly.collectAsStateWithLifecycle()
     val lastDrawingColor by viewModel.lastDrawingColor.collectAsStateWithLifecycle()
+    val appTheme by viewModel.themeState.collectAsStateWithLifecycle()
+    val isDarkTheme = when (appTheme) {
+        AppTheme.LIGHT -> false
+        AppTheme.DARK -> true
+        AppTheme.SYSTEM -> androidx.compose.foundation.isSystemInDarkTheme()
+    }
     
     var title by remember { mutableStateOf("") }
     var strokes by remember { mutableStateOf(listOf<com.ozon.notes.Stroke>()) }
@@ -99,11 +105,29 @@ fun DrawingNoteScreen(
 
     val viewConfiguration = LocalViewConfiguration.current
 
-    // Force dark status bar
+    // Force light status bar (dark icons) for white background, and restore on dispose
     LaunchedEffect(Unit) {
         (context as? ComponentActivity)?.enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+            statusBarStyle = SystemBarStyle.light(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT
+            )
         )
+    }
+    
+    DisposableEffect(isDarkTheme) {
+        onDispose {
+            (context as? ComponentActivity)?.enableEdgeToEdge(
+                statusBarStyle = SystemBarStyle.auto(
+                    android.graphics.Color.TRANSPARENT,
+                    android.graphics.Color.TRANSPARENT,
+                ) { isDarkTheme },
+                navigationBarStyle = SystemBarStyle.auto(
+                    android.graphics.Color.TRANSPARENT,
+                    android.graphics.Color.TRANSPARENT,
+                ) { isDarkTheme }
+            )
+        }
     }
 
     val updatedStrokes by rememberUpdatedState(strokes)
