@@ -13,7 +13,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
@@ -38,9 +40,15 @@ fun AboutScreen(
     }
 
     Scaffold(
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 title = { },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent
+                ),
                 navigationIcon = {
                     IconButton(onClick = onNavigateUp) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
@@ -49,10 +57,13 @@ fun AboutScreen(
             )
         }
     ) { padding ->
+        val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(top = topPadding, bottom = bottomPadding)
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -126,5 +137,7 @@ fun AboutScreen(
                 }
             }
         }
+
+        SystemBarGradients(modifier = Modifier.zIndex(1f))
     }
 }

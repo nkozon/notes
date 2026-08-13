@@ -20,7 +20,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -66,9 +68,15 @@ fun SettingsScreen(
     }
 
     Scaffold(
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 title = { Text("Settings", fontWeight = FontWeight.SemiBold) },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent
+                ),
                 navigationIcon = {
                     IconButton(onClick = onNavigateUp) {
                         Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
@@ -77,12 +85,15 @@ fun SettingsScreen(
             )
         }
     ) { padding ->
+        val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(horizontal = 16.dp)
+                .padding(top = topPadding + 64.dp, bottom = bottomPadding + 16.dp)
                 .animateContentSize(animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing)),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
@@ -291,6 +302,8 @@ fun SettingsScreen(
             
             Spacer(modifier = Modifier.height(16.dp))
         }
+
+        SystemBarGradients(modifier = Modifier.zIndex(1f))
     }
 
     if (showClearDataDialog) {

@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.scale
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.ExpandLess
@@ -91,37 +92,11 @@ fun ListDetailScreen(
     var expandedEntries by remember { mutableStateOf(setOf<String>()) }
     var isCompletedCollapsed by remember { mutableStateOf(true) }
     var showSortMenu by remember { mutableStateOf(false) }
+    var isSearchActive by remember { mutableStateOf(false) }
 
     // Search bar scrolling state
     val density = LocalDensity.current
     val listState = rememberLazyListState()
-    var searchBarHeightPx by remember { mutableFloatStateOf(0f) }
-    var searchBarOffsetHeightPx by remember { mutableFloatStateOf(0f) }
-
-    val nestedScrollConnection = remember {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                val delta = available.y
-                val newOffset = searchBarOffsetHeightPx + delta
-                searchBarOffsetHeightPx = newOffset.coerceIn(-searchBarHeightPx, 0f)
-                return Offset.Zero
-            }
-        }
-    }
-
-    // Prevent auto-focusing search bar on start
-    LaunchedEffect(Unit) {
-        focusManager.clearFocus()
-        keyboardController?.hide()
-    }
-
-    // Prevent auto-focusing search bar on start
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(100)
-        dummyFocusRequester.requestFocus()
-        focusManager.clearFocus()
-        keyboardController?.hide()
-    }
 
     LaunchedEffect(listId) {
         viewModel.onEvent(NoteEvent.SetCurrentList(listId))
@@ -134,77 +109,147 @@ fun ListDetailScreen(
         }
     }
 
+    val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val headerHeight = 64.dp
+
     Scaffold(
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            TopAppBar(
-                title = { 
-                    Column {
-                        Text(
-                            text = list.title,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (showEntryCount) {
-                            val totalCount = entries.size
-                            val checkedCount = entries.count { it.isChecked }
-                            val subEntryCount = entries.count { !it.parentId.isNullOrBlank() }
-                            
-                            val text = if (list.type == ListType.CHECKLIST) {
-                                val uncheckedCount = totalCount - checkedCount
-                                "$uncheckedCount entries, $checkedCount checked"
-                            } else {
-                                val rootCount = totalCount - subEntryCount
-                                "$rootCount entries${if (subEntryCount > 0) ", $subEntryCount sub" else ""}"
-                            }
-                            
-                            Text(
-                                text = text,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateUp) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showSortMenu = true }) {
-                        Icon(Icons.AutoMirrored.Rounded.Sort, contentDescription = "Sort")
-                    }
-                    DropdownMenu(
-                        expanded = showSortMenu,
-                        onDismissRequest = { showSortMenu = false }
+            Box(modifier = Modifier.fillMaxWidth().zIndex(3f)) {
+                if (isSearchActive) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().statusBarsPadding(),
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 4.dp
                     ) {
-                        ListSortOrder.entries.forEach { order ->
-                            DropdownMenuItem(
-                                text = {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        RadioButton(
-                                            selected = sortOrder == order,
-                                            onClick = null // Handled by DropdownMenuItem
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(order.name.replace("_", " ").lowercase().replaceFirstChar { it.uppercase() })
+                        Row(
+                            modifier = Modifier.fillMaxWidth().height(headerHeight).padding(horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(onClick = { 
+                                isSearchActive = false
+                                viewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
+                                focusManager.clearFocus()
+                                keyboardController?.hide()
+                            }) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                    contentDescription = "Close Search"
+                                )
+                            }
+                            TextField(
+                                value = searchQuery,
+                                onValueChange = { viewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
+                                placeholder = { Text("Search entries...") },
+                                modifier = Modifier.weight(1f).focusRequester(dummyFocusRequester),
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent
+                                ),
+                                singleLine = true,
+                                trailingIcon = {
+                                    if (searchQuery.isNotEmpty()) {
+                                        IconButton(onClick = { viewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }) {
+                                            Icon(Icons.Rounded.Clear, contentDescription = "Clear")
+                                        }
                                     }
-                                },
-                                onClick = {
-                                    viewModel.onEvent(NoteEvent.UpdateListSortOrder(order))
-                                    showSortMenu = false
                                 }
                             )
+                            LaunchedEffect(Unit) {
+                                dummyFocusRequester.requestFocus()
+                            }
                         }
                     }
+                } else {
+                    CenterAlignedTopAppBar(
+                        title = { 
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = list.title,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.Center
+                                )
+                                if (showEntryCount) {
+                                    val totalCount = entries.size
+                                    val checkedCount = entries.count { it.isChecked }
+                                    val subEntryCount = entries.count { !it.parentId.isNullOrBlank() }
+                                    
+                                    val text = if (list.type == ListType.CHECKLIST) {
+                                        val uncheckedCount = totalCount - checkedCount
+                                        "$uncheckedCount entries, $checkedCount checked"
+                                    } else {
+                                        val rootCount = totalCount - subEntryCount
+                                        "$rootCount entries${if (subEntryCount > 0) ", $subEntryCount sub" else ""}"
+                                    }
+                                    
+                                    Text(
+                                        text = text,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                        },
+                        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                            containerColor = Color.Transparent,
+                            scrolledContainerColor = Color.Transparent
+                        ),
+                        navigationIcon = {
+                            IconButton(onClick = onNavigateUp) {
+                                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                            }
+                        },
+                        actions = {
+                            IconButton(onClick = { isSearchActive = true }) {
+                                Icon(Icons.Rounded.Search, contentDescription = "Search")
+                            }
+                            IconButton(onClick = { showSortMenu = true }) {
+                                Icon(Icons.AutoMirrored.Rounded.Sort, contentDescription = "Sort")
+                            }
+                            DropdownMenu(
+                                expanded = showSortMenu,
+                                onDismissRequest = { showSortMenu = false }
+                            ) {
+                                ListSortOrder.entries.forEach { order ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                RadioButton(
+                                                    selected = sortOrder == order,
+                                                    onClick = null // Handled by DropdownMenuItem
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(order.name.replace("_", " ").lowercase().replaceFirstChar { it.uppercase() })
+                                            }
+                                        },
+                                        onClick = {
+                                            viewModel.onEvent(NoteEvent.UpdateListSortOrder(order))
+                                            showSortMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    )
                 }
-            )
+            }
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showAddEntryDialog = true }) {
+            FloatingActionButton(
+                onClick = { showAddEntryDialog = true },
+                modifier = Modifier.zIndex(3f) // Above gradients
+            ) {
                 Icon(Icons.Rounded.Add, contentDescription = "Add Entry")
             }
         }
@@ -212,18 +257,9 @@ fun ListDetailScreen(
         val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
 
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .nestedScroll(nestedScrollConnection)
+            modifier = Modifier.fillMaxSize()
         ) {
-            // Dummy focusable to prevent search bar from taking focus automatically
-            Box(
-                Modifier
-                    .size(1.dp)
-                    .focusRequester(dummyFocusRequester)
-                    .focusable()
-            )
+            val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
             val hierarchicalEntries = remember(entries, expandedEntries, checklistBehavior, list.type, searchQuery) {
                 val fullList = mutableListOf<Pair<ListEntry, Int>>()
@@ -248,14 +284,15 @@ fun ListDetailScreen(
             val checkedEntries = if (isMoveToBottom) hierarchicalEntries.filter { it.first.isChecked } else emptyList()
             val uncheckedEntries = if (isMoveToBottom) hierarchicalEntries.filter { !it.first.isChecked } else hierarchicalEntries
 
+            // 0. LIST (zIndex 0)
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
                     start = 16.dp, 
-                    top = with(density) { searchBarHeightPx.toDp() } + 16.dp, 
+                    top = topPadding + headerHeight + 16.dp, 
                     end = 16.dp, 
-                    bottom = 80.dp
+                    bottom = bottomPadding + 100.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
@@ -402,44 +439,8 @@ fun ListDetailScreen(
                 }
             }
 
-            // SEARCH BAR
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .offset { IntOffset(x = 0, y = searchBarOffsetHeightPx.roundToInt()) }
-                    .onSizeChanged { searchBarHeightPx = it.height.toFloat() }
-                    .background(MaterialTheme.colorScheme.surface)
-            ) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { viewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    placeholder = { Text("Search entries...") },
-                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = "Search") },
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { 
-                                viewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
-                                focusManager.clearFocus()
-                                keyboardController?.hide()
-                            }) {
-                                Icon(Icons.Rounded.Clear, contentDescription = "Clear")
-                            }
-                        }
-                    },
-                    shape = RoundedCornerShape(percent = 50),
-                    singleLine = true,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent
-                    )
-                )
-            }
+            // 1. Gradients (zIndex 1)
+            SystemBarGradients(modifier = Modifier.zIndex(1f))
         }
     }
 

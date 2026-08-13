@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Brush
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -233,6 +234,49 @@ fun ListCard(
                 }
             },
             colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+        )
+    }
+}
+
+@Composable
+fun SystemBarGradients(
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.background
+) {
+    val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val navigationBarHeight = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+    Box(modifier = modifier.fillMaxSize()) {
+        // Status Bar Gradient
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(statusBarHeight * 3f)
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            color,
+                            Color.Transparent
+                        )
+                    )
+                )
+                .align(Alignment.TopCenter)
+        )
+
+        // Navigation Bar Gradient
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(navigationBarHeight * 3f)
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            color
+                        )
+                    )
+                )
+                .align(Alignment.BottomCenter)
         )
     }
 }

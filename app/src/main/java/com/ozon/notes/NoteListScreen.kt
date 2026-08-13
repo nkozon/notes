@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -22,6 +23,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
@@ -30,9 +32,6 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -42,6 +41,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -78,102 +78,145 @@ fun NoteListScreen(
     var listToRename by remember { mutableStateOf<NoteList?>(null) }
     var showCreateListDialog by remember { mutableStateOf(false) }
     var showAddNoteChoiceDialog by remember { mutableStateOf(false) }
+    var isSearchActive by remember { mutableStateOf(false) }
 
-    // Search bar scrolling state
     val density = LocalDensity.current
-    var searchBarHeightPx by remember { mutableFloatStateOf(0f) }
-    var searchBarOffsetHeightPx by remember { mutableFloatStateOf(0f) }
+    val gridState = androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
 
-    val nestedScrollConnection = remember {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                val delta = available.y
-                val newOffset = searchBarOffsetHeightPx + delta
-                searchBarOffsetHeightPx = newOffset.coerceIn(-searchBarHeightPx, 0f)
-                return Offset.Zero
-            }
-        }
-    }
-
-    // Prevent auto-focusing search bar on start and keep focus away
+    // Prevent auto-focusing search bar on start
     LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(100)
-        dummyFocusRequester.requestFocus()
         focusManager.clearFocus()
         keyboardController?.hide()
     }
 
+    val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val headerHeight = 64.dp
+
     Scaffold(
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = { 
-            CenterAlignedTopAppBar(
-                title = { Text("Notes") },
-                actions = {
-                    IconButton(onClick = { showSortMenu = true }) {
-                        Icon(Icons.AutoMirrored.Rounded.Sort, contentDescription = "Sort")
-                    }
-                    IconButton(
-                        onClick = onSettingsClick,
-                        colors = if (activeRoute is DetailRoute.Settings) {
-                            IconButtonDefaults.iconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        } else IconButtonDefaults.iconButtonColors()
+            Box(modifier = Modifier.fillMaxWidth().zIndex(3f)) {
+                if (isSearchActive) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().statusBarsPadding(),
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 4.dp
                     ) {
-                        Icon(Icons.Rounded.Settings, contentDescription = "Settings")
-                    }
-                    DropdownMenu(
-                        expanded = showSortMenu,
-                        onDismissRequest = { showSortMenu = false }
-                    ) {
-                        listOf(ListSortOrder.ALPHABETICAL, ListSortOrder.REVERSE_ALPHABETICAL, ListSortOrder.NEWEST, ListSortOrder.OLDEST).forEach { order ->
-                            DropdownMenuItem(
-                                text = {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        RadioButton(
-                                            selected = noteSortOrder == order,
-                                            onClick = null
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(order.name.replace("_", " ").lowercase().replaceFirstChar { it.uppercase() })
+                        Row(
+                            modifier = Modifier.fillMaxWidth().height(headerHeight).padding(horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(onClick = { 
+                                isSearchActive = false
+                                viewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
+                                focusManager.clearFocus()
+                                keyboardController?.hide()
+                            }) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                    contentDescription = "Close Search"
+                                )
+                            }
+                            TextField(
+                                value = searchQuery,
+                                onValueChange = { viewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
+                                placeholder = { Text("Search your notes...") },
+                                modifier = Modifier.weight(1f).focusRequester(dummyFocusRequester),
+                                textStyle = LocalTextStyle.current.copy(textAlign = TextAlign.Start),
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent
+                                ),
+                                singleLine = true,
+                                trailingIcon = {
+                                    if (searchQuery.isNotEmpty()) {
+                                        IconButton(onClick = { viewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }) {
+                                            Icon(Icons.Rounded.Clear, contentDescription = "Clear")
+                                        }
                                     }
-                                },
-                                onClick = {
-                                    viewModel.onEvent(NoteEvent.UpdateNoteSortOrder(order))
-                                    showSortMenu = false
                                 }
                             )
+                            LaunchedEffect(Unit) {
+                                dummyFocusRequester.requestFocus()
+                            }
                         }
                     }
+                } else {
+                    TopAppBar(
+                        title = { },
+                        navigationIcon = {
+                            IconButton(onClick = { isSearchActive = true }) {
+                                Icon(Icons.Rounded.Search, contentDescription = "Search")
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = Color.Transparent,
+                            scrolledContainerColor = Color.Transparent
+                        ),
+                        actions = {
+                            IconButton(onClick = { showSortMenu = true }) {
+                                Icon(Icons.AutoMirrored.Rounded.Sort, contentDescription = "Sort")
+                            }
+                            IconButton(
+                                onClick = onSettingsClick,
+                                colors = if (activeRoute is DetailRoute.Settings) {
+                                    IconButtonDefaults.iconButtonColors(
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                } else IconButtonDefaults.iconButtonColors()
+                            ) {
+                                Icon(Icons.Rounded.Settings, contentDescription = "Settings")
+                            }
+                            DropdownMenu(
+                                expanded = showSortMenu,
+                                onDismissRequest = { showSortMenu = false }
+                            ) {
+                                listOf(ListSortOrder.ALPHABETICAL, ListSortOrder.REVERSE_ALPHABETICAL, ListSortOrder.NEWEST, ListSortOrder.OLDEST).forEach { order ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                RadioButton(
+                                                    selected = noteSortOrder == order,
+                                                    onClick = null
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(order.name.replace("_", " ").lowercase().replaceFirstChar { it.uppercase() })
+                                            }
+                                        },
+                                        onClick = {
+                                            viewModel.onEvent(NoteEvent.UpdateNoteSortOrder(order))
+                                            showSortMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    ) 
                 }
-            ) 
+            }
         }
     ) { padding ->
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .nestedScroll(nestedScrollConnection)
+            modifier = Modifier.fillMaxSize()
         ) {
-            // Dummy focusable to prevent search bar from taking focus automatically
-            Box(
-                Modifier
-                    .size(1.dp)
-                    .focusRequester(dummyFocusRequester)
-                    .focusable()
-            )
+            val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-            // NOTES LIST
+            // NOTES LIST (zIndex 0)
             LazyVerticalStaggeredGrid(
+                state = gridState,
                 columns = StaggeredGridCells.Fixed(1),
                 contentPadding = PaddingValues(
                     start = 16.dp, 
-                    top = with(density) { searchBarHeightPx.toDp() }, 
+                    top = topPadding + headerHeight + 16.dp, 
                     end = 16.dp, 
-                    bottom = 80.dp
+                    bottom = bottomPadding + 100.dp
                 ),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalItemSpacing = 0.dp,
@@ -190,23 +233,10 @@ fun NoteListScreen(
 
                 items(notes.size, key = { i -> "note_${notes[i].id}" }) { index ->
                     val note = notes[index]
-                    
-                    val topStartRadius by animateDpAsState(
-                        targetValue = if (index == 0 || notes.size == 1) 28.dp else 4.dp,
-                        label = "topStart"
-                    )
-                    val topEndRadius by animateDpAsState(
-                        targetValue = if (index == 0 || notes.size == 1) 28.dp else 4.dp,
-                        label = "topEnd"
-                    )
-                    val bottomStartRadius by animateDpAsState(
-                        targetValue = if (index == notes.size - 1 || notes.size == 1) 28.dp else 4.dp,
-                        label = "bottomStart"
-                    )
-                    val bottomEndRadius by animateDpAsState(
-                        targetValue = if (index == notes.size - 1 || notes.size == 1) 28.dp else 4.dp,
-                        label = "bottomEnd"
-                    )
+                    val topStartRadius by animateDpAsState(targetValue = if (index == 0 || notes.size == 1) 28.dp else 4.dp, label = "topStart")
+                    val topEndRadius by animateDpAsState(targetValue = if (index == 0 || notes.size == 1) 28.dp else 4.dp, label = "topEnd")
+                    val bottomStartRadius by animateDpAsState(targetValue = if (index == notes.size - 1 || notes.size == 1) 28.dp else 4.dp, label = "bottomStart")
+                    val bottomEndRadius by animateDpAsState(targetValue = if (index == notes.size - 1 || notes.size == 1) 28.dp else 4.dp, label = "bottomEnd")
                     val shape = RoundedCornerShape(topStartRadius, topEndRadius, bottomEndRadius, bottomStartRadius)
 
                     SwipeActionWrapper(
@@ -214,9 +244,7 @@ fun NoteListScreen(
                         onPin = { viewModel.onEvent(NoteEvent.TogglePinNote(note.id)) },
                         isPinned = note.isPinned,
                         shape = shape,
-                        modifier = Modifier
-                            .padding(bottom = 4.dp)
-                            .animateItem()
+                        modifier = Modifier.padding(bottom = 4.dp).animateItem()
                     ) {
                         NoteCard(
                             note = note,
@@ -245,23 +273,10 @@ fun NoteListScreen(
                 ) { index ->
                     val listWithCounts = listsWithCounts[index]
                     val list = listWithCounts.list
-
-                    val topStartRadius by animateDpAsState(
-                        targetValue = if (index == 0 || listsWithCounts.size == 1) 28.dp else 4.dp,
-                        label = "listTopStart"
-                    )
-                    val topEndRadius by animateDpAsState(
-                        targetValue = if (index == 0 || listsWithCounts.size == 1) 28.dp else 4.dp,
-                        label = "listTopEnd"
-                    )
-                    val bottomStartRadius by animateDpAsState(
-                        targetValue = if (index == listsWithCounts.size - 1 || listsWithCounts.size == 1) 28.dp else 4.dp,
-                        label = "listBottomStart"
-                    )
-                    val bottomEndRadius by animateDpAsState(
-                        targetValue = if (index == listsWithCounts.size - 1 || listsWithCounts.size == 1) 28.dp else 4.dp,
-                        label = "listBottomEnd"
-                    )
+                    val topStartRadius by animateDpAsState(targetValue = if (index == 0 || listsWithCounts.size == 1) 28.dp else 4.dp, label = "listTopStart")
+                    val topEndRadius by animateDpAsState(targetValue = if (index == 0 || listsWithCounts.size == 1) 28.dp else 4.dp, label = "listTopEnd")
+                    val bottomStartRadius by animateDpAsState(targetValue = if (index == listsWithCounts.size - 1 || listsWithCounts.size == 1) 28.dp else 4.dp, label = "listBottomStart")
+                    val bottomEndRadius by animateDpAsState(targetValue = if (index == listsWithCounts.size - 1 || listsWithCounts.size == 1) 28.dp else 4.dp, label = "listBottomEnd")
                     val shape = RoundedCornerShape(topStartRadius, topEndRadius, bottomEndRadius, bottomStartRadius)
 
                     SwipeActionWrapper(
@@ -269,9 +284,7 @@ fun NoteListScreen(
                         onPin = { viewModel.onEvent(NoteEvent.TogglePinList(list.id)) },
                         isPinned = list.isPinned,
                         shape = shape,
-                        modifier = Modifier
-                            .padding(bottom = 4.dp)
-                            .animateItem()
+                        modifier = Modifier.padding(bottom = 4.dp).animateItem()
                     ) {
                         ListCard(
                             list = list,
@@ -288,44 +301,8 @@ fun NoteListScreen(
                 }
             }
 
-            // SEARCH BAR
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .offset { IntOffset(x = 0, y = searchBarOffsetHeightPx.roundToInt()) }
-                    .onSizeChanged { searchBarHeightPx = it.height.toFloat() }
-                    .background(MaterialTheme.colorScheme.surface)
-            ) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { viewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    placeholder = { Text("Search your notes...") },
-                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = "Search") },
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { 
-                                viewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
-                                focusManager.clearFocus()
-                                keyboardController?.hide()
-                            }) {
-                                Icon(Icons.Rounded.Clear, contentDescription = "Clear")
-                            }
-                        }
-                    },
-                    shape = RoundedCornerShape(percent = 50),
-                    singleLine = true,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        focusedIndicatorColor = Color.Transparent,
-                        unfocusedIndicatorColor = Color.Transparent
-                    )
-                )
-            }
+            // 1. Gradients (Above list, but below Header)
+            SystemBarGradients(modifier = Modifier.zIndex(1f))
         }
     }
 

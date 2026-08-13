@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.*
@@ -42,6 +43,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -100,6 +102,19 @@ fun DrawingNoteScreen(
     val updatedTool by rememberUpdatedState(currentTool)
     val updatedCanvasOffset by rememberUpdatedState(canvasOffset)
     val updatedForceStylus by rememberUpdatedState(forceStylusOnly)
+
+    fun getBounds(strokesList: List<com.ozon.notes.Stroke>): Rect {
+        if (strokesList.isEmpty()) return Rect.Zero
+        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+        strokesList.forEach { s ->
+            val halfWidth = s.width / 2f
+            s.points.forEach { p ->
+                minX = minOf(minX, p.x - halfWidth); minY = minOf(minY, p.y - halfWidth)
+                maxX = maxOf(maxX, p.x + halfWidth); maxY = maxOf(maxY, p.y + halfWidth)
+            }
+        }
+        return Rect(minX, minY, maxX, maxY)
+    }
 
     LaunchedEffect(strokes, selectedStrokeIds) {
         val selected = strokes.filter { it.id in selectedStrokeIds && it.tool != DrawingTool.ERASER }
@@ -166,22 +181,37 @@ fun DrawingNoteScreen(
     }
 
     Scaffold(
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 title = {
                     TextField(
                         value = title,
                         onValueChange = { title = it },
-                        placeholder = { Text("Title") },
+                        placeholder = { Text("Title", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) },
                         colors = TextFieldDefaults.colors(
                             focusedContainerColor = Color.Transparent,
                             unfocusedContainerColor = Color.Transparent,
                             focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent
+                            unfocusedIndicatorColor = Color.Transparent,
+                            focusedTextColor = Color.Black,
+                            unfocusedTextColor = Color.Black,
+                            focusedPlaceholderColor = Color.Black.copy(alpha = 0.4f),
+                            unfocusedPlaceholderColor = Color.Black.copy(alpha = 0.4f)
                         ),
-                        singleLine = true
+                        singleLine = true,
+                        textStyle = LocalTextStyle.current.copy(textAlign = TextAlign.Center, color = Color.Black),
+                        modifier = Modifier.fillMaxWidth()
                     )
                 },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent,
+                    titleContentColor = Color.Black,
+                    navigationIconContentColor = Color.Black,
+                    actionIconContentColor = Color.Black
+                ),
                 navigationIcon = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { saveDrawing(); onNavigateUp() }) {
@@ -225,16 +255,19 @@ fun DrawingNoteScreen(
             )
         }
     ) { padding ->
+        val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .background(Color.White)
                 .onSizeChanged { canvasSize = it }
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .padding(top = topPadding, bottom = bottomPadding)
                     .pointerInput(updatedTool, updatedForceStylus) {
                         awaitPointerEventScope {
                             while (true) {
@@ -464,60 +497,68 @@ fun DrawingNoteScreen(
                 }
             }
 
-            DrawingToolbar(
-                currentTool = currentTool,
-                onToolChange = { 
-                    if (currentTool == it && it == DrawingTool.PEN) {
-                        showThicknessPopup = !showThicknessPopup
-                        showColorPopup = false
-                    } else if (currentTool == it && it == DrawingTool.ERASER) {
-                        showThicknessPopup = !showThicknessPopup
-                        showColorPopup = false
-                    } else {
-                        currentTool = it
-                        showThicknessPopup = false
-                        showColorPopup = false
-                    }
-                },
-                anchor = toolbarAnchor,
-                onAnchorChange = { toolbarAnchor = it },
-                isCollapsed = isToolbarCollapsed,
-                onToggleCollapse = { isToolbarCollapsed = it },
-                penThickness = penThickness,
-                onPenThicknessChange = { penThickness = it },
-                eraserThickness = eraserThickness,
-                onEraserThicknessChange = { eraserThickness = it },
-                showThicknessPopup = showThicknessPopup,
-                selectedPenColor = selectedPenColor,
-                onPenColorChange = { 
-                    selectedPenColor = it
-                    viewModel.onEvent(NoteEvent.UpdateLastDrawingColor(it.toArgb()))
-                },
-                showColorPopup = showColorPopup,
-                onToggleColorPopup = { showColorPopup = it; if (it) showThicknessPopup = false }
-            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(4f) // Above header and gradient
+            ) {
+                DrawingToolbar(
+                    currentTool = currentTool,
+                    onToolChange = { 
+                        if (currentTool == it && it == DrawingTool.PEN) {
+                            showThicknessPopup = !showThicknessPopup
+                            showColorPopup = false
+                        } else if (currentTool == it && it == DrawingTool.ERASER) {
+                            showThicknessPopup = !showThicknessPopup
+                            showColorPopup = false
+                        } else {
+                            currentTool = it
+                            showThicknessPopup = false
+                            showColorPopup = false
+                        }
+                    },
+                    anchor = toolbarAnchor,
+                    onAnchorChange = { toolbarAnchor = it },
+                    isCollapsed = isToolbarCollapsed,
+                    onToggleCollapse = { isToolbarCollapsed = it },
+                    penThickness = penThickness,
+                    onPenThicknessChange = { penThickness = it },
+                    eraserThickness = eraserThickness,
+                    onEraserThicknessChange = { eraserThickness = it },
+                    showThicknessPopup = showThicknessPopup,
+                    selectedPenColor = selectedPenColor,
+                    onPenColorChange = { 
+                        selectedPenColor = it
+                        viewModel.onEvent(NoteEvent.UpdateLastDrawingColor(it.toArgb()))
+                    },
+                    showColorPopup = showColorPopup,
+                    onToggleColorPopup = { showColorPopup = it; if (it) showThicknessPopup = false }
+                )
 
-            selectionBounds?.let { bounds ->
-                val center = (bounds.center + canvasOffset)
-                Surface(
-                    modifier = Modifier
-                        .offset { IntOffset((center.x - 60.dp.toPx()).roundToInt(), (bounds.top + canvasOffset.y - 60.dp.toPx()).roundToInt()) }
-                        .shadow(4.dp, CircleShape).clip(CircleShape),
-                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp)
-                ) {
-                    Row(modifier = Modifier.padding(4.dp)) {
-                        IconButton(onClick = {
-                            clipboardStrokes = strokes.filter { it.id in selectedStrokeIds }.map { it.copy(id = UUID.randomUUID().toString()) }
-                            selectedStrokeIds = emptySet()
-                            Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
-                        }) { Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy") }
-                        IconButton(onClick = { strokes = strokes.filterNot { it.id in selectedStrokeIds }; selectedStrokeIds = emptySet() }) {
-                            Icon(Icons.Rounded.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                selectionBounds?.let { bounds ->
+                    val center = (bounds.center + canvasOffset)
+                    Surface(
+                        modifier = Modifier
+                            .offset { IntOffset((center.x - 60.dp.toPx()).roundToInt(), (bounds.top + canvasOffset.y - 60.dp.toPx()).roundToInt()) }
+                            .shadow(4.dp, CircleShape).clip(CircleShape),
+                        color = MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp)
+                    ) {
+                        Row(modifier = Modifier.padding(4.dp)) {
+                            IconButton(onClick = {
+                                clipboardStrokes = strokes.filter { it.id in selectedStrokeIds }.map { it.copy(id = UUID.randomUUID().toString()) }
+                                selectedStrokeIds = emptySet()
+                                Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+                            }) { Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy") }
+                            IconButton(onClick = { strokes = strokes.filterNot { it.id in selectedStrokeIds }; selectedStrokeIds = emptySet() }) {
+                                Icon(Icons.Rounded.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                            }
                         }
                     }
                 }
             }
         }
+
+        SystemBarGradients(color = Color.White, modifier = Modifier.zIndex(1f))
     }
 }
 
@@ -811,7 +852,7 @@ fun ToolbarItem(tool: DrawingTool, painter: Painter, isSelected: Boolean, onClic
 }
 
 private fun exportToPng(stream: OutputStream, strokes: List<com.ozon.notes.Stroke>, size: androidx.compose.ui.unit.IntSize) {
-    val bounds = if (strokes.isNotEmpty()) getBounds(strokes) else Rect(0f, 0f, size.width.toFloat().coerceAtLeast(1f), size.height.toFloat().coerceAtLeast(1f))
+    val bounds = if (strokes.isNotEmpty()) getBoundsLocal(strokes) else Rect(0f, 0f, size.width.toFloat().coerceAtLeast(1f), size.height.toFloat().coerceAtLeast(1f))
     val padding = 40f
     val exportWidth = (bounds.width + padding * 2).toInt().coerceAtLeast(1)
     val exportHeight = (bounds.height + padding * 2).toInt().coerceAtLeast(1)
@@ -832,7 +873,7 @@ private fun exportToPng(stream: OutputStream, strokes: List<com.ozon.notes.Strok
 }
 
 private fun exportToPdf(stream: OutputStream, strokes: List<com.ozon.notes.Stroke>, size: androidx.compose.ui.unit.IntSize, vector: Boolean) {
-    val bounds = if (strokes.isNotEmpty()) getBounds(strokes) else Rect(0f, 0f, size.width.toFloat().coerceAtLeast(1f), size.height.toFloat().coerceAtLeast(1f))
+    val bounds = if (strokes.isNotEmpty()) getBoundsLocal(strokes) else Rect(0f, 0f, size.width.toFloat().coerceAtLeast(1f), size.height.toFloat().coerceAtLeast(1f))
     val padding = 40f
     val exportWidth = (bounds.width + padding * 2).toInt().coerceAtLeast(1)
     val exportHeight = (bounds.height + padding * 2).toInt().coerceAtLeast(1)
@@ -872,4 +913,17 @@ private fun exportToPdf(stream: OutputStream, strokes: List<com.ozon.notes.Strok
     pdfDocument.finishPage(page)
     pdfDocument.writeTo(stream)
     pdfDocument.close()
+}
+
+private fun getBoundsLocal(strokes: List<com.ozon.notes.Stroke>): Rect {
+    if (strokes.isEmpty()) return Rect.Zero
+    var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+    strokes.forEach { s ->
+        val halfWidth = s.width / 2f
+        s.points.forEach { p ->
+            minX = minOf(minX, p.x - halfWidth); minY = minOf(minY, p.y - halfWidth)
+            maxX = maxOf(maxX, p.x + halfWidth); maxY = maxOf(maxY, p.y + halfWidth)
+        }
+    }
+    return Rect(minX, minY, maxX, maxY)
 }

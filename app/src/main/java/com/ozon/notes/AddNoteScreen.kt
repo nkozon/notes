@@ -17,6 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -123,8 +124,10 @@ private fun AddNoteScreenContent(
     }
 
     Scaffold(
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 title = {},
                 navigationIcon = {
                     IconButton(onClick = {
@@ -300,10 +303,13 @@ private fun AddNoteScreenContent(
             )
         }
     ) { padding ->
+        val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(top = topPadding + 64.dp, bottom = bottomPadding + 80.dp)
         ) {
             Column(
                 modifier = Modifier.fillMaxSize()
@@ -338,6 +344,8 @@ private fun AddNoteScreenContent(
                     )
                 )
             }
+
+            SystemBarGradients(modifier = Modifier.zIndex(1f))
         }
     }
 }
