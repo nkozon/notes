@@ -22,14 +22,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 fun MainAdaptiveScreen(
-    viewModel: NoteViewModel
+    notesViewModel: NotesViewModel,
+    settingsViewModel: SettingsViewModel,
+    checklistViewModel: ChecklistViewModel
 ) {
-    val tabletMode by viewModel.tabletModeState.collectAsStateWithLifecycle()
+    val tabletMode by settingsViewModel.tabletModeState.collectAsStateWithLifecycle()
     
     // Custom directive based on Tablet Mode setting
     val standardDirective = calculatePaneScaffoldDirective(currentWindowAdaptiveInfo())
@@ -70,7 +71,8 @@ fun MainAdaptiveScreen(
             ) {
                 composable("notes") {
                     NoteListScreen(
-                        viewModel = viewModel,
+                        notesViewModel = notesViewModel,
+                        settingsViewModel = settingsViewModel,
                         onAddClick = { navController.navigate("addEdit") },
                         onAddDrawingClick = { navController.navigate("drawing") },
                         onNoteClick = { noteId, type -> 
@@ -83,7 +85,7 @@ fun MainAdaptiveScreen(
                 }
                 composable("settings") {
                     SettingsScreen(
-                        viewModel = viewModel,
+                        viewModel = settingsViewModel,
                         onNavigateToBackupRestore = { navController.navigate("backupRestore") },
                         onNavigateToAbout = { navController.navigate("about") },
                         onNavigateUp = { navController.popBackStack() }
@@ -91,7 +93,7 @@ fun MainAdaptiveScreen(
                 }
                 composable("backupRestore") {
                     BackupRestoreScreen(
-                        viewModel = viewModel,
+                        viewModel = settingsViewModel,
                         onNavigateUp = { navController.popBackStack() }
                     )
                 }
@@ -103,7 +105,7 @@ fun MainAdaptiveScreen(
                 composable("addEdit") {
                     AddNoteScreen(
                         noteId = null,
-                        viewModel = viewModel,
+                        viewModel = notesViewModel,
                         onNavigateUp = { navController.popBackStack() }
                     )
                 }
@@ -111,7 +113,7 @@ fun MainAdaptiveScreen(
                     val noteId = backStackEntry.arguments?.getString("noteId")
                     AddNoteScreen(
                         noteId = noteId,
-                        viewModel = viewModel,
+                        viewModel = notesViewModel,
                         onNavigateUp = { navController.popBackStack() }
                     )
                 }
@@ -119,14 +121,16 @@ fun MainAdaptiveScreen(
                     val listId = backStackEntry.arguments?.getString("listId") ?: return@composable
                     ListDetailScreen(
                         listId = listId,
-                        viewModel = viewModel,
+                        checklistViewModel = checklistViewModel,
+                        settingsViewModel = settingsViewModel,
                         onNavigateUp = { navController.popBackStack() }
                     )
                 }
                 composable("drawing") {
                     DrawingNoteScreen(
                         noteId = null,
-                        viewModel = viewModel,
+                        notesViewModel = notesViewModel,
+                        settingsViewModel = settingsViewModel,
                         onNavigateUp = { navController.popBackStack() }
                     )
                 }
@@ -134,7 +138,8 @@ fun MainAdaptiveScreen(
                     val noteId = backStackEntry.arguments?.getString("noteId")
                     DrawingNoteScreen(
                         noteId = noteId,
-                        viewModel = viewModel,
+                        notesViewModel = notesViewModel,
+                        settingsViewModel = settingsViewModel,
                         onNavigateUp = { navController.popBackStack() }
                     )
                 }
@@ -142,12 +147,12 @@ fun MainAdaptiveScreen(
         } else {
             // Split-screen implementation
             var currentDetailRoute by remember { mutableStateOf<DetailRoute?>(null) }
-            val splitFraction by viewModel.splitFractionState.collectAsStateWithLifecycle()
-            val isSidePanelVisible by viewModel.isSidePanelVisible.collectAsStateWithLifecycle()
+            val splitFraction by notesViewModel.splitFractionState.collectAsStateWithLifecycle()
+            val isSidePanelVisible by notesViewModel.isSidePanelVisible.collectAsStateWithLifecycle()
             
             // Auto-close detail pane if the selected item is deleted
-            val notes by viewModel.notesState.collectAsStateWithLifecycle()
-            val lists by viewModel.listsState.collectAsStateWithLifecycle()
+            val notes by notesViewModel.notesState.collectAsStateWithLifecycle()
+            val lists by notesViewModel.listsState.collectAsStateWithLifecycle()
             
             LaunchedEffect(notes, lists) {
                 when (val route = currentDetailRoute) {
@@ -185,7 +190,8 @@ fun MainAdaptiveScreen(
                                 .weight(splitFraction)
                         ) {
                             NoteListScreen(
-                                viewModel = viewModel,
+                                notesViewModel = notesViewModel,
+                                settingsViewModel = settingsViewModel,
                                 activeRoute = currentDetailRoute,
                                 onAddClick = { currentDetailRoute = DetailRoute.Note(null) },
                                 onAddDrawingClick = { currentDetailRoute = DetailRoute.Drawing(null) },
@@ -214,7 +220,7 @@ fun MainAdaptiveScreen(
                                             val detailWidth = with(density) { (totalWidth * (1f - newFraction)).toDp() }
                                             
                                             if (masterWidth >= minMasterWidth && detailWidth >= minDetailWidth) {
-                                                viewModel.onEvent(NoteEvent.UpdateSplitFraction(newFraction))
+                                                notesViewModel.onEvent(NoteEvent.UpdateSplitFraction(newFraction))
                                             }
                                         }
                                     }
@@ -242,32 +248,34 @@ fun MainAdaptiveScreen(
                             is DetailRoute.Note -> {
                                 AddNoteScreen(
                                     noteId = route.id,
-                                    viewModel = viewModel,
+                                    viewModel = notesViewModel,
                                     onNavigateUp = { currentDetailRoute = null }
                                 )
                             }
                             is DetailRoute.Drawing -> {
                                 DrawingNoteScreen(
                                     noteId = route.id,
-                                    viewModel = viewModel,
+                                    notesViewModel = notesViewModel,
+                                    settingsViewModel = settingsViewModel,
                                     isSplitScreen = true,
                                     onNavigateUp = { 
                                         currentDetailRoute = null
-                                        viewModel.onEvent(NoteEvent.SetSidePanelVisible(true))
+                                        notesViewModel.onEvent(NoteEvent.SetSidePanelVisible(true))
                                     }
                                 )
                             }
                             is DetailRoute.List -> {
                                 ListDetailScreen(
                                     listId = route.id,
-                                    viewModel = viewModel,
+                                    checklistViewModel = checklistViewModel,
+                                    settingsViewModel = settingsViewModel,
                                     isTabletUi = true,
                                     onNavigateUp = { currentDetailRoute = null }
                                 )
                             }
                             is DetailRoute.Settings -> {
                                 SettingsScreen(
-                                    viewModel = viewModel,
+                                    viewModel = settingsViewModel,
                                     onNavigateToBackupRestore = { currentDetailRoute = DetailRoute.BackupRestore },
                                     onNavigateToAbout = { currentDetailRoute = DetailRoute.About },
                                     onNavigateUp = { currentDetailRoute = null }
@@ -275,7 +283,7 @@ fun MainAdaptiveScreen(
                             }
                             is DetailRoute.BackupRestore -> {
                                 BackupRestoreScreen(
-                                    viewModel = viewModel,
+                                    viewModel = settingsViewModel,
                                     onNavigateUp = { currentDetailRoute = DetailRoute.Settings }
                                 )
                             }

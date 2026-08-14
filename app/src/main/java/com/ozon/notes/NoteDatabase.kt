@@ -65,23 +65,20 @@ interface NoteDao {
     @Query("SELECT * FROM notes")
     suspend fun getAllNotesList(): List<NoteEntity>
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertNote(note: NoteEntity): Long
+    @Upsert
+    suspend fun upsertNote(note: NoteEntity)
 
-    @Update
-    suspend fun updateNote(note: NoteEntity)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertNotes(notes: List<NoteEntity>): Unit
+    @Upsert
+    suspend fun upsertNotes(notes: List<NoteEntity>)
 
     @Query("UPDATE notes SET isPinned = NOT isPinned WHERE id = :noteId")
     suspend fun togglePin(noteId: String)
 
     @Query("DELETE FROM notes WHERE id = :noteId")
-    suspend fun deleteNote(noteId: String): Unit
+    suspend fun deleteNote(noteId: String)
 
     @Query("DELETE FROM notes WHERE id IN (:noteIds)")
-    suspend fun deleteNotes(noteIds: List<String>): Unit
+    suspend fun deleteNotes(noteIds: List<String>)
 }
 
 @Dao
@@ -92,14 +89,11 @@ interface ListDao {
     @Query("SELECT * FROM note_lists")
     suspend fun getAllListsList(): List<NoteListEntity>
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertList(list: NoteListEntity): Long
+    @Upsert
+    suspend fun upsertList(list: NoteListEntity)
 
-    @Update
-    suspend fun updateList(list: NoteListEntity)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertLists(lists: List<NoteListEntity>)
+    @Upsert
+    suspend fun upsertLists(lists: List<NoteListEntity>)
 
     @Query("UPDATE note_lists SET isPinned = NOT isPinned WHERE id = :listId")
     suspend fun togglePin(listId: String)
@@ -116,14 +110,11 @@ interface ListDao {
     @Query("SELECT * FROM list_entries")
     suspend fun getAllEntriesList(): List<ListEntryEntity>
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertEntry(entry: ListEntryEntity): Long
+    @Upsert
+    suspend fun upsertEntry(entry: ListEntryEntity)
 
-    @Update
-    suspend fun updateEntry(entry: ListEntryEntity)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertEntries(entries: List<ListEntryEntity>)
+    @Upsert
+    suspend fun upsertEntries(entries: List<ListEntryEntity>)
 
     @Query("DELETE FROM list_entries WHERE id = :entryId")
     suspend fun deleteEntry(entryId: String)

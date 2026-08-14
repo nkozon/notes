@@ -44,7 +44,7 @@ import java.util.UUID
 @Composable
 fun AddNoteScreen(
     noteId: String?,
-    viewModel: NoteViewModel,
+    viewModel: NotesViewModel,
     onNavigateUp: () -> Unit
 ) {
     key(noteId) {
@@ -56,7 +56,7 @@ fun AddNoteScreen(
 @Composable
 private fun AddNoteScreenContent(
     noteId: String?,
-    viewModel: NoteViewModel,
+    viewModel: NotesViewModel,
     onNavigateUp: () -> Unit
 ) {
     var title by remember { 
@@ -127,7 +127,7 @@ private fun AddNoteScreenContent(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            CenterAlignedTopAppBar(
+            TopAppBar(
                 title = {},
                 navigationIcon = {
                     IconButton(onClick = {

@@ -4,7 +4,7 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.focusable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
@@ -26,14 +26,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextRange
@@ -43,16 +40,15 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ozon.notes.ui.theme.adaptNoteColor
-import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NoteListScreen(
-    viewModel: NoteViewModel,
+    notesViewModel: NotesViewModel,
+    settingsViewModel: SettingsViewModel,
     activeRoute: DetailRoute? = null,
     onAddClick: () -> Unit,
     onAddDrawingClick: () -> Unit,
@@ -60,13 +56,12 @@ fun NoteListScreen(
     onListClick: (String) -> Unit,
     onSettingsClick: () -> Unit
 ) {
-    // 1. Collect all states from the ViewModel
-    val notes by viewModel.notesState.collectAsStateWithLifecycle()
-    val noteSortOrder by viewModel.noteSortOrder.collectAsStateWithLifecycle()
-    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val notes by notesViewModel.notesState.collectAsStateWithLifecycle()
+    val noteSortOrder by notesViewModel.noteSortOrder.collectAsStateWithLifecycle()
+    val searchQuery by notesViewModel.searchQuery.collectAsStateWithLifecycle()
     
-    val listsWithCounts by viewModel.listsWithCountsState.collectAsStateWithLifecycle()
-    val showEntryCount by viewModel.showEntryCountState.collectAsStateWithLifecycle()
+    val listsWithCounts by notesViewModel.listsWithCountsState.collectAsStateWithLifecycle()
+    val showEntryCount by settingsViewModel.showEntryCountState.collectAsStateWithLifecycle()
 
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -80,10 +75,8 @@ fun NoteListScreen(
     var showAddNoteChoiceDialog by remember { mutableStateOf(false) }
     var isSearchActive by remember { mutableStateOf(false) }
 
-    val density = LocalDensity.current
     val gridState = androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
 
-    // Prevent auto-focusing search bar on start
     LaunchedEffect(Unit) {
         focusManager.clearFocus()
         keyboardController?.hide()
@@ -109,7 +102,7 @@ fun NoteListScreen(
                         ) {
                             IconButton(onClick = { 
                                 isSearchActive = false
-                                viewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
+                                notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
                                 focusManager.clearFocus()
                                 keyboardController?.hide()
                             }) {
@@ -120,7 +113,7 @@ fun NoteListScreen(
                             }
                             TextField(
                                 value = searchQuery,
-                                onValueChange = { viewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
+                                onValueChange = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
                                 placeholder = { Text("Search your notes...") },
                                 modifier = Modifier.weight(1f).focusRequester(dummyFocusRequester),
                                 textStyle = LocalTextStyle.current.copy(textAlign = TextAlign.Start),
@@ -133,7 +126,7 @@ fun NoteListScreen(
                                 singleLine = true,
                                 trailingIcon = {
                                     if (searchQuery.isNotEmpty()) {
-                                        IconButton(onClick = { viewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }) {
+                                        IconButton(onClick = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }) {
                                             Icon(Icons.Rounded.Clear, contentDescription = "Clear")
                                         }
                                     }
@@ -191,7 +184,7 @@ fun NoteListScreen(
                                             }
                                         },
                                         onClick = {
-                                            viewModel.onEvent(NoteEvent.UpdateNoteSortOrder(order))
+                                            notesViewModel.onEvent(NoteEvent.UpdateNoteSortOrder(order))
                                             showSortMenu = false
                                         }
                                     )
@@ -208,7 +201,6 @@ fun NoteListScreen(
         ) {
             val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-            // NOTES LIST (zIndex 0)
             LazyVerticalStaggeredGrid(
                 state = gridState,
                 columns = StaggeredGridCells.Fixed(1),
@@ -233,15 +225,25 @@ fun NoteListScreen(
 
                 items(notes.size, key = { i -> "note_${notes[i].id}" }) { index ->
                     val note = notes[index]
-                    val topStartRadius by animateDpAsState(targetValue = if (index == 0 || notes.size == 1) 28.dp else 4.dp, label = "topStart")
-                    val topEndRadius by animateDpAsState(targetValue = if (index == 0 || notes.size == 1) 28.dp else 4.dp, label = "topEnd")
-                    val bottomStartRadius by animateDpAsState(targetValue = if (index == notes.size - 1 || notes.size == 1) 28.dp else 4.dp, label = "bottomStart")
-                    val bottomEndRadius by animateDpAsState(targetValue = if (index == notes.size - 1 || notes.size == 1) 28.dp else 4.dp, label = "bottomEnd")
-                    val shape = RoundedCornerShape(topStartRadius, topEndRadius, bottomEndRadius, bottomStartRadius)
+                    
+                    val isFirst = index == 0 || notes.size == 1
+                    val isLast = index == notes.size - 1 || notes.size == 1
+                    
+                    val topRadius = if (isFirst) 28.dp else 4.dp
+                    val bottomRadius = if (isLast) 28.dp else 4.dp
+
+                    val topStartRadius by animateDpAsState(targetValue = topRadius, label = "topStart")
+                    val topEndRadius by animateDpAsState(targetValue = topRadius, label = "topEnd")
+                    val bottomStartRadius by animateDpAsState(targetValue = bottomRadius, label = "bottomStart")
+                    val bottomEndRadius by animateDpAsState(targetValue = bottomRadius, label = "bottomEnd")
+                    
+                    val shape = remember(topStartRadius, topEndRadius, bottomEndRadius, bottomStartRadius) {
+                        RoundedCornerShape(topStartRadius, topEndRadius, bottomEndRadius, bottomStartRadius)
+                    }
 
                     SwipeActionWrapper(
                         onDelete = { noteToDelete = note },
-                        onPin = { viewModel.onEvent(NoteEvent.TogglePinNote(note.id)) },
+                        onPin = { notesViewModel.onEvent(NoteEvent.TogglePinNote(note.id)) },
                         isPinned = note.isPinned,
                         shape = shape,
                         modifier = Modifier.padding(bottom = 4.dp).animateItem()
@@ -268,20 +270,30 @@ fun NoteListScreen(
 
                 items(
                     count = listsWithCounts.size,
-                    key = { "list_${listsWithCounts[it].list.id}" },
+                    key = { i -> "list_${listsWithCounts[i].list.id}" },
                     span = { StaggeredGridItemSpan.FullLine }
                 ) { index ->
                     val listWithCounts = listsWithCounts[index]
                     val list = listWithCounts.list
-                    val topStartRadius by animateDpAsState(targetValue = if (index == 0 || listsWithCounts.size == 1) 28.dp else 4.dp, label = "listTopStart")
-                    val topEndRadius by animateDpAsState(targetValue = if (index == 0 || listsWithCounts.size == 1) 28.dp else 4.dp, label = "listTopEnd")
-                    val bottomStartRadius by animateDpAsState(targetValue = if (index == listsWithCounts.size - 1 || listsWithCounts.size == 1) 28.dp else 4.dp, label = "listBottomStart")
-                    val bottomEndRadius by animateDpAsState(targetValue = if (index == listsWithCounts.size - 1 || listsWithCounts.size == 1) 28.dp else 4.dp, label = "listBottomEnd")
-                    val shape = RoundedCornerShape(topStartRadius, topEndRadius, bottomEndRadius, bottomStartRadius)
+                    
+                    val isFirst = index == 0 || listsWithCounts.size == 1
+                    val isLast = index == listsWithCounts.size - 1 || listsWithCounts.size == 1
+                    
+                    val topRadius = if (isFirst) 28.dp else 4.dp
+                    val bottomRadius = if (isLast) 28.dp else 4.dp
+
+                    val topStartRadius by animateDpAsState(targetValue = topRadius, label = "listTopStart")
+                    val topEndRadius by animateDpAsState(targetValue = topRadius, label = "listTopEnd")
+                    val bottomStartRadius by animateDpAsState(targetValue = bottomRadius, label = "listBottomStart")
+                    val bottomEndRadius by animateDpAsState(targetValue = bottomRadius, label = "listBottomEnd")
+                    
+                    val shape = remember(topStartRadius, topEndRadius, bottomEndRadius, bottomStartRadius) {
+                        RoundedCornerShape(topStartRadius, topEndRadius, bottomEndRadius, bottomStartRadius)
+                    }
 
                     SwipeActionWrapper(
                         onDelete = { listToDelete = list },
-                        onPin = { viewModel.onEvent(NoteEvent.TogglePinList(list.id)) },
+                        onPin = { notesViewModel.onEvent(NoteEvent.TogglePinList(list.id)) },
                         isPinned = list.isPinned,
                         shape = shape,
                         modifier = Modifier.padding(bottom = 4.dp).animateItem()
@@ -301,7 +313,6 @@ fun NoteListScreen(
                 }
             }
 
-            // 1. Gradients (Above list, but below Header)
             SystemBarGradients(modifier = Modifier.zIndex(1f))
         }
     }
@@ -310,7 +321,7 @@ fun NoteListScreen(
         note = noteToDelete,
         onDismiss = { noteToDelete = null },
         onConfirm = { note ->
-            viewModel.onEvent(NoteEvent.DeleteNote(note.id))
+            notesViewModel.onEvent(NoteEvent.DeleteNote(note.id))
             noteToDelete = null
         }
     )
@@ -319,7 +330,7 @@ fun NoteListScreen(
         list = listToDelete,
         onDismiss = { listToDelete = null },
         onConfirm = { list ->
-            viewModel.onEvent(NoteEvent.DeleteList(list.id))
+            notesViewModel.onEvent(NoteEvent.DeleteList(list.id))
             listToDelete = null
         }
     )
@@ -328,7 +339,7 @@ fun NoteListScreen(
         show = showCreateListDialog,
         onDismiss = { showCreateListDialog = false },
         onConfirm = { title, type ->
-            viewModel.onEvent(NoteEvent.SaveList(NoteList(title = title, type = type)))
+            notesViewModel.onEvent(NoteEvent.SaveList(NoteList(title = title, type = type)))
             showCreateListDialog = false
         }
     )
@@ -337,7 +348,7 @@ fun NoteListScreen(
         list = listToRename,
         onDismiss = { listToRename = null },
         onConfirm = { list, newTitle ->
-            viewModel.onEvent(NoteEvent.SaveList(list.copy(title = newTitle)))
+            notesViewModel.onEvent(NoteEvent.SaveList(list.copy(title = newTitle)))
             listToRename = null
         }
     )
@@ -568,7 +579,6 @@ private fun CreateListDialog(
     }
 }
 
-// THE FOLDER ROW COMPOSABLE
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NoteCard(
@@ -625,7 +635,6 @@ fun NoteCard(
                     Text(
                         text = note.title,
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
@@ -683,7 +692,6 @@ fun DrawingPreview(strokes: List<com.ozon.notes.Stroke>) {
     androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize().padding(4.dp)) {
         if (strokes.isEmpty()) return@Canvas
         
-        // Find bounding box to scale and center the preview
         var minX = Float.MAX_VALUE
         var minY = Float.MAX_VALUE
         var maxX = Float.MIN_VALUE

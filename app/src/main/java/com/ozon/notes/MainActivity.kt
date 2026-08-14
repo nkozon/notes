@@ -14,7 +14,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -30,11 +29,19 @@ class MainActivity : ComponentActivity() {
         window.isNavigationBarContrastEnforced = false
 
         setContent {
-            val noteViewModel: NoteViewModel = viewModel(
-                factory = NoteViewModel.provideFactory(AppContainer.provideRepository(applicationContext))
+            val repository = AppContainer.provideRepository(applicationContext)
+            
+            val notesViewModel: NotesViewModel = viewModel(
+                factory = NotesViewModel.provideFactory(repository)
+            )
+            val settingsViewModel: SettingsViewModel = viewModel(
+                factory = SettingsViewModel.provideFactory(repository)
+            )
+            val checklistViewModel: ChecklistViewModel = viewModel(
+                factory = ChecklistViewModel.provideFactory(repository)
             )
 
-            val appTheme by noteViewModel.themeState.collectAsStateWithLifecycle()
+            val appTheme by settingsViewModel.themeState.collectAsStateWithLifecycle()
             val isDarkTheme = when (appTheme) {
                 AppTheme.LIGHT -> false
                 AppTheme.DARK -> true
@@ -55,11 +62,11 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // Auto-backup trigger
+            // Auto-backup trigger using WorkManager
             DisposableEffect(lifecycle) {
                 val observer = LifecycleEventObserver { _, event ->
                     if (event == Lifecycle.Event.ON_PAUSE) {
-                        noteViewModel.onEvent(NoteEvent.TriggerAutoBackup)
+                        BackupWorker.enqueue(applicationContext)
                     }
                 }
                 lifecycle.addObserver(observer)
@@ -73,7 +80,11 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    MainAdaptiveScreen(viewModel = noteViewModel)
+                    MainAdaptiveScreen(
+                        notesViewModel = notesViewModel,
+                        settingsViewModel = settingsViewModel,
+                        checklistViewModel = checklistViewModel
+                    )
                 }
             }
         }

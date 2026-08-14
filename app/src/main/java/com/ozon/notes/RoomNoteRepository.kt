@@ -6,54 +6,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.withContext
 
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
-import java.util.UUID
-
 class RoomNoteRepository(
     private val context: Context,
     private val database: NoteDatabase
 ) : NoteRepository {
 
-    private val json = Json { ignoreUnknownKeys = true }
-
     // --- Notes ---
     override fun getAllNotes(): Flow<List<Note>> {
         return database.noteDao().getAllNotes().map { entities ->
-            entities.map { entity ->
-                Note(
-                    id = entity.id,
-                    title = entity.title,
-                    content = entity.content,
-                    contentHtml = entity.contentHtml,
-                    type = try { NoteType.valueOf(entity.type) } catch (e: Exception) { NoteType.TEXT },
-                    drawingData = entity.drawingData?.let { 
-                        try { json.decodeFromString<DrawingData>(it) } catch (e: Exception) { null } 
-                    },
-                    timestamp = entity.timestamp,
-                    colorArgb = entity.colorArgb,
-                    isPinned = entity.isPinned
-                )
-            }
+            entities.map { it.toDomain() }
         }
     }
 
     override suspend fun saveNote(note: Note) {
-        val entity = NoteEntity(
-            id = note.id,
-            title = note.title,
-            content = note.content,
-            contentHtml = note.contentHtml,
-            type = note.type.name,
-            drawingData = note.drawingData?.let { json.encodeToString(it) },
-            timestamp = note.timestamp,
-            colorArgb = note.colorArgb,
-            isPinned = note.isPinned
-        )
-        val rowId = database.noteDao().insertNote(entity)
-        if (rowId == -1L) {
-            database.noteDao().updateNote(entity)
-        }
+        database.noteDao().upsertNote(note.toEntity())
         setHasPendingChanges(true)
     }
 
@@ -75,30 +41,12 @@ class RoomNoteRepository(
     // --- Lists ---
     override fun getAllLists(): Flow<List<NoteList>> {
         return database.listDao().getAllLists().map { entities ->
-            entities.map { entity ->
-                NoteList(
-                    id = entity.id,
-                    title = entity.title,
-                    type = try { ListType.valueOf(entity.type) } catch (e: Exception) { ListType.CHECKLIST },
-                    timestamp = entity.timestamp,
-                    isPinned = entity.isPinned
-                )
-            }
+            entities.map { it.toDomain() }
         }
     }
 
     override suspend fun saveList(list: NoteList) {
-        val entity = NoteListEntity(
-            id = list.id,
-            title = list.title,
-            type = list.type.name,
-            timestamp = list.timestamp,
-            isPinned = list.isPinned
-        )
-        val rowId = database.listDao().insertList(entity)
-        if (rowId == -1L) {
-            database.listDao().updateList(entity)
-        }
+        database.listDao().upsertList(list.toEntity())
         setHasPendingChanges(true)
     }
 
@@ -114,50 +62,18 @@ class RoomNoteRepository(
 
     override fun getAllEntries(): Flow<List<ListEntry>> {
         return database.listDao().getAllEntries().map { entities ->
-            entities.map { entity ->
-                ListEntry(
-                    id = entity.id,
-                    listId = entity.listId,
-                    parentId = entity.parentId,
-                    title = entity.title,
-                    isChecked = entity.isChecked,
-                    rating = entity.rating,
-                    timestamp = entity.timestamp
-                )
-            }
+            entities.map { it.toDomain() }
         }
     }
 
     override fun getEntriesForList(listId: String): Flow<List<ListEntry>> {
         return database.listDao().getEntriesForList(listId).map { entities ->
-            entities.map { entity ->
-                ListEntry(
-                    id = entity.id,
-                    listId = entity.listId,
-                    parentId = entity.parentId,
-                    title = entity.title,
-                    isChecked = entity.isChecked,
-                    rating = entity.rating,
-                    timestamp = entity.timestamp
-                )
-            }
+            entities.map { it.toDomain() }
         }
     }
 
     override suspend fun saveEntry(entry: ListEntry) {
-        val entity = ListEntryEntity(
-            id = entry.id,
-            listId = entry.listId,
-            parentId = entry.parentId?.takeIf { it.isNotBlank() },
-            title = entry.title,
-            isChecked = entry.isChecked,
-            rating = entry.rating,
-            timestamp = entry.timestamp
-        )
-        val rowId = database.listDao().insertEntry(entity)
-        if (rowId == -1L) {
-            database.listDao().updateEntry(entity)
-        }
+        database.listDao().upsertEntry(entry.toEntity())
         setHasPendingChanges(true)
     }
 
@@ -183,41 +99,9 @@ class RoomNoteRepository(
     }
 
     override suspend fun getBackupData(): BackupData = withContext(Dispatchers.IO) {
-        val notes = database.noteDao().getAllNotesList().map { entity ->
-            Note(
-                id = entity.id,
-                title = entity.title,
-                content = entity.content,
-                contentHtml = entity.contentHtml,
-                type = try { NoteType.valueOf(entity.type) } catch (e: Exception) { NoteType.TEXT },
-                drawingData = entity.drawingData?.let { 
-                    try { json.decodeFromString<DrawingData>(it) } catch (e: Exception) { null } 
-                },
-                timestamp = entity.timestamp,
-                colorArgb = entity.colorArgb,
-                isPinned = entity.isPinned
-            )
-        }
-        val lists = database.listDao().getAllListsList().map { entity ->
-            NoteList(
-                id = entity.id,
-                title = entity.title,
-                type = try { ListType.valueOf(entity.type) } catch (e: Exception) { ListType.CHECKLIST },
-                timestamp = entity.timestamp,
-                isPinned = entity.isPinned
-            )
-        }
-        val entries = database.listDao().getAllEntriesList().map { entity ->
-            ListEntry(
-                id = entity.id,
-                listId = entity.listId,
-                parentId = entity.parentId,
-                title = entity.title,
-                isChecked = entity.isChecked,
-                rating = entity.rating,
-                timestamp = entity.timestamp
-            )
-        }
+        val notes = database.noteDao().getAllNotesList().map { it.toDomain() }
+        val lists = database.listDao().getAllListsList().map { it.toDomain() }
+        val entries = database.listDao().getAllEntriesList().map { it.toDomain() }
         BackupData(notes, lists, entries)
     }
 
@@ -226,49 +110,28 @@ class RoomNoteRepository(
             database.clearAllTables()
             
             // 1. Restore Notes
-            database.noteDao().insertNotes(data.notes.map { 
-                NoteEntity(
-                    id = it.id,
-                    title = it.title,
-                    content = it.content,
-                    contentHtml = it.contentHtml,
-                    type = it.type.name,
-                    drawingData = it.drawingData?.let { d -> json.encodeToString(d) },
-                    timestamp = it.timestamp,
-                    colorArgb = it.colorArgb,
-                    isPinned = it.isPinned
-                ) 
-            })
+            database.noteDao().upsertNotes(data.notes.map { it.toEntity() })
             
             // 2. Restore Lists
-            database.listDao().insertLists(data.lists.map { 
-                NoteListEntity(it.id, it.title, it.type.name, it.timestamp, it.isPinned) 
-            })
+            database.listDao().upsertLists(data.lists.map { it.toEntity() })
 
             // 3. Restore Entries with a multi-pass strategy to satisfy self-referencing Foreign Keys
             val validListIds = data.lists.map { it.id }.toSet()
             val entriesToInsert = data.entries.filter { it.listId in validListIds }
             val validEntryIds = entriesToInsert.map { it.id }.toSet()
             
-            val allEntryEntities = entriesToInsert.map { 
-                ListEntryEntity(
-                    id = it.id, 
-                    listId = it.listId, 
+            val allEntryEntities = entriesToInsert.map { it.toEntity() }.map { 
+                it.copy(
                     // Sanitize parentId: must exist in the set of IDs we are about to insert
-                    parentId = it.parentId?.takeIf { p -> p.isNotBlank() && p in validEntryIds }, 
-                    title = it.title, 
-                    isChecked = it.isChecked, 
-                    rating = it.rating, 
-                    timestamp = it.timestamp
+                    parentId = it.parentId?.takeIf { p -> p in validEntryIds }
                 )
             }
 
             // Pass 1: Insert all entries as top-level (parentId = null). 
             // This ensures all IDs exist in the table before we try to link them.
-            database.listDao().insertEntries(allEntryEntities.map { it.copy(parentId = null) })
+            database.listDao().upsertEntries(allEntryEntities.map { it.copy(parentId = null) })
             
             // Pass 2: Update the parentId links.
-            // We use a dedicated UPDATE instead of REPLACE to avoid triggering CASCADE deletes on parents.
             val updates = allEntryEntities
                 .filter { it.parentId != null }
                 .map { it.id to it.parentId }

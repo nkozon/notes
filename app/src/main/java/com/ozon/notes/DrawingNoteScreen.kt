@@ -62,15 +62,16 @@ enum class ToolbarAnchor { TOP, BOTTOM, LEFT, RIGHT }
 @Composable
 fun DrawingNoteScreen(
     noteId: String?,
-    viewModel: NoteViewModel,
+    notesViewModel: NotesViewModel,
+    settingsViewModel: SettingsViewModel,
     isSplitScreen: Boolean = false,
     onNavigateUp: () -> Unit
 ) {
     val context = LocalContext.current
-    val isSidePanelVisible by viewModel.isSidePanelVisible.collectAsStateWithLifecycle()
-    val forceStylusOnly by viewModel.forceStylusOnly.collectAsStateWithLifecycle()
-    val lastDrawingColor by viewModel.lastDrawingColor.collectAsStateWithLifecycle()
-    val appTheme by viewModel.themeState.collectAsStateWithLifecycle()
+    val isSidePanelVisible by notesViewModel.isSidePanelVisible.collectAsStateWithLifecycle()
+    val forceStylusOnly by notesViewModel.forceStylusOnly.collectAsStateWithLifecycle()
+    val lastDrawingColor by notesViewModel.lastDrawingColor.collectAsStateWithLifecycle()
+    val appTheme by settingsViewModel.themeState.collectAsStateWithLifecycle()
     val isDarkTheme = when (appTheme) {
         AppTheme.LIGHT -> false
         AppTheme.DARK -> true
@@ -162,7 +163,7 @@ fun DrawingNoteScreen(
     fun saveDrawing() {
         val id = noteId ?: UUID.randomUUID().toString()
         val finalTitle = title.ifBlank { "Drawing" }
-        viewModel.onEvent(NoteEvent.SaveNote(
+        notesViewModel.onEvent(NoteEvent.SaveNote(
             Note(
                 id = id,
                 title = finalTitle,
@@ -176,7 +177,7 @@ fun DrawingNoteScreen(
 
     LaunchedEffect(noteId) {
         if (noteId != null) {
-            val note = viewModel.getNoteById(noteId)
+            val note = notesViewModel.getNoteById(noteId)
             if (note != null && note.type == NoteType.DRAWING) {
                 title = note.title
                 strokes = note.drawingData?.strokes ?: emptyList()
@@ -235,11 +236,11 @@ fun DrawingNoteScreen(
                             unfocusedPlaceholderColor = Color.Black.copy(alpha = 0.4f)
                         ),
                         singleLine = true,
-                        textStyle = LocalTextStyle.current.copy(textAlign = TextAlign.Center, color = Color.Black),
+                        textStyle = MaterialTheme.typography.titleLarge.copy(textAlign = TextAlign.Start, color = Color.Black),
                         modifier = Modifier.fillMaxWidth()
                     )
                 },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
                     scrolledContainerColor = Color.Transparent,
                     titleContentColor = Color.Black,
@@ -252,7 +253,7 @@ fun DrawingNoteScreen(
                             Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                         }
                         if (isSplitScreen) {
-                            IconButton(onClick = { viewModel.onEvent(NoteEvent.ToggleSidePanel) }) {
+                            IconButton(onClick = { notesViewModel.onEvent(NoteEvent.ToggleSidePanel) }) {
                                 Icon(
                                     imageVector = if (isSidePanelVisible) Icons.Rounded.Fullscreen else Icons.Rounded.FullscreenExit,
                                     contentDescription = "Toggle Fullscreen"
@@ -622,7 +623,7 @@ fun DrawingNoteScreen(
                     selectedPenColor = selectedPenColor,
                     onPenColorChange = { 
                         selectedPenColor = it
-                        viewModel.onEvent(NoteEvent.UpdateLastDrawingColor(it.toArgb()))
+                        notesViewModel.onEvent(NoteEvent.UpdateLastDrawingColor(it.toArgb()))
                     },
                     showColorPopup = showColorPopup,
                     onToggleColorPopup = { showColorPopup = it; if (it) showThicknessPopup = false }

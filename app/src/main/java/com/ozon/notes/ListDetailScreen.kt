@@ -63,22 +63,29 @@ import kotlin.math.roundToInt
 @Composable
 fun ListDetailScreen(
     listId: String,
-    viewModel: NoteViewModel,
+    checklistViewModel: ChecklistViewModel,
+    settingsViewModel: SettingsViewModel,
     isTabletUi: Boolean = false,
     onNavigateUp: () -> Unit
 ) {
-    val list = remember(listId) { viewModel.getListById(listId) } ?: return
-    val entries by viewModel.entriesState.collectAsStateWithLifecycle()
-    val sortOrder by viewModel.listSortOrder.collectAsStateWithLifecycle()
-    val checklistBehavior by viewModel.checklistBehaviorState.collectAsStateWithLifecycle()
-    val showEntryCount by viewModel.showEntryCountState.collectAsStateWithLifecycle()
+    LaunchedEffect(listId) {
+        checklistViewModel.onEvent(NoteEvent.SetCurrentList(listId))
+    }
+
+    val list by checklistViewModel.currentList.collectAsStateWithLifecycle()
+    val entries by checklistViewModel.entriesState.collectAsStateWithLifecycle()
+    val sortOrder by checklistViewModel.listSortOrder.collectAsStateWithLifecycle()
+    val checklistBehavior by settingsViewModel.checklistBehaviorState.collectAsStateWithLifecycle()
+    val showEntryCount by settingsViewModel.showEntryCountState.collectAsStateWithLifecycle()
     
-    val ratingIndicatorsEnabled by viewModel.ratingIndicatorsEnabled.collectAsStateWithLifecycle()
-    val highScoreEnabled by viewModel.highScoreEnabled.collectAsStateWithLifecycle()
-    val highScoreThreshold by viewModel.highScoreThreshold.collectAsStateWithLifecycle()
-    val lowScoreEnabled by viewModel.lowScoreEnabled.collectAsStateWithLifecycle()
-    val lowScoreThreshold by viewModel.lowScoreThreshold.collectAsStateWithLifecycle()
-    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val ratingIndicatorsEnabled by settingsViewModel.ratingIndicatorsEnabled.collectAsStateWithLifecycle()
+    val highScoreEnabled by settingsViewModel.highScoreEnabled.collectAsStateWithLifecycle()
+    val highScoreThreshold by settingsViewModel.highScoreThreshold.collectAsStateWithLifecycle()
+    val lowScoreEnabled by settingsViewModel.lowScoreEnabled.collectAsStateWithLifecycle()
+    val lowScoreThreshold by settingsViewModel.lowScoreThreshold.collectAsStateWithLifecycle()
+
+    val currentList = list ?: return
+    val searchQuery by checklistViewModel.searchQuery.collectAsStateWithLifecycle()
 
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -99,13 +106,13 @@ fun ListDetailScreen(
     val listState = rememberLazyListState()
 
     LaunchedEffect(listId) {
-        viewModel.onEvent(NoteEvent.SetCurrentList(listId))
-        viewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
+        checklistViewModel.onEvent(NoteEvent.SetCurrentList(listId))
+        checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
     }
 
     DisposableEffect(Unit) {
         onDispose {
-            viewModel.onEvent(NoteEvent.SetCurrentList(null))
+            checklistViewModel.onEvent(NoteEvent.SetCurrentList(null))
         }
     }
 
@@ -129,7 +136,7 @@ fun ListDetailScreen(
                         ) {
                             IconButton(onClick = { 
                                 isSearchActive = false
-                                viewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
+                                checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
                                 focusManager.clearFocus()
                                 keyboardController?.hide()
                             }) {
@@ -140,7 +147,7 @@ fun ListDetailScreen(
                             }
                             TextField(
                                 value = searchQuery,
-                                onValueChange = { viewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
+                                onValueChange = { checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
                                 placeholder = { Text("Search entries...") },
                                 modifier = Modifier.weight(1f).focusRequester(dummyFocusRequester),
                                 colors = TextFieldDefaults.colors(
@@ -152,7 +159,7 @@ fun ListDetailScreen(
                                 singleLine = true,
                                 trailingIcon = {
                                     if (searchQuery.isNotEmpty()) {
-                                        IconButton(onClick = { viewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }) {
+                                        IconButton(onClick = { checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }) {
                                             Icon(Icons.Rounded.Clear, contentDescription = "Clear")
                                         }
                                     }
@@ -164,24 +171,24 @@ fun ListDetailScreen(
                         }
                     }
                 } else {
-                    CenterAlignedTopAppBar(
+                    TopAppBar(
                         title = { 
                             Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
+                                horizontalAlignment = Alignment.Start,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text(
-                                    text = list.title,
+                                    text = currentList.title,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
-                                    textAlign = TextAlign.Center
+                                    textAlign = TextAlign.Start
                                 )
                                 if (showEntryCount) {
                                     val totalCount = entries.size
                                     val checkedCount = entries.count { it.isChecked }
                                     val subEntryCount = entries.count { !it.parentId.isNullOrBlank() }
                                     
-                                    val text = if (list.type == ListType.CHECKLIST) {
+                                    val text = if (currentList.type == ListType.CHECKLIST) {
                                         val uncheckedCount = totalCount - checkedCount
                                         "$uncheckedCount entries, $checkedCount checked"
                                     } else {
@@ -193,12 +200,12 @@ fun ListDetailScreen(
                                         text = text,
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                        textAlign = TextAlign.Center
+                                        textAlign = TextAlign.Start
                                     )
                                 }
                             }
                         },
-                        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                        colors = TopAppBarDefaults.topAppBarColors(
                             containerColor = Color.Transparent,
                             scrolledContainerColor = Color.Transparent
                         ),
@@ -234,7 +241,7 @@ fun ListDetailScreen(
                                             }
                                         },
                                         onClick = {
-                                            viewModel.onEvent(NoteEvent.UpdateListSortOrder(order))
+                                            checklistViewModel.onEvent(NoteEvent.UpdateListSortOrder(order))
                                             showSortMenu = false
                                         }
                                     )
@@ -254,33 +261,38 @@ fun ListDetailScreen(
             }
         }
     ) { padding ->
-        val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+        val searchQuery by checklistViewModel.searchQuery.collectAsStateWithLifecycle()
 
         Box(
             modifier = Modifier.fillMaxSize()
         ) {
             val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-            val hierarchicalEntries = remember(entries, expandedEntries, checklistBehavior, list.type, searchQuery) {
+            // Construct the hierarchical view for the list.
+            // We use pre-grouped entries to avoid O(N^2) filtering inside the recursive function,
+            // making rendering efficient even for hundreds of nested items.
+            val hierarchicalEntries = remember(entries, expandedEntries, checklistBehavior, currentList.type, searchQuery) {
                 val fullList = mutableListOf<Pair<ListEntry, Int>>()
+                val entriesByParent = entries.groupBy { it.parentId }
+                
                 fun addAll(parentId: String?, depth: Int) {
-                    entries.filter { it.parentId == parentId }
-                        .forEach { entry ->
-                            if (list.type == ListType.CHECKLIST && checklistBehavior == ChecklistBehavior.HIDE && entry.isChecked) {
-                                // Skip hidden entries
-                            } else {
-                                fullList.add(entry to depth)
-                                if (expandedEntries.contains(entry.id) || searchQuery.isNotBlank()) {
-                                    addAll(entry.id, depth + 1)
-                                }
+                    entriesByParent[parentId]?.forEach { entry ->
+                        if (currentList.type == ListType.CHECKLIST && checklistBehavior == ChecklistBehavior.HIDE && entry.isChecked) {
+                            // Skip hidden entries
+                        } else {
+                            fullList.add(entry to depth)
+                            // Auto-expand everything if searching, otherwise respect user toggle
+                            if (expandedEntries.contains(entry.id) || searchQuery.isNotBlank()) {
+                                addAll(entry.id, depth + 1)
                             }
                         }
+                    }
                 }
                 addAll(null, 0)
                 fullList
             }
 
-            val isMoveToBottom = list.type == ListType.CHECKLIST && checklistBehavior == ChecklistBehavior.MOVE_TO_BOTTOM
+            val isMoveToBottom = currentList.type == ListType.CHECKLIST && checklistBehavior == ChecklistBehavior.MOVE_TO_BOTTOM
             val checkedEntries = if (isMoveToBottom) hierarchicalEntries.filter { it.first.isChecked } else emptyList()
             val uncheckedEntries = if (isMoveToBottom) hierarchicalEntries.filter { !it.first.isChecked } else hierarchicalEntries
 
@@ -326,7 +338,7 @@ fun ListDetailScreen(
                             onAddSub = { parentForNewSubentry = it }
                         ) {
                             val green = Color(0xFF4CAF50)
-                            val indicatorContentColor = if (list.type == ListType.RATING && ratingIndicatorsEnabled) {
+                            val indicatorContentColor = if (currentList.type == ListType.RATING && ratingIndicatorsEnabled) {
                                 when {
                                     highScoreEnabled && entry.rating >= highScoreThreshold -> green
                                     lowScoreEnabled && entry.rating <= lowScoreThreshold -> MaterialTheme.colorScheme.error
@@ -336,7 +348,7 @@ fun ListDetailScreen(
 
                             ListEntryItem(
                                 entry = entry,
-                                listType = list.type,
+                                listType = currentList.type,
                                 depth = depth,
                                 hasChildren = hasChildren,
                                 isExpanded = isExpanded,
@@ -347,7 +359,7 @@ fun ListDetailScreen(
                                     expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
                                 },
                                 onToggleCheck = { isChecked ->
-                                    viewModel.onEvent(NoteEvent.SaveEntry(entry.copy(isChecked = isChecked)))
+                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(entry.copy(isChecked = isChecked)))
                                 },
                                 onClick = { editingEntry = entry },
                                 onLongClick = { previewEntry = entry },
@@ -415,7 +427,7 @@ fun ListDetailScreen(
                                 ) {
                                     ListEntryItem(
                                         entry = entry,
-                                        listType = list.type,
+                                        listType = currentList.type,
                                         depth = depth,
                                         hasChildren = hasChildren,
                                         isExpanded = isExpanded,
@@ -426,7 +438,7 @@ fun ListDetailScreen(
                                             expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
                                         },
                                         onToggleCheck = { isChecked ->
-                                            viewModel.onEvent(NoteEvent.SaveEntry(entry.copy(isChecked = isChecked)))
+                                            checklistViewModel.onEvent(NoteEvent.SaveEntry(entry.copy(isChecked = isChecked)))
                                         },
                                         onClick = { editingEntry = entry },
                                         onLongClick = { previewEntry = entry },
@@ -446,10 +458,10 @@ fun ListDetailScreen(
 
     if (showAddEntryDialog) {
         EntryDialog(
-            listType = list.type,
+            listType = currentList.type,
             onDismiss = { showAddEntryDialog = false },
             onConfirm = { title, rating ->
-                viewModel.onEvent(NoteEvent.SaveEntry(
+                checklistViewModel.onEvent(NoteEvent.SaveEntry(
                     ListEntry(listId = listId, title = title, rating = rating)
                 ))
                 showAddEntryDialog = false
@@ -459,12 +471,12 @@ fun ListDetailScreen(
 
     if (parentForNewSubentry != null) {
         EntryDialog(
-            listType = list.type,
+            listType = currentList.type,
             titlePrefix = "Subentry for ${parentForNewSubentry?.title}",
             onDismiss = { parentForNewSubentry = null },
             onConfirm = { title, rating ->
                 parentForNewSubentry?.let { parent ->
-                    viewModel.onEvent(NoteEvent.SaveEntry(
+                    checklistViewModel.onEvent(NoteEvent.SaveEntry(
                         ListEntry(listId = listId, parentId = parent.id, title = title, rating = rating)
                     ))
                     expandedEntries = expandedEntries + parent.id
@@ -476,12 +488,12 @@ fun ListDetailScreen(
 
     if (editingEntry != null) {
         EntryDialog(
-            listType = list.type,
+            listType = currentList.type,
             entry = editingEntry,
             onDismiss = { editingEntry = null },
             onConfirm = { title, rating ->
                 editingEntry?.let {
-                    viewModel.onEvent(NoteEvent.SaveEntry(
+                    checklistViewModel.onEvent(NoteEvent.SaveEntry(
                         it.copy(title = title, rating = rating)
                     ))
                 }
@@ -499,7 +511,7 @@ fun ListDetailScreen(
                 TextButton(
                     onClick = {
                         entryToDelete?.let {
-                            viewModel.onEvent(NoteEvent.DeleteEntry(it.id))
+                            checklistViewModel.onEvent(NoteEvent.DeleteEntry(it.id))
                         }
                         entryToDelete = null
                     },
@@ -577,7 +589,6 @@ fun ListDetailScreen(
                                 Text(
                                     text = entry.title,
                                     style = MaterialTheme.typography.headlineMedium,
-                                    fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             }
@@ -588,13 +599,12 @@ fun ListDetailScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.Bottom
                             ) {
-                                if (list.type == ListType.RATING) {
+                                if (currentList.type == ListType.RATING) {
                                     val ratingText = if (entry.rating % 1f == 0f) entry.rating.toInt().toString() else entry.rating.toString()
                                     Text(
                                         text = "$ratingText/10",
                                         style = MaterialTheme.typography.headlineSmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Bold
+                                        color = MaterialTheme.colorScheme.primary
                                     )
                                 } else {
                                     Spacer(Modifier.weight(1f))
@@ -607,7 +617,6 @@ fun ListDetailScreen(
                                     Text(
                                         "Close",
                                         style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary
                                     )
                                 }
@@ -666,13 +675,12 @@ fun ListDetailScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (list.type == ListType.RATING) {
+                            if (currentList.type == ListType.RATING) {
                                 val ratingText = if (entry.rating % 1f == 0f) entry.rating.toInt().toString() else entry.rating.toString()
                                 Text(
                                     text = "$ratingText/10",
                                     style = MaterialTheme.typography.headlineSmall,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Bold
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             } else {
                                 Spacer(Modifier.weight(1f))
@@ -784,8 +792,7 @@ private fun SwipeToDismissWrapper(
                             style = MaterialTheme.typography.labelSmall,
                             color = if (direction == SwipeToDismissBoxValue.EndToStart)
                                 MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold
+                            else MaterialTheme.colorScheme.primary
                         )
                     }
                 }
@@ -854,7 +861,6 @@ fun ListEntryItem(
                     Text(
                         text = entry.title,
                         style = if (isSubentry) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
-                        fontWeight = if (isSubentry) FontWeight.Medium else FontWeight.Bold,
                         color = if (entry.isChecked && listType == ListType.CHECKLIST) 
                             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f) 
                         else indicatorContentColor ?: MaterialTheme.colorScheme.onSurface,
@@ -885,7 +891,6 @@ fun ListEntryItem(
                                 text = ratingText,
                                 style = if (isSubentry) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
                                 color = ratingColor,
-                                fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(end = if (hasChildren) 4.dp else 0.dp)
                             )
                         }

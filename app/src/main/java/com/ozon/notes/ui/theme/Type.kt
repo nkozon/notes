@@ -10,102 +10,152 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import com.ozon.notes.R
 
-// 1. Define the Variable Font Family
-// 'wght' is Weight, 'wdth' is Width, 'ROND' is Roundness
+// Define the Variable Font Family with standard weights mapped to variable axes
+// This prevents "synthetic" bolding by explicitly telling Compose which variation to use for each weight.
 @OptIn(ExperimentalTextApi::class)
 val GoogleSansFlex = FontFamily(
     Font(
         resId = R.font.google_sans_flex,
+        weight = FontWeight.Normal, // 400
         variationSettings = FontVariation.Settings(
             FontVariation.weight(400),
             FontVariation.width(100f),
-            FontVariation.Setting("ROND", 0f) // Normal
+            FontVariation.Setting("ROND", 0f)
+        )
+    ),
+    Font(
+        resId = R.font.google_sans_flex,
+        weight = FontWeight.Medium, // 500
+        variationSettings = FontVariation.Settings(
+            FontVariation.weight(500),
+            FontVariation.width(100f),
+            FontVariation.Setting("ROND", 0f)
+        )
+    ),
+    Font(
+        resId = R.font.google_sans_flex,
+        weight = FontWeight.SemiBold, // 600
+        variationSettings = FontVariation.Settings(
+            FontVariation.weight(600),
+            FontVariation.width(100f),
+            FontVariation.Setting("ROND", 0f)
+        )
+    ),
+    Font(
+        resId = R.font.google_sans_flex,
+        weight = FontWeight.Bold, // 700
+        variationSettings = FontVariation.Settings(
+            FontVariation.weight(700),
+            FontVariation.width(100f),
+            FontVariation.Setting("ROND", 0f)
         )
     )
 )
 
-// 2. Define the Rounded version specifically for headers
 @OptIn(ExperimentalTextApi::class)
 val GoogleSansFlexRounded = FontFamily(
     Font(
         resId = R.font.google_sans_flex,
+        weight = FontWeight.Normal,
+        variationSettings = FontVariation.Settings(
+            FontVariation.weight(400),
+            FontVariation.width(100f),
+            FontVariation.Setting("ROND", 100f)
+        )
+    ),
+    Font(
+        resId = R.font.google_sans_flex,
+        weight = FontWeight.Medium,
         variationSettings = FontVariation.Settings(
             FontVariation.weight(500),
-            FontVariation.Setting("ROND", 100f) // Max Roundness
+            FontVariation.width(100f),
+            FontVariation.Setting("ROND", 100f)
+        )
+    ),
+    Font(
+        resId = R.font.google_sans_flex,
+        weight = FontWeight.SemiBold,
+        variationSettings = FontVariation.Settings(
+            FontVariation.weight(600),
+            FontVariation.width(100f),
+            FontVariation.Setting("ROND", 100f)
+        )
+    ),
+    Font(
+        resId = R.font.google_sans_flex,
+        weight = FontWeight.Bold,
+        variationSettings = FontVariation.Settings(
+            FontVariation.weight(700),
+            FontVariation.width(100f),
+            FontVariation.Setting("ROND", 100f)
         )
     )
 )
 
-// Set of Material typography styles to start with
 val Typography = Typography(
-    // DISPLAY & HEADLINES (Rounded)
     displayLarge = TextStyle(
         fontFamily = GoogleSansFlexRounded,
-        fontWeight = FontWeight.W500,
+        fontWeight = FontWeight.Bold,
         fontSize = 57.sp,
         lineHeight = 64.sp,
         letterSpacing = (-0.25).sp
     ),
     displayMedium = TextStyle(
         fontFamily = GoogleSansFlexRounded,
-        fontWeight = FontWeight.W500,
+        fontWeight = FontWeight.Bold,
         fontSize = 45.sp,
         lineHeight = 52.sp,
         letterSpacing = 0.sp
     ),
     displaySmall = TextStyle(
         fontFamily = GoogleSansFlexRounded,
-        fontWeight = FontWeight.W500,
+        fontWeight = FontWeight.Bold,
         fontSize = 36.sp,
         lineHeight = 44.sp,
         letterSpacing = 0.sp
     ),
     headlineLarge = TextStyle(
         fontFamily = GoogleSansFlexRounded,
-        fontWeight = FontWeight.W500,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 32.sp,
         lineHeight = 40.sp,
         letterSpacing = 0.sp
     ),
     headlineMedium = TextStyle(
         fontFamily = GoogleSansFlexRounded,
-        fontWeight = FontWeight.W500,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 28.sp,
         lineHeight = 36.sp,
         letterSpacing = 0.sp
     ),
     headlineSmall = TextStyle(
         fontFamily = GoogleSansFlexRounded,
-        fontWeight = FontWeight.W500,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 24.sp,
         lineHeight = 32.sp,
         letterSpacing = 0.sp
     ),
-    
-    // TITLES (Rounded)
     titleLarge = TextStyle(
         fontFamily = GoogleSansFlexRounded,
-        fontWeight = FontWeight.W500,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 22.sp,
         lineHeight = 28.sp,
         letterSpacing = 0.sp
     ),
     titleMedium = TextStyle(
         fontFamily = GoogleSansFlexRounded,
-        fontWeight = FontWeight.W500,
+        fontWeight = FontWeight.Medium,
         fontSize = 16.sp,
         lineHeight = 24.sp,
         letterSpacing = 0.15.sp
     ),
     titleSmall = TextStyle(
         fontFamily = GoogleSansFlexRounded,
-        fontWeight = FontWeight.W500,
+        fontWeight = FontWeight.Medium,
         fontSize = 14.sp,
         lineHeight = 20.sp,
         letterSpacing = 0.1.sp
     ),
-
-    // BODY (Normal Flex)
     bodyLarge = TextStyle(
         fontFamily = GoogleSansFlex,
         fontWeight = FontWeight.Normal,
@@ -127,8 +177,6 @@ val Typography = Typography(
         lineHeight = 16.sp,
         letterSpacing = 0.4.sp
     ),
-
-    // LABELS (Normal Flex)
     labelLarge = TextStyle(
         fontFamily = GoogleSansFlex,
         fontWeight = FontWeight.Medium,

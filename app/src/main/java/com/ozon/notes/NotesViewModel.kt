@@ -1,0 +1,120 @@
+package com.ozon.notes
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import com.ozon.notes.domain.GetFilteredListsUseCase
+import com.ozon.notes.domain.GetFilteredNotesUseCase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+
+/**
+ * ViewModel responsible for the main dashboard state.
+ * Handles the collection and processing of all Notes and Lists, including search and global sorting.
+ * 
+ * Note: Expensive sorting/filtering operations are offloaded to [Dispatchers.Default] 
+ * via UseCases to keep the UI responsive.
+ */
+class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
+
+    private val getFilteredNotesUseCase = GetFilteredNotesUseCase()
+    private val getFilteredListsUseCase = GetFilteredListsUseCase()
+
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery = _searchQuery.asStateFlow()
+
+    val noteSortOrder: StateFlow<ListSortOrder> = repository.getNoteSortOrder()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ListSortOrder.NEWEST)
+
+    val notesState: StateFlow<List<Note>> = combine(
+        repository.getAllNotes(),
+        _searchQuery,
+        noteSortOrder
+    ) { notes, query, sortOrder ->
+        getFilteredNotesUseCase(notes, query, sortOrder)
+    }
+    .flowOn(Dispatchers.Default)
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val listsSortOrder: StateFlow<ListSortOrder> = repository.getListsSortOrder()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ListSortOrder.NEWEST)
+
+    val listsState: StateFlow<List<NoteList>> = combine(
+        repository.getAllLists(),
+        _searchQuery,
+        listsSortOrder
+    ) { lists, query, sortOrder ->
+        getFilteredListsUseCase(lists, query, sortOrder)
+    }
+    .flowOn(Dispatchers.Default)
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val listsWithCountsState: StateFlow<List<NoteListWithCounts>> = combine(
+        listsState,
+        repository.getAllEntries()
+    ) { lists, allEntries ->
+        val entriesByList = allEntries.groupBy { it.listId }
+        lists.map { list ->
+            val listEntries = entriesByList[list.id] ?: emptyList()
+            val entries = listEntries.count { it.parentId.isNullOrBlank() }
+            val subEntries = listEntries.count { !it.parentId.isNullOrBlank() }
+            val checkedCount = listEntries.count { it.isChecked }
+            NoteListWithCounts(list, entries, subEntries, checkedCount)
+        }
+    }
+    .flowOn(Dispatchers.Default)
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val splitFractionState: StateFlow<Float> = repository.getSplitFraction()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.35f)
+
+    val forceStylusOnly: StateFlow<Boolean> = repository.getForceStylusOnly()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val lastDrawingColor: StateFlow<Int> = repository.getLastDrawingColor()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), android.graphics.Color.BLACK)
+
+    private val _isSidePanelVisible = MutableStateFlow(true)
+    val isSidePanelVisible = _isSidePanelVisible.asStateFlow()
+
+    fun onEvent(event: NoteEvent) {
+        when (event) {
+            is NoteEvent.UpdateSearchQuery -> _searchQuery.value = event.query
+            is NoteEvent.SaveNote -> viewModelScope.launch { repository.saveNote(event.note) }
+            is NoteEvent.TogglePinNote -> viewModelScope.launch { repository.togglePinNote(event.noteId) }
+            is NoteEvent.DeleteNote -> viewModelScope.launch { repository.deleteNote(event.noteId) }
+            is NoteEvent.SaveList -> viewModelScope.launch { repository.saveList(event.list) }
+            is NoteEvent.TogglePinList -> viewModelScope.launch { repository.togglePinList(event.listId) }
+            is NoteEvent.DeleteList -> viewModelScope.launch { repository.deleteList(event.listId) }
+            is NoteEvent.UpdateNoteSortOrder -> viewModelScope.launch { 
+                repository.setNoteSortOrder(event.sortOrder)
+                repository.setListsSortOrder(event.sortOrder)
+            }
+            is NoteEvent.UpdateListsSortOrder -> viewModelScope.launch { 
+                repository.setListsSortOrder(event.sortOrder)
+            }
+            is NoteEvent.UpdateSplitFraction -> viewModelScope.launch { repository.setSplitFraction(event.fraction) }
+            is NoteEvent.UpdateForceStylusOnly -> viewModelScope.launch { repository.setForceStylusOnly(event.enabled) }
+            is NoteEvent.UpdateLastDrawingColor -> viewModelScope.launch { repository.setLastDrawingColor(event.color) }
+            is NoteEvent.ToggleSidePanel -> {
+                _isSidePanelVisible.value = !_isSidePanelVisible.value
+            }
+            is NoteEvent.SetSidePanelVisible -> {
+                _isSidePanelVisible.value = event.visible
+            }
+            else -> { /* Handled elsewhere */ }
+        }
+    }
+
+    fun getNoteById(id: String): Note? = notesState.value.find { it.id == id }
+    fun getListById(id: String): NoteList? = listsState.value.find { it.id == id }
+
+    companion object {
+        fun provideFactory(repository: NoteRepository): ViewModelProvider.Factory =
+            object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T = NotesViewModel(repository) as T
+            }
+    }
+}
