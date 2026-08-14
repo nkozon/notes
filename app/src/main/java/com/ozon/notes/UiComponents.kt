@@ -27,6 +27,100 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.vector.ImageVector
+
+@Composable
+fun CircleIconButton(
+    onClick: () -> Unit,
+    icon: ImageVector,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    shape: Shape = CircleShape,
+    containerColor: Color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+    contentColor: Color = MaterialTheme.colorScheme.onSecondaryContainer
+) {
+    Box(
+        modifier = modifier
+            .size(38.dp)
+            .clip(shape)
+            .background(containerColor)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon, 
+            contentDescription = contentDescription,
+            modifier = Modifier.size(20.dp),
+            tint = contentColor
+        )
+    }
+}
+
+@Composable
+fun SortDropdown(
+    selectedOrder: ListSortOrder,
+    onOrderSelected: (ListSortOrder) -> Unit,
+    availableOrders: List<ListSortOrder> = listOf(ListSortOrder.ALPHABETICAL, ListSortOrder.REVERSE_ALPHABETICAL, ListSortOrder.NEWEST, ListSortOrder.OLDEST),
+    modifier: Modifier = Modifier
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Box(modifier = modifier) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .height(38.dp)
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f))
+                .clickable { expanded = true }
+                .padding(horizontal = 14.dp)
+        ) {
+            Text(
+                text = selectedOrder.toShortLabel(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Icon(
+                imageVector = Icons.Rounded.KeyboardArrowDown,
+                contentDescription = "Sort",
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+            )
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            availableOrders.forEach { order ->
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = selectedOrder == order,
+                                onClick = null
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(order.toFullLabel())
+                        }
+                    },
+                    onClick = {
+                        onOrderSelected(order)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

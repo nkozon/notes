@@ -67,7 +67,6 @@ fun NoteListScreen(
     val keyboardController = LocalSoftwareKeyboardController.current
     val dummyFocusRequester = remember { FocusRequester() }
 
-    var showSortMenu by remember { mutableStateOf(false) }
     var noteToDelete by remember { mutableStateOf<Note?>(null) }
     var listToDelete by remember { mutableStateOf<NoteList?>(null) }
     var listToRename by remember { mutableStateOf<NoteList?>(null) }
@@ -100,17 +99,16 @@ fun NoteListScreen(
                             modifier = Modifier.fillMaxWidth().height(headerHeight).padding(horizontal = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            IconButton(onClick = { 
-                                isSearchActive = false
-                                notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
-                                focusManager.clearFocus()
-                                keyboardController?.hide()
-                            }) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                                    contentDescription = "Close Search"
-                                )
-                            }
+                            CircleIconButton(
+                                onClick = { 
+                                    isSearchActive = false
+                                    notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
+                                    focusManager.clearFocus()
+                                    keyboardController?.hide()
+                                },
+                                icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                                contentDescription = "Close Search"
+                            )
                             TextField(
                                 value = searchQuery,
                                 onValueChange = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
@@ -141,8 +139,12 @@ fun NoteListScreen(
                     TopAppBar(
                         title = { },
                         navigationIcon = {
-                            IconButton(onClick = { isSearchActive = true }) {
-                                Icon(Icons.Rounded.Search, contentDescription = "Search")
+                            Box(modifier = Modifier.padding(start = 16.dp)) {
+                                CircleIconButton(
+                                    onClick = { isSearchActive = true },
+                                    icon = Icons.Rounded.Search,
+                                    contentDescription = "Search"
+                                )
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(
@@ -150,45 +152,27 @@ fun NoteListScreen(
                             scrolledContainerColor = Color.Transparent
                         ),
                         actions = {
-                            IconButton(onClick = { showSortMenu = true }) {
-                                Icon(Icons.AutoMirrored.Rounded.Sort, contentDescription = "Sort")
-                            }
-                            IconButton(
-                                onClick = onSettingsClick,
-                                colors = if (activeRoute is DetailRoute.Settings) {
-                                    IconButtonDefaults.iconButtonColors(
-                                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-                                } else IconButtonDefaults.iconButtonColors()
+                            Row(
+                                modifier = Modifier.padding(end = 16.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Rounded.Settings, contentDescription = "Settings")
-                            }
-                            DropdownMenu(
-                                expanded = showSortMenu,
-                                onDismissRequest = { showSortMenu = false }
-                            ) {
-                                listOf(ListSortOrder.ALPHABETICAL, ListSortOrder.REVERSE_ALPHABETICAL, ListSortOrder.NEWEST, ListSortOrder.OLDEST).forEach { order ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                RadioButton(
-                                                    selected = noteSortOrder == order,
-                                                    onClick = null
-                                                )
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text(order.name.replace("_", " ").lowercase().replaceFirstChar { it.uppercase() })
-                                            }
-                                        },
-                                        onClick = {
-                                            notesViewModel.onEvent(NoteEvent.UpdateNoteSortOrder(order))
-                                            showSortMenu = false
-                                        }
-                                    )
-                                }
+                                SortDropdown(
+                                    selectedOrder = noteSortOrder,
+                                    onOrderSelected = { notesViewModel.onEvent(NoteEvent.UpdateNoteSortOrder(it)) }
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                CircleIconButton(
+                                    onClick = onSettingsClick,
+                                    icon = Icons.Rounded.Settings,
+                                    contentDescription = "Settings",
+                                    shape = if (activeRoute is DetailRoute.Settings) RoundedCornerShape(12.dp) else CircleShape,
+                                    containerColor = if (activeRoute is DetailRoute.Settings) 
+                                        MaterialTheme.colorScheme.primaryContainer 
+                                    else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                                    contentColor = if (activeRoute is DetailRoute.Settings)
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                    else MaterialTheme.colorScheme.onSecondaryContainer
+                                )
                             }
                         }
                     ) 

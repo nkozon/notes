@@ -130,118 +130,150 @@ private fun AddNoteScreenContent(
             TopAppBar(
                 title = {},
                 navigationIcon = {
-                    IconButton(onClick = {
-                        if (noteId != null) {
-                            saveNote()
-                        }
-                        wasSavedManually = true
-                        onNavigateUp()
-                    }) {
-                        Icon(imageVector = Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    // --- RICH TEXT ACTIONS (PERSISTENT IN HEADER) ---
-                    IconButton(
-                        onClick = { richTextState.toggleSpanStyle(SpanStyle(fontWeight = FontWeight.Bold)) }
-                    ) {
-                        Icon(
-                            Icons.Rounded.FormatBold,
-                            contentDescription = "Bold",
-                            tint = if (richTextState.currentSpanStyle.fontWeight == FontWeight.Bold) 
-                                MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    IconButton(
-                        onClick = { richTextState.toggleSpanStyle(SpanStyle(fontStyle = FontStyle.Italic)) }
-                    ) {
-                        Icon(
-                            Icons.Rounded.FormatItalic,
-                            contentDescription = "Italic",
-                            tint = if (richTextState.currentSpanStyle.fontStyle == FontStyle.Italic) 
-                                MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    IconButton(
-                        onClick = { richTextState.toggleSpanStyle(SpanStyle(textDecoration = TextDecoration.Underline)) }
-                    ) {
-                        Icon(
-                            Icons.Rounded.FormatUnderlined,
-                            contentDescription = "Underline",
-                            tint = if (richTextState.currentSpanStyle.textDecoration == TextDecoration.Underline) 
-                                MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    IconButton(
-                        onClick = { richTextState.toggleUnorderedList() }
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Rounded.List,
-                            contentDescription = "Bullet Points",
-                            tint = if (richTextState.isUnorderedList) 
-                                MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-
-                    Box {
-                        IconButton(onClick = { showTypeMenu = true }) {
-                            Icon(Icons.Rounded.TextFields, contentDescription = "Text Type")
-                        }
-                        DropdownMenu(
-                            expanded = showTypeMenu,
-                            onDismissRequest = { showTypeMenu = false }
-                        ) {
-                            val types = listOf(
-                                "Heading" to (MaterialTheme.typography.headlineMedium.toSpanStyle().copy(fontSize = 24.sp)),
-                                "Subtitle 1" to (MaterialTheme.typography.titleLarge.toSpanStyle().copy(fontSize = 20.sp)),
-                                "Subtitle 2" to (MaterialTheme.typography.titleMedium.toSpanStyle().copy(fontSize = 18.sp)),
-                                "Body" to (MaterialTheme.typography.bodyLarge.toSpanStyle().copy(fontSize = 16.sp))
-                            )
-                            types.forEach { (label, spanStyle) ->
-                                DropdownMenuItem(
-                                    text = { Text(label) },
-                                    onClick = {
-                                        richTextState.toggleSpanStyle(spanStyle)
-                                        showTypeMenu = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-                    VerticalDivider(modifier = Modifier.height(24.dp).align(Alignment.CenterVertically))
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    if (noteId != null) {
-                        IconButton(
+                    Box(modifier = Modifier.padding(start = 16.dp)) {
+                        CircleIconButton(
                             onClick = {
-                                isDeleted = true
-                                viewModel.onEvent(NoteEvent.DeleteNote(noteId))
-                                wasSavedManually = true
-                                onNavigateUp()
-                            }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Delete,
-                                contentDescription = "Delete Note",
-                                tint = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    } else {
-                        Button(
-                            onClick = {
-                                saveNote()
+                                if (noteId != null) {
+                                    saveNote()
+                                }
                                 wasSavedManually = true
                                 onNavigateUp()
                             },
-                            modifier = Modifier
-                                .padding(end = 8.dp)
-                                .height(36.dp),
-                            shape = RoundedCornerShape(percent = 50),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
-                        ) {
-                            Text("Save", style = MaterialTheme.typography.labelLarge)
+                            icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
+                },
+                actions = {
+                    Row(
+                        modifier = Modifier.padding(end = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // --- RICH TEXT ACTIONS (PERSISTENT IN HEADER) ---
+                        CircleIconButton(
+                            onClick = { richTextState.toggleSpanStyle(SpanStyle(fontWeight = FontWeight.Bold)) },
+                            icon = Icons.Rounded.FormatBold,
+                            contentDescription = "Bold",
+                            shape = if (richTextState.currentSpanStyle.fontWeight == FontWeight.Bold) RoundedCornerShape(12.dp) else CircleShape,
+                            containerColor = if (richTextState.currentSpanStyle.fontWeight == FontWeight.Bold)
+                                MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
+                            contentColor = if (richTextState.currentSpanStyle.fontWeight == FontWeight.Bold)
+                                MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        CircleIconButton(
+                            onClick = { richTextState.toggleSpanStyle(SpanStyle(fontStyle = FontStyle.Italic)) },
+                            icon = Icons.Rounded.FormatItalic,
+                            contentDescription = "Italic",
+                            shape = if (richTextState.currentSpanStyle.fontStyle == FontStyle.Italic) RoundedCornerShape(12.dp) else CircleShape,
+                            containerColor = if (richTextState.currentSpanStyle.fontStyle == FontStyle.Italic)
+                                MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
+                            contentColor = if (richTextState.currentSpanStyle.fontStyle == FontStyle.Italic)
+                                MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        CircleIconButton(
+                            onClick = { richTextState.toggleSpanStyle(SpanStyle(textDecoration = TextDecoration.Underline)) },
+                            icon = Icons.Rounded.FormatUnderlined,
+                            contentDescription = "Underline",
+                            shape = if (richTextState.currentSpanStyle.textDecoration == TextDecoration.Underline) RoundedCornerShape(12.dp) else CircleShape,
+                            containerColor = if (richTextState.currentSpanStyle.textDecoration == TextDecoration.Underline)
+                                MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
+                            contentColor = if (richTextState.currentSpanStyle.textDecoration == TextDecoration.Underline)
+                                MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        CircleIconButton(
+                            onClick = { richTextState.toggleUnorderedList() },
+                            icon = Icons.AutoMirrored.Rounded.List,
+                            contentDescription = "Bullet Points",
+                            shape = if (richTextState.isUnorderedList) RoundedCornerShape(12.dp) else CircleShape,
+                            containerColor = if (richTextState.isUnorderedList)
+                                MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f),
+                            contentColor = if (richTextState.isUnorderedList)
+                                MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(Modifier.width(8.dp))
+
+                        val types = listOf(
+                            "Heading" to (MaterialTheme.typography.headlineMedium.toSpanStyle().copy(fontSize = 24.sp)),
+                            "Subtitle 1" to (MaterialTheme.typography.titleLarge.toSpanStyle().copy(fontSize = 20.sp)),
+                            "Subtitle 2" to (MaterialTheme.typography.titleMedium.toSpanStyle().copy(fontSize = 18.sp)),
+                            "Body" to (MaterialTheme.typography.bodyLarge.toSpanStyle().copy(fontSize = 16.sp))
+                        )
+
+                        Box {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .height(38.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f))
+                                    .clickable { showTypeMenu = true }
+                                    .padding(horizontal = 14.dp)
+                            ) {
+                                Text(
+                                    text = "Type",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Icon(
+                                    imageVector = Icons.Rounded.KeyboardArrowDown,
+                                    contentDescription = "Text Type",
+                                    modifier = Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                                )
+                            }
+                            
+                            DropdownMenu(
+                                expanded = showTypeMenu,
+                                onDismissRequest = { showTypeMenu = false }
+                            ) {
+                                types.forEach { (label, spanStyle) ->
+                                    DropdownMenuItem(
+                                        text = { Text(label) },
+                                        onClick = {
+                                            richTextState.toggleSpanStyle(spanStyle)
+                                            showTypeMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+                        VerticalDivider(modifier = Modifier.height(24.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        if (noteId != null) {
+                            CircleIconButton(
+                                onClick = {
+                                    isDeleted = true
+                                    viewModel.onEvent(NoteEvent.DeleteNote(noteId))
+                                    wasSavedManually = true
+                                    onNavigateUp()
+                                },
+                                icon = Icons.Rounded.Delete,
+                                contentDescription = "Delete Note",
+                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                contentColor = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        } else {
+                                Button(
+                                onClick = {
+                                    saveNote()
+                                    wasSavedManually = true
+                                    onNavigateUp()
+                                },
+                                modifier = Modifier
+                                    .height(38.dp),
+                                shape = CircleShape,
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
+                            ) {
+                                Text("Save", style = MaterialTheme.typography.labelMedium)
+                            }
                         }
                     }
                 },

@@ -72,14 +72,24 @@ fun SettingsScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
-                title = { Text("Settings", style = MaterialTheme.typography.titleLarge) },
+                title = { 
+                    Text(
+                        text = "Settings", 
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.padding(start = 16.dp)
+                    ) 
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
                     scrolledContainerColor = Color.Transparent
                 ),
                 navigationIcon = {
-                    IconButton(onClick = onNavigateUp) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                    Box(modifier = Modifier.padding(start = 16.dp)) {
+                        CircleIconButton(
+                            onClick = onNavigateUp,
+                            icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = "Back"
+                        )
                     }
                 }
             )

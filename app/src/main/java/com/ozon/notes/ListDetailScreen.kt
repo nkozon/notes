@@ -98,7 +98,6 @@ fun ListDetailScreen(
     var showAddEntryDialog by remember { mutableStateOf(false) }
     var expandedEntries by remember { mutableStateOf(setOf<String>()) }
     var isCompletedCollapsed by remember { mutableStateOf(true) }
-    var showSortMenu by remember { mutableStateOf(false) }
     var isSearchActive by remember { mutableStateOf(false) }
 
     // Search bar scrolling state
@@ -134,17 +133,16 @@ fun ListDetailScreen(
                             modifier = Modifier.fillMaxWidth().height(headerHeight).padding(horizontal = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            IconButton(onClick = { 
-                                isSearchActive = false
-                                checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
-                                focusManager.clearFocus()
-                                keyboardController?.hide()
-                            }) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                                    contentDescription = "Close Search"
-                                )
-                            }
+                            CircleIconButton(
+                                onClick = { 
+                                    isSearchActive = false
+                                    checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
+                                    focusManager.clearFocus()
+                                    keyboardController?.hide()
+                                },
+                                icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                                contentDescription = "Close Search"
+                            )
                             TextField(
                                 value = searchQuery,
                                 onValueChange = { checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
@@ -175,7 +173,7 @@ fun ListDetailScreen(
                         title = { 
                             Column(
                                 horizontalAlignment = Alignment.Start,
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier.fillMaxWidth().padding(start = 16.dp)
                             ) {
                                 Text(
                                     text = currentList.title,
@@ -210,42 +208,30 @@ fun ListDetailScreen(
                             scrolledContainerColor = Color.Transparent
                         ),
                         navigationIcon = {
-                            IconButton(onClick = onNavigateUp) {
-                                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                            Box(modifier = Modifier.padding(start = 16.dp)) {
+                                CircleIconButton(
+                                    onClick = onNavigateUp,
+                                    icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                                    contentDescription = "Back"
+                                )
                             }
                         },
                         actions = {
-                            IconButton(onClick = { isSearchActive = true }) {
-                                Icon(Icons.Rounded.Search, contentDescription = "Search")
-                            }
-                            IconButton(onClick = { showSortMenu = true }) {
-                                Icon(Icons.AutoMirrored.Rounded.Sort, contentDescription = "Sort")
-                            }
-                            DropdownMenu(
-                                expanded = showSortMenu,
-                                onDismissRequest = { showSortMenu = false }
+                            Row(
+                                modifier = Modifier.padding(end = 16.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                ListSortOrder.entries.forEach { order ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.fillMaxWidth()
-                                            ) {
-                                                RadioButton(
-                                                    selected = sortOrder == order,
-                                                    onClick = null // Handled by DropdownMenuItem
-                                                )
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text(order.name.replace("_", " ").lowercase().replaceFirstChar { it.uppercase() })
-                                            }
-                                        },
-                                        onClick = {
-                                            checklistViewModel.onEvent(NoteEvent.UpdateListSortOrder(order))
-                                            showSortMenu = false
-                                        }
-                                    )
-                                }
+                                CircleIconButton(
+                                    onClick = { isSearchActive = true },
+                                    icon = Icons.Rounded.Search,
+                                    contentDescription = "Search"
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                SortDropdown(
+                                    selectedOrder = sortOrder,
+                                    onOrderSelected = { checklistViewModel.onEvent(NoteEvent.UpdateListSortOrder(it)) },
+                                    availableOrders = ListSortOrder.entries
+                                )
                             }
                         }
                     )

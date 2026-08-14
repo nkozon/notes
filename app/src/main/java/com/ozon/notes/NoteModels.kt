@@ -89,7 +89,25 @@ data class ListEntry(
 )
 
 enum class ListSortOrder {
-    ALPHABETICAL, REVERSE_ALPHABETICAL, RATING_LOW_TO_HIGH, RATING_HIGH_TO_LOW, NEWEST, OLDEST
+    ALPHABETICAL, REVERSE_ALPHABETICAL, RATING_LOW_TO_HIGH, RATING_HIGH_TO_LOW, NEWEST, OLDEST;
+
+    fun toShortLabel(): String = when (this) {
+        ALPHABETICAL -> "A-Z"
+        REVERSE_ALPHABETICAL -> "Z-A"
+        RATING_LOW_TO_HIGH -> "0-9"
+        RATING_HIGH_TO_LOW -> "9-0"
+        NEWEST -> "New"
+        OLDEST -> "Old"
+    }
+
+    fun toFullLabel(): String = when (this) {
+        ALPHABETICAL -> "Alphabetical"
+        REVERSE_ALPHABETICAL -> "Reverse Alphabetical"
+        RATING_LOW_TO_HIGH -> "Score: Low to High"
+        RATING_HIGH_TO_LOW -> "Score: High to Low"
+        NEWEST -> "Newest first"
+        OLDEST -> "Oldest first"
+    }
 }
 
 enum class AppView {

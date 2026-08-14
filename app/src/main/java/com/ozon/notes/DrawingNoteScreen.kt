@@ -15,6 +15,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -106,14 +107,31 @@ fun DrawingNoteScreen(
 
     val viewConfiguration = LocalViewConfiguration.current
 
+    val isFullscreenTablet = isSplitScreen && !isSidePanelVisible
+    val shouldBeImmersive = !isSplitScreen || isFullscreenTablet
+
     // Force light status bar (dark icons) for white background, and restore on dispose
-    LaunchedEffect(Unit) {
-        (context as? ComponentActivity)?.enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.light(
-                android.graphics.Color.TRANSPARENT,
-                android.graphics.Color.TRANSPARENT
+    LaunchedEffect(shouldBeImmersive, isDarkTheme) {
+        if (shouldBeImmersive) {
+            (context as? ComponentActivity)?.enableEdgeToEdge(
+                statusBarStyle = SystemBarStyle.light(
+                    android.graphics.Color.TRANSPARENT,
+                    android.graphics.Color.TRANSPARENT
+                )
             )
-        )
+        } else {
+            // Restore normal behavior if we're in split screen and panel is visible
+            (context as? ComponentActivity)?.enableEdgeToEdge(
+                statusBarStyle = SystemBarStyle.auto(
+                    android.graphics.Color.TRANSPARENT,
+                    android.graphics.Color.TRANSPARENT,
+                ) { isDarkTheme },
+                navigationBarStyle = SystemBarStyle.auto(
+                    android.graphics.Color.TRANSPARENT,
+                    android.graphics.Color.TRANSPARENT,
+                ) { isDarkTheme }
+            )
+        }
     }
     
     DisposableEffect(isDarkTheme) {
@@ -219,74 +237,102 @@ fun DrawingNoteScreen(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            CenterAlignedTopAppBar(
+            TopAppBar(
                 title = {
-                    TextField(
-                        value = title,
-                        onValueChange = { title = it },
-                        placeholder = { Text("Title", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) },
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            focusedTextColor = Color.Black,
-                            unfocusedTextColor = Color.Black,
-                            focusedPlaceholderColor = Color.Black.copy(alpha = 0.4f),
-                            unfocusedPlaceholderColor = Color.Black.copy(alpha = 0.4f)
-                        ),
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.titleLarge.copy(textAlign = TextAlign.Start, color = Color.Black),
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    Box(modifier = Modifier.padding(start = 16.dp)) {
+                        BasicTextField(
+                            value = title,
+                            onValueChange = { title = it },
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.titleLarge.copy(
+                                textAlign = TextAlign.Start, 
+                                color = Color.Black
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                            decorationBox = { innerTextField ->
+                                if (title.isEmpty()) {
+                                    Text(
+                                        text = "Drawing",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        color = Color.Black.copy(alpha = 0.4f),
+                                        textAlign = TextAlign.Start
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        )
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
-                    scrolledContainerColor = Color.Transparent,
-                    titleContentColor = Color.Black,
-                    navigationIconContentColor = Color.Black,
-                    actionIconContentColor = Color.Black
+                    scrolledContainerColor = Color.Transparent
                 ),
                 navigationIcon = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { saveDrawing(); onNavigateUp() }) {
-                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
-                        }
+                    Row(
+                        modifier = Modifier.padding(start = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircleIconButton(
+                            onClick = { saveDrawing(); onNavigateUp() },
+                            icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = "Back",
+                            containerColor = Color.Black.copy(alpha = 0.25f),
+                            contentColor = Color.Black
+                        )
                         if (isSplitScreen) {
-                            IconButton(onClick = { notesViewModel.onEvent(NoteEvent.ToggleSidePanel) }) {
-                                Icon(
-                                    imageVector = if (isSidePanelVisible) Icons.Rounded.Fullscreen else Icons.Rounded.FullscreenExit,
-                                    contentDescription = "Toggle Fullscreen"
-                                )
-                            }
+                            Spacer(Modifier.width(12.dp))
+                            CircleIconButton(
+                                onClick = { notesViewModel.onEvent(NoteEvent.ToggleSidePanel) },
+                                icon = if (isSidePanelVisible) Icons.Rounded.Fullscreen else Icons.Rounded.FullscreenExit,
+                                contentDescription = "Toggle Fullscreen",
+                                containerColor = Color.Black.copy(alpha = 0.25f),
+                                contentColor = Color.Black
+                            )
                         }
                     }
                 },
                 actions = {
-                    var showExportMenu by remember { mutableStateOf(false) }
-                    Box {
-                        IconButton(onClick = { showExportMenu = true }) {
-                            Icon(Icons.Rounded.IosShare, contentDescription = "Export")
+                    Row(
+                        modifier = Modifier.padding(end = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        var showExportMenu by remember { mutableStateOf(false) }
+                        Box {
+                            CircleIconButton(
+                                onClick = { showExportMenu = true },
+                                icon = Icons.Rounded.IosShare,
+                                contentDescription = "Export",
+                                containerColor = Color.Black.copy(alpha = 0.25f),
+                                contentColor = Color.Black
+                            )
+                            DropdownMenu(expanded = showExportMenu, onDismissRequest = { showExportMenu = false }) {
+                                DropdownMenuItem(text = { Text("Export as PNG") }, onClick = { showExportMenu = false; launchExport(pngLauncher, "png") })
+                                DropdownMenuItem(text = { Text("Export as PDF (Bitmap)") }, onClick = { showExportMenu = false; launchExport(pdfBitmapLauncher, "pdf") })
+                                DropdownMenuItem(text = { Text("Export as PDF (Vector)") }, onClick = { showExportMenu = false; launchExport(pdfVectorLauncher, "pdf") })
+                            }
                         }
-                        DropdownMenu(expanded = showExportMenu, onDismissRequest = { showExportMenu = false }) {
-                            DropdownMenuItem(text = { Text("Export as PNG") }, onClick = { showExportMenu = false; launchExport(pngLauncher, "png") })
-                            DropdownMenuItem(text = { Text("Export as PDF (Bitmap)") }, onClick = { showExportMenu = false; launchExport(pdfBitmapLauncher, "pdf") })
-                            DropdownMenuItem(text = { Text("Export as PDF (Vector)") }, onClick = { showExportMenu = false; launchExport(pdfVectorLauncher, "pdf") })
-                        }
-                    }
-                    IconButton(onClick = { saveDrawing(); onNavigateUp() }) {
-                        Icon(Icons.Rounded.Save, contentDescription = "Save")
+                        Spacer(Modifier.width(12.dp))
+                        CircleIconButton(
+                            onClick = { saveDrawing(); onNavigateUp() },
+                            icon = Icons.Rounded.Save,
+                            contentDescription = "Save",
+                            containerColor = Color.Black.copy(alpha = 0.25f),
+                            contentColor = Color.Black
+                        )
                     }
                 }
             )
         }
-    ) { padding ->
-        val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    ) { scaffoldPadding ->
+        val isNormalTablet = isSplitScreen && isSidePanelVisible
+        
+        val topPadding = if (isSplitScreen) 0.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .then(if (isNormalTablet) Modifier.windowInsetsPadding(WindowInsets.statusBars) else Modifier)
                 .background(Color.White)
                 .onSizeChanged { canvasSize = it }
         ) {
@@ -294,7 +340,7 @@ fun DrawingNoteScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = topPadding, bottom = bottomPadding)
+                    .padding(top = if (isSplitScreen) scaffoldPadding.calculateTopPadding() else topPadding, bottom = bottomPadding)
                     .zIndex(0f)
                     .pointerInput(updatedTool, updatedForceStylus) {
                         awaitPointerEventScope {

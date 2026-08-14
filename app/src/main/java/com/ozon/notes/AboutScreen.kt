@@ -49,8 +49,12 @@ fun AboutScreen(
                     scrolledContainerColor = Color.Transparent
                 ),
                 navigationIcon = {
-                    IconButton(onClick = onNavigateUp) {
-                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                    Box(modifier = Modifier.padding(start = 16.dp)) {
+                        CircleIconButton(
+                            onClick = onNavigateUp,
+                            icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = "Back"
+                        )
                     }
                 }
             )
