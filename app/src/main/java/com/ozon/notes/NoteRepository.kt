@@ -23,6 +23,11 @@ interface NoteRepository {
     suspend fun saveEntry(entry: ListEntry)
     suspend fun deleteEntry(entryId: String)
 
+    // --- Tags ---
+    fun getTagsForList(listId: String): Flow<List<Tag>>
+    suspend fun saveTag(tag: Tag)
+    suspend fun deleteTag(tagId: String)
+
     suspend fun clearAllData()
 
     suspend fun getBackupData(): BackupData
@@ -121,7 +126,11 @@ object AppContainer {
             NoteDatabase.MIGRATION_5_6,
             NoteDatabase.MIGRATION_6_7,
             NoteDatabase.MIGRATION_7_8,
-            NoteDatabase.MIGRATION_8_9
+            NoteDatabase.MIGRATION_8_9,
+            NoteDatabase.MIGRATION_9_10,
+            NoteDatabase.MIGRATION_10_11,
+            NoteDatabase.MIGRATION_11_12,
+            NoteDatabase.MIGRATION_12_13
         )
             .fallbackToDestructiveMigration()
             .build().also { database = it }

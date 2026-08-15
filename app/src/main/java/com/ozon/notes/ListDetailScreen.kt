@@ -2,6 +2,7 @@ package com.ozon.notes
 
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -14,11 +15,15 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Sort
+import androidx.compose.material.icons.automirrored.rounded.Notes
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.material.icons.rounded.FilterAlt
+import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Notes
 import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
@@ -53,6 +58,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -74,6 +80,9 @@ fun ListDetailScreen(
 
     val list by checklistViewModel.currentList.collectAsStateWithLifecycle()
     val entries by checklistViewModel.entriesState.collectAsStateWithLifecycle()
+    val allTags by checklistViewModel.allTags.collectAsStateWithLifecycle()
+    val selectedFilterTagIds by checklistViewModel.selectedFilterTagIds.collectAsStateWithLifecycle()
+    val tagFilterMode by checklistViewModel.tagFilterMode.collectAsStateWithLifecycle()
     val sortOrder by checklistViewModel.listSortOrder.collectAsStateWithLifecycle()
     val checklistBehavior by settingsViewModel.checklistBehaviorState.collectAsStateWithLifecycle()
     val showEntryCount by settingsViewModel.showEntryCountState.collectAsStateWithLifecycle()
@@ -92,6 +101,7 @@ fun ListDetailScreen(
     val dummyFocusRequester = remember { FocusRequester() }
     
     var editingEntry by remember { mutableStateOf<ListEntry?>(null) }
+    var entryForDescription by remember { mutableStateOf<ListEntry?>(null) }
     var previewEntry by remember { mutableStateOf<ListEntry?>(null) }
     var entryToDelete by remember { mutableStateOf<ListEntry?>(null) }
     var parentForNewSubentry by remember { mutableStateOf<ListEntry?>(null) }
@@ -99,6 +109,7 @@ fun ListDetailScreen(
     var expandedEntries by remember { mutableStateOf(setOf<String>()) }
     var isCompletedCollapsed by remember { mutableStateOf(true) }
     var isSearchActive by remember { mutableStateOf(false) }
+    var showRenameListDialog by remember { mutableStateOf(false) }
 
     // Search bar scrolling state
     val density = LocalDensity.current
@@ -163,6 +174,16 @@ fun ListDetailScreen(
                                     }
                                 }
                             )
+                            if (currentList.type == ListType.RATING) {
+                                TagFilterDropdown(
+                                    selectedTagIds = selectedFilterTagIds,
+                                    allTags = allTags,
+                                    filterMode = tagFilterMode,
+                                    onTagToggle = { checklistViewModel.onEvent(NoteEvent.ToggleFilterTag(it)) },
+                                    onModeToggle = { checklistViewModel.onEvent(NoteEvent.UpdateTagFilterMode(it)) },
+                                    onClearAll = { checklistViewModel.onEvent(NoteEvent.ClearFilterTags) }
+                                )
+                            }
                             LaunchedEffect(Unit) {
                                 dummyFocusRequester.requestFocus()
                             }
@@ -173,10 +194,16 @@ fun ListDetailScreen(
                         title = { 
                             Column(
                                 horizontalAlignment = Alignment.Start,
-                                modifier = Modifier.fillMaxWidth().padding(start = 16.dp)
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 16.dp)
+                                    .clickable(
+                                        onClick = { showRenameListDialog = true }
+                                    )
                             ) {
                                 Text(
                                     text = currentList.title,
+                                    style = MaterialTheme.typography.titleLarge,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     textAlign = TextAlign.Start
@@ -306,8 +333,8 @@ fun ListDetailScreen(
                     
                     val topStartRadius = if (index == 0) 28.dp else 4.dp
                     val topEndRadius = if (index == 0) 28.dp else 4.dp
-                    val bottomStartRadius = if (index == uncheckedEntries.size - 1 && (checkedEntries.isEmpty() || !isMoveToBottom)) 28.dp else 4.dp
-                    val bottomEndRadius = if (index == uncheckedEntries.size - 1 && (checkedEntries.isEmpty() || !isMoveToBottom)) 28.dp else 4.dp
+                    val bottomStartRadius = if (index == uncheckedEntries.size - 1) 28.dp else 4.dp
+                    val bottomEndRadius = if (index == uncheckedEntries.size - 1) 28.dp else 4.dp
 
                     val topStartRadiusAnimated by animateDpAsState(targetValue = topStartRadius, label = "topStart")
                     val topEndRadiusAnimated by animateDpAsState(targetValue = topEndRadius, label = "topEnd")
@@ -317,40 +344,50 @@ fun ListDetailScreen(
                     val shape = RoundedCornerShape(topStartRadiusAnimated, topEndRadiusAnimated, bottomEndRadiusAnimated, bottomStartRadiusAnimated)
 
                     Box(modifier = Modifier.animateItem()) {
-                        SwipeToDismissWrapper(
-                            entry = entry,
-                            shape = shape,
-                            onDelete = { entryToDelete = it },
-                            onAddSub = { parentForNewSubentry = it }
-                        ) {
-                            val green = Color(0xFF4CAF50)
-                            val indicatorContentColor = if (currentList.type == ListType.RATING && ratingIndicatorsEnabled) {
-                                when {
-                                    highScoreEnabled && entry.rating >= highScoreThreshold -> green
-                                    lowScoreEnabled && entry.rating <= lowScoreThreshold -> MaterialTheme.colorScheme.error
-                                    else -> null
-                                }
-                            } else null
-
-                            ListEntryItem(
+                        key(entry.id, entry.isPinned, entry.isChecked) {
+                            SwipeToDismissWrapper(
                                 entry = entry,
                                 listType = currentList.type,
-                                depth = depth,
-                                hasChildren = hasChildren,
-                                isExpanded = isExpanded,
-                                searchQuery = searchQuery,
-                                indicatorColor = indicatorContentColor?.copy(alpha = 0.12f),
-                                indicatorContentColor = indicatorContentColor,
-                                onToggleExpand = {
-                                    expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
-                                },
-                                onToggleCheck = { isChecked ->
-                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(entry.copy(isChecked = isChecked)))
-                                },
-                                onClick = { editingEntry = entry },
-                                onLongClick = { previewEntry = entry },
-                                shape = shape
-                            )
+                                shape = shape,
+                                onDelete = { entryToDelete = it },
+                                onAddSub = { parentForNewSubentry = it },
+                                onTogglePin = { 
+                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(it.copy(isPinned = !it.isPinned)))
+                                }
+                            ) {
+                                val green = Color(0xFF4CAF50)
+                                val indicatorContentColor = if (currentList.type == ListType.RATING && ratingIndicatorsEnabled) {
+                                    when {
+                                        highScoreEnabled && entry.rating >= highScoreThreshold -> green
+                                        lowScoreEnabled && entry.rating <= lowScoreThreshold -> MaterialTheme.colorScheme.error
+                                        else -> null
+                                    }
+                                } else null
+
+                                ListEntryItem(
+                                    entry = entry,
+                                    listType = currentList.type,
+                                    depth = depth,
+                                    hasChildren = if (currentList.type == ListType.RATING) hasChildren else false,
+                                    isExpanded = isExpanded,
+                                    searchQuery = searchQuery,
+                                    indicatorColor = indicatorContentColor?.copy(alpha = 0.12f),
+                                    indicatorContentColor = indicatorContentColor,
+                                    tagNames = if (currentList.type == ListType.RATING) allTags.filter { it.id in entry.tagIds }.map { it.name } else emptyList(),
+                                    onToggleExpand = {
+                                        expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
+                                    },
+                                    onToggleCheck = { isChecked ->
+                                        checklistViewModel.onEvent(NoteEvent.SaveEntry(entry.copy(isChecked = isChecked)))
+                                    },
+                                    onClick = { editingEntry = entry },
+                                    onLongClick = { 
+                                        if (currentList.type == ListType.RATING) previewEntry = entry 
+                                        else entryForDescription = entry
+                                    },
+                                    shape = shape
+                                )
+                            }
                         }
                     }
                 }
@@ -405,31 +442,41 @@ fun ListDetailScreen(
                             val shape = RoundedCornerShape(topStartRadiusAnimated, topEndRadiusAnimated, bottomEndRadiusAnimated, bottomStartRadiusAnimated)
 
                             Box(modifier = Modifier.animateItem()) {
-                                SwipeToDismissWrapper(
-                                    entry = entry,
-                                    shape = shape,
-                                    onDelete = { entryToDelete = it },
-                                    onAddSub = { parentForNewSubentry = it }
-                                ) {
-                                    ListEntryItem(
+                                key(entry.id, entry.isPinned, entry.isChecked) {
+                                    SwipeToDismissWrapper(
                                         entry = entry,
                                         listType = currentList.type,
-                                        depth = depth,
-                                        hasChildren = hasChildren,
-                                        isExpanded = isExpanded,
-                                        searchQuery = searchQuery,
-                                        indicatorColor = null,
-                                        indicatorContentColor = null,
-                                        onToggleExpand = {
-                                            expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
-                                        },
-                                        onToggleCheck = { isChecked ->
-                                            checklistViewModel.onEvent(NoteEvent.SaveEntry(entry.copy(isChecked = isChecked)))
-                                        },
-                                        onClick = { editingEntry = entry },
-                                        onLongClick = { previewEntry = entry },
-                                        shape = shape
-                                    )
+                                        shape = shape,
+                                        onDelete = { entryToDelete = it },
+                                        onAddSub = { parentForNewSubentry = it },
+                                        onTogglePin = {
+                                            checklistViewModel.onEvent(NoteEvent.SaveEntry(it.copy(isPinned = !it.isPinned)))
+                                        }
+                                    ) {
+                                        ListEntryItem(
+                                            entry = entry,
+                                            listType = currentList.type,
+                                            depth = depth,
+                                            hasChildren = if (currentList.type == ListType.RATING) hasChildren else false,
+                                            isExpanded = isExpanded,
+                                            searchQuery = searchQuery,
+                                            indicatorColor = null,
+                                            indicatorContentColor = null,
+                                            tagNames = if (currentList.type == ListType.RATING) allTags.filter { it.id in entry.tagIds }.map { it.name } else emptyList(),
+                                            onToggleExpand = {
+                                                expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
+                                            },
+                                            onToggleCheck = { isChecked ->
+                                                checklistViewModel.onEvent(NoteEvent.SaveEntry(entry.copy(isChecked = isChecked)))
+                                            },
+                                            onClick = { editingEntry = entry },
+                                            onLongClick = {
+                                                if (currentList.type == ListType.RATING) previewEntry = entry 
+                                                else entryForDescription = entry
+                                            },
+                                            shape = shape
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -444,46 +491,68 @@ fun ListDetailScreen(
 
     if (showAddEntryDialog) {
         EntryDialog(
+            listId = listId,
             listType = currentList.type,
+            allTags = allTags,
             onDismiss = { showAddEntryDialog = false },
-            onConfirm = { title, rating ->
+            onConfirm = { title, rating, tagIds ->
                 checklistViewModel.onEvent(NoteEvent.SaveEntry(
-                    ListEntry(listId = listId, title = title, rating = rating)
+                    ListEntry(listId = listId, title = title, rating = rating, tagIds = tagIds)
                 ))
                 showAddEntryDialog = false
-            }
+            },
+            onSaveTag = { checklistViewModel.onEvent(NoteEvent.SaveTag(it)) }
         )
     }
 
     if (parentForNewSubentry != null) {
         EntryDialog(
+            listId = listId,
             listType = currentList.type,
             titlePrefix = "Subentry for ${parentForNewSubentry?.title}",
+            allTags = allTags,
             onDismiss = { parentForNewSubentry = null },
-            onConfirm = { title, rating ->
+            onConfirm = { title, rating, tagIds ->
                 parentForNewSubentry?.let { parent ->
                     checklistViewModel.onEvent(NoteEvent.SaveEntry(
-                        ListEntry(listId = listId, parentId = parent.id, title = title, rating = rating)
+                        ListEntry(listId = listId, parentId = parent.id, title = title, rating = rating, tagIds = tagIds)
                     ))
                     expandedEntries = expandedEntries + parent.id
                 }
                 parentForNewSubentry = null
-            }
+            },
+            onSaveTag = { checklistViewModel.onEvent(NoteEvent.SaveTag(it)) }
         )
     }
 
     if (editingEntry != null) {
         EntryDialog(
+            listId = listId,
             listType = currentList.type,
             entry = editingEntry,
+            allTags = allTags,
             onDismiss = { editingEntry = null },
-            onConfirm = { title, rating ->
+            onConfirm = { title, rating, tagIds ->
                 editingEntry?.let {
                     checklistViewModel.onEvent(NoteEvent.SaveEntry(
-                        it.copy(title = title, rating = rating)
+                        it.copy(title = title, rating = rating, tagIds = tagIds)
                     ))
                 }
                 editingEntry = null
+            },
+            onSaveTag = { checklistViewModel.onEvent(NoteEvent.SaveTag(it)) }
+        )
+    }
+
+    if (entryForDescription != null) {
+        DescriptionDialog(
+            entry = entryForDescription!!,
+            onDismiss = { entryForDescription = null },
+            onConfirm = { description ->
+                entryForDescription?.let {
+                    checklistViewModel.onEvent(NoteEvent.SaveEntry(it.copy(description = description)))
+                }
+                entryForDescription = null
             }
         )
     }
@@ -506,6 +575,17 @@ fun ListDetailScreen(
             },
             dismissButton = {
                 TextButton(onClick = { entryToDelete = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showRenameListDialog) {
+        RenameListDialog(
+            list = currentList,
+            onDismiss = { showRenameListDialog = false },
+            onConfirm = { list, newTitle ->
+                checklistViewModel.onEvent(NoteEvent.SaveList(list.copy(title = newTitle)))
+                showRenameListDialog = false
             }
         )
     }
@@ -586,12 +666,22 @@ fun ListDetailScreen(
                                 verticalAlignment = Alignment.Bottom
                             ) {
                                 if (currentList.type == ListType.RATING) {
-                                    val ratingText = if (entry.rating % 1f == 0f) entry.rating.toInt().toString() else entry.rating.toString()
-                                    Text(
-                                        text = "$ratingText/10",
-                                        style = MaterialTheme.typography.headlineSmall,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
+                                    Row(verticalAlignment = Alignment.Bottom) {
+                                        val ratingText = if (entry.rating % 1f == 0f) entry.rating.toInt().toString() else entry.rating.toString()
+                                        Text(
+                                            text = ratingText,
+                                            style = MaterialTheme.typography.displayMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            text = "/10",
+                                            style = MaterialTheme.typography.headlineSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                            modifier = Modifier.padding(bottom = 6.dp)
+                                        )
+                                    }
                                 } else {
                                     Spacer(Modifier.weight(1f))
                                 }
@@ -650,7 +740,7 @@ fun ListDetailScreen(
                             Text(
                                 text = entry.title,
                                 style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.ExtraBold,
+                                fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
@@ -659,15 +749,25 @@ fun ListDetailScreen(
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.Bottom
                         ) {
                             if (currentList.type == ListType.RATING) {
-                                val ratingText = if (entry.rating % 1f == 0f) entry.rating.toInt().toString() else entry.rating.toString()
-                                Text(
-                                    text = "$ratingText/10",
-                                    style = MaterialTheme.typography.headlineSmall,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
+                                Row(verticalAlignment = Alignment.Bottom) {
+                                    val ratingText = if (entry.rating % 1f == 0f) entry.rating.toInt().toString() else entry.rating.toString()
+                                    Text(
+                                        text = ratingText,
+                                        style = MaterialTheme.typography.displayMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = "/10",
+                                        style = MaterialTheme.typography.headlineSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                        modifier = Modifier.padding(bottom = 6.dp)
+                                    )
+                                }
                             } else {
                                 Spacer(Modifier.weight(1f))
                             }
@@ -695,20 +795,31 @@ fun ListDetailScreen(
 @Composable
 private fun SwipeToDismissWrapper(
     entry: ListEntry,
+    listType: ListType,
     shape: Shape,
     onDelete: (ListEntry) -> Unit,
     onAddSub: (ListEntry) -> Unit,
+    onTogglePin: (ListEntry) -> Unit,
     content: @Composable () -> Unit
 ) {
+    val currentEntry by rememberUpdatedState(entry)
+    val currentOnDelete by rememberUpdatedState(onDelete)
+    val currentOnAddSub by rememberUpdatedState(onAddSub)
+    val currentOnTogglePin by rememberUpdatedState(onTogglePin)
+
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             when (value) {
                 SwipeToDismissBoxValue.EndToStart -> {
-                    onDelete(entry)
+                    currentOnDelete(currentEntry)
                     false
                 }
                 SwipeToDismissBoxValue.StartToEnd -> {
-                    onAddSub(entry)
+                    if (listType == ListType.CHECKLIST) {
+                        currentOnTogglePin(currentEntry)
+                    } else {
+                        currentOnAddSub(currentEntry)
+                    }
                     false
                 }
                 else -> false
@@ -724,7 +835,10 @@ private fun SwipeToDismissWrapper(
 
             val color = when (direction) {
                 SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
-                SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primaryContainer
+                SwipeToDismissBoxValue.StartToEnd -> {
+                    if (listType == ListType.CHECKLIST) Color(0xFFFFEBEE) // Distinct color for pin/unpin
+                    else MaterialTheme.colorScheme.primaryContainer
+                }
                 else -> Color.Transparent
             }
 
@@ -736,7 +850,10 @@ private fun SwipeToDismissWrapper(
 
             val icon = when (direction) {
                 SwipeToDismissBoxValue.EndToStart -> Icons.Rounded.Delete
-                SwipeToDismissBoxValue.StartToEnd -> Icons.Rounded.SubdirectoryArrowRight
+                SwipeToDismissBoxValue.StartToEnd -> {
+                    if (listType == ListType.CHECKLIST) Icons.Rounded.PushPin
+                    else Icons.Rounded.SubdirectoryArrowRight
+                }
                 else -> null
             }
 
@@ -769,16 +886,24 @@ private fun SwipeToDismissWrapper(
                         Icon(
                             imageVector = icon,
                             contentDescription = null,
-                            tint = if (direction == SwipeToDismissBoxValue.EndToStart)
-                                MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.primary
+                            tint = when {
+                                direction == SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.error
+                                listType == ListType.CHECKLIST -> Color.Red
+                                else -> MaterialTheme.colorScheme.primary
+                            }
                         )
                         Text(
-                            text = if (direction == SwipeToDismissBoxValue.EndToStart) "Delete" else "Add Sub",
+                            text = when {
+                                direction == SwipeToDismissBoxValue.EndToStart -> "Delete"
+                                listType == ListType.CHECKLIST -> if (entry.isPinned) "Unpin" else "Pin"
+                                else -> "Add Sub"
+                            },
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (direction == SwipeToDismissBoxValue.EndToStart)
-                                MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.primary
+                            color = when {
+                                direction == SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.error
+                                listType == ListType.CHECKLIST -> Color.Red
+                                else -> MaterialTheme.colorScheme.primary
+                            }
                         )
                     }
                 }
@@ -788,7 +913,7 @@ private fun SwipeToDismissWrapper(
     )
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun ListEntryItem(
     entry: ListEntry,
@@ -799,6 +924,7 @@ fun ListEntryItem(
     searchQuery: String = "",
     indicatorColor: Color? = null,
     indicatorContentColor: Color? = null,
+    tagNames: List<String> = emptyList(),
     onToggleExpand: () -> Unit = {},
     onToggleCheck: (Boolean) -> Unit,
     onClick: () -> Unit,
@@ -844,16 +970,58 @@ fun ListEntryItem(
             ListItem(
                 modifier = Modifier.weight(1f),
                 headlineContent = {
-                    Text(
-                        text = entry.title,
-                        style = if (isSubentry) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
-                        color = if (entry.isChecked && listType == ListType.CHECKLIST) 
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f) 
-                        else indicatorContentColor ?: MaterialTheme.colorScheme.onSurface,
-                        fontStyle = if (entry.isChecked && listType == ListType.CHECKLIST)
-                            FontStyle.Italic
-                        else FontStyle.Normal
-                    )
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (listType == ListType.CHECKLIST && entry.isPinned) {
+                                Icon(
+                                    imageVector = Icons.Rounded.PushPin,
+                                    contentDescription = "Pinned",
+                                    modifier = Modifier.padding(end = 8.dp).size(16.dp),
+                                    tint = Color.Red
+                                )
+                            }
+                            Text(
+                                text = entry.title,
+                                style = if (isSubentry) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
+                                color = if (entry.isChecked && listType == ListType.CHECKLIST) 
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f) 
+                                else indicatorContentColor ?: MaterialTheme.colorScheme.onSurface,
+                                fontStyle = if (entry.isChecked && listType == ListType.CHECKLIST)
+                                    FontStyle.Italic
+                                else FontStyle.Normal,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            if (listType == ListType.CHECKLIST && !entry.description.isNullOrBlank()) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.Notes,
+                                    contentDescription = "Has description",
+                                    modifier = Modifier.padding(start = 8.dp).size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+                        if (listType == ListType.RATING && tagNames.isNotEmpty()) {
+                            FlowRow(
+                                modifier = Modifier.padding(top = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                tagNames.forEach { name ->
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                                    ) {
+                                        Text(
+                                            text = name,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 },
                 leadingContent = if (listType == ListType.CHECKLIST) {
                     {
@@ -903,12 +1071,56 @@ fun ListEntryItem(
 }
 
 @Composable
+fun DescriptionDialog(
+    entry: ListEntry,
+    onDismiss: () -> Unit,
+    onConfirm: (String?) -> Unit
+) {
+    var description by remember { mutableStateOf(entry.description ?: "") }
+    val focusRequester = remember { FocusRequester() }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(entry.title) },
+        text = {
+            OutlinedTextField(
+                value = description,
+                onValueChange = { description = it },
+                label = { Text("Description") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 120.dp)
+                    .focusRequester(focusRequester),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
+            )
+            LaunchedEffect(Unit) {
+                focusRequester.requestFocus()
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onConfirm(description.takeIf { it.isNotBlank() })
+                }
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
 fun EntryDialog(
+    listId: String,
     listType: ListType,
     entry: ListEntry? = null,
+    allTags: List<Tag> = emptyList(),
     titlePrefix: String? = null,
     onDismiss: () -> Unit,
-    onConfirm: (String, Float) -> Unit
+    onConfirm: (String, Float, List<String>) -> Unit,
+    onSaveTag: (Tag) -> Unit
 ) {
     var title by remember { 
         mutableStateOf(
@@ -919,6 +1131,9 @@ fun EntryDialog(
         ) 
     }
     var rating by remember { mutableFloatStateOf(entry?.rating ?: 0f) }
+    var selectedTagIds by remember { mutableStateOf(entry?.tagIds?.toSet() ?: emptySet()) }
+    var showAddTagDialog by remember { mutableStateOf(false) }
+
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -955,13 +1170,56 @@ fun EntryDialog(
                         )
                     }
                 }
+
+                // Tag Selection (Rating lists only)
+                if (listType == ListType.RATING) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Tags", style = MaterialTheme.typography.labelLarge)
+                            IconButton(onClick = { showAddTagDialog = true }) {
+                                Icon(Icons.Rounded.Add, contentDescription = "Add New Tag")
+                            }
+                        }
+                        
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            allTags.forEach { tag ->
+                                val isSelected = selectedTagIds.contains(tag.id)
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = {
+                                        selectedTagIds = if (isSelected) {
+                                            selectedTagIds - tag.id
+                                        } else {
+                                            selectedTagIds + tag.id
+                                        }
+                                    },
+                                    label = { Text(tag.name) }
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // No description text box here for checklists as requested
+                }
             }
         },
         confirmButton = {
             TextButton(
                 onClick = {
                     if (title.text.isNotBlank()) {
-                        onConfirm(title.text, ((rating * 2).roundToInt() / 2.0).toFloat())
+                        onConfirm(
+                            title.text, 
+                            ((rating * 2).roundToInt() / 2.0).toFloat(), 
+                            if (listType == ListType.RATING) selectedTagIds.toList() else emptyList()
+                        )
                     }
                 }
             ) { Text(if (entry == null) "Add" else "Save") }
@@ -970,4 +1228,174 @@ fun EntryDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
+
+    if (showAddTagDialog) {
+        var newTagName by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showAddTagDialog = false },
+            title = { Text("New Tag") },
+            text = {
+                OutlinedTextField(
+                    value = newTagName,
+                    onValueChange = { newTagName = it },
+                    label = { Text("Tag Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (newTagName.isNotBlank()) {
+                            val newTag = Tag(name = newTagName, listId = listId)
+                            onSaveTag(newTag)
+                            selectedTagIds = selectedTagIds + newTag.id
+                            showAddTagDialog = false
+                        }
+                    }
+                ) { Text("Create") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddTagDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+}
+
+@Composable
+private fun RenameListDialog(
+    list: NoteList,
+    onDismiss: () -> Unit,
+    onConfirm: (NoteList, String) -> Unit
+) {
+    var newTitle by remember { 
+        mutableStateOf(
+            TextFieldValue(
+                text = list.title,
+                selection = TextRange(list.title.length)
+            )
+        ) 
+    }
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename List") },
+        text = {
+            OutlinedTextField(
+                value = newTitle,
+                onValueChange = { newTitle = it },
+                label = { Text("New Title") },
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
+            )
+            LaunchedEffect(Unit) {
+                focusRequester.requestFocus()
+                keyboardController?.show()
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (newTitle.text.isNotBlank()) {
+                        onConfirm(list, newTitle.text)
+                    }
+                }
+            ) { Text("Rename") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TagFilterDropdown(
+    selectedTagIds: Set<String>,
+    allTags: List<Tag>,
+    filterMode: TagFilterMode,
+    onTagToggle: (String) -> Unit,
+    onModeToggle: (TagFilterMode) -> Unit,
+    onClearAll: () -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(
+                imageVector = Icons.Rounded.FilterAlt,
+                contentDescription = "Filter by Tag",
+                tint = if (selectedTagIds.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.width(IntrinsicSize.Max).widthIn(min = 180.dp)
+        ) {
+            // Mode Toggle Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SingleChoiceSegmentedButtonRow {
+                    SegmentedButton(
+                        selected = filterMode == TagFilterMode.OR,
+                        onClick = { onModeToggle(TagFilterMode.OR) },
+                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
+                    ) { Text("OR") }
+                    SegmentedButton(
+                        selected = filterMode == TagFilterMode.AND,
+                        onClick = { onModeToggle(TagFilterMode.AND) },
+                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
+                    ) { Text("AND") }
+                }
+            }
+            
+            HorizontalDivider()
+            
+            DropdownMenuItem(
+                text = { Text("Clear All Filters") },
+                onClick = {
+                    onClearAll()
+                    expanded = false
+                },
+                leadingIcon = {
+                    Icon(Icons.Rounded.Clear, contentDescription = null)
+                },
+                enabled = selectedTagIds.isNotEmpty()
+            )
+            
+            HorizontalDivider()
+
+            allTags.forEach { tag ->
+                val isSelected = selectedTagIds.contains(tag.id)
+                DropdownMenuItem(
+                    text = { Text(tag.name) },
+                    onClick = {
+                        onTagToggle(tag.id)
+                    },
+                    leadingIcon = {
+                        Checkbox(checked = isSelected, onCheckedChange = null)
+                    }
+                )
+            }
+            
+            if (allTags.isEmpty()) {
+                DropdownMenuItem(
+                    text = { Text("No tags available", style = MaterialTheme.typography.bodySmall) },
+                    onClick = { expanded = false },
+                    enabled = false
+                )
+            }
+        }
+    }
 }

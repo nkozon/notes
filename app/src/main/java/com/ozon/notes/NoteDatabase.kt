@@ -52,7 +52,52 @@ data class ListEntryEntity(
     val title: String,
     val isChecked: Boolean,
     val rating: Float,
+    val isPinned: Boolean = false,
+    val description: String? = null,
     val timestamp: Long
+)
+
+@Entity(
+    tableName = "entry_tag_cross_ref",
+    primaryKeys = ["entryId", "tagId"],
+    foreignKeys = [
+        ForeignKey(
+            entity = ListEntryEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["entryId"],
+            onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = TagEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["tagId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("entryId"), Index("tagId")]
+)
+data class EntryTagCrossRef(
+    val entryId: String,
+    val tagId: String
+)
+
+@Entity(
+    tableName = "tags",
+    foreignKeys = [
+        ForeignKey(
+            entity = NoteListEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["listId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("listId")]
+)
+data class TagEntity(
+    @PrimaryKey val id: String,
+    val listId: String,
+    val name: String,
+    val colorArgb: Int? = null
 )
 
 // --- DAOs (Data Access Objects) ---
@@ -139,18 +184,193 @@ interface ListDao {
     }
 }
 
+@Dao
+interface TagDao {
+    @Query("SELECT * FROM tags WHERE listId = :listId ORDER BY name ASC")
+    fun getTagsForList(listId: String): Flow<List<TagEntity>>
+
+    @Query("SELECT * FROM tags")
+    suspend fun getAllTagsList(): List<TagEntity>
+
+    @Upsert
+    suspend fun upsertTag(tag: TagEntity)
+
+    @Upsert
+    suspend fun upsertTags(tags: List<TagEntity>)
+
+    @Query("DELETE FROM tags WHERE id = :tagId")
+    suspend fun deleteTag(tagId: String)
+}
+
+@Dao
+interface EntryTagCrossRefDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(crossRefs: List<EntryTagCrossRef>)
+
+    @Query("DELETE FROM entry_tag_cross_ref WHERE entryId = :entryId")
+    suspend fun deleteByEntryId(entryId: String)
+
+    @Query("SELECT * FROM entry_tag_cross_ref")
+    fun getAllCrossRefs(): Flow<List<EntryTagCrossRef>>
+
+    @Query("SELECT * FROM entry_tag_cross_ref")
+    suspend fun getAllCrossRefsList(): List<EntryTagCrossRef>
+}
+
 // --- DATABASE ---
 
 @Database(
-    entities = [NoteEntity::class, NoteListEntity::class, ListEntryEntity::class],
-    version = 9, 
+    entities = [NoteEntity::class, NoteListEntity::class, ListEntryEntity::class, TagEntity::class, EntryTagCrossRef::class],
+    version = 13, 
     exportSchema = false
 )
 abstract class NoteDatabase : RoomDatabase() {
     abstract fun noteDao(): NoteDao
     abstract fun listDao(): ListDao
+    abstract fun tagDao(): TagDao
+    abstract fun entryTagCrossRefDao(): EntryTagCrossRefDao
 
     companion object {
+        val MIGRATION_12_13 = object : androidx.room.migration.Migration(12, 13) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                // 1. Add columns to list_entries
+                db.execSQL("ALTER TABLE `list_entries` ADD COLUMN `isPinned` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `list_entries` ADD COLUMN `description` TEXT")
+
+                // 2. Remove parentId references for CHECKLIST entries to make them flat
+                db.execSQL("""
+                    UPDATE `list_entries` 
+                    SET `parentId` = NULL 
+                    WHERE `listId` IN (SELECT `id` FROM `note_lists` WHERE `type` = 'CHECKLIST')
+                """.trimIndent())
+            }
+        }
+        val MIGRATION_11_12 = object : androidx.room.migration.Migration(11, 12) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                // 1. Create tags_new table with listId
+                db.execSQL("""
+                    CREATE TABLE `tags_new` (
+                        `id` TEXT NOT NULL, 
+                        `listId` TEXT NOT NULL, 
+                        `name` TEXT NOT NULL, 
+                        `colorArgb` INTEGER, 
+                        PRIMARY KEY(`id`), 
+                        FOREIGN KEY(`listId`) REFERENCES `note_lists`(`id`) ON DELETE CASCADE
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_tags_listId` ON `tags_new` (`listId`)")
+
+                // 2. Populate tags_new by duplicating existing tags for each list they are used in.
+                // We use a concatenation of tagId and listId to generate new unique IDs for the scoped tags.
+                db.execSQL("""
+                    INSERT INTO `tags_new` (`id`, `listId`, `name`, `colorArgb`)
+                    SELECT t.id || '_' || e.listId, e.listId, t.name, t.colorArgb
+                    FROM tags t
+                    JOIN entry_tag_cross_ref c ON t.id = c.tagId
+                    JOIN list_entries e ON c.entryId = e.id
+                    GROUP BY t.id, e.listId
+                """.trimIndent())
+
+                // 3. Update entry_tag_cross_ref to point to the new scoped tag IDs
+                db.execSQL("""
+                    UPDATE `entry_tag_cross_ref` 
+                    SET `tagId` = `tagId` || '_' || (SELECT `listId` FROM `list_entries` WHERE `id` = `entryId`)
+                """.trimIndent())
+
+                // 4. Swap tables
+                db.execSQL("DROP TABLE `tags`")
+                db.execSQL("ALTER TABLE `tags_new` RENAME TO `tags`")
+            }
+        }
+        val MIGRATION_10_11 = object : androidx.room.migration.Migration(10, 11) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                // 1. Create cross-ref table
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `entry_tag_cross_ref` (
+                        `entryId` TEXT NOT NULL, 
+                        `tagId` TEXT NOT NULL, 
+                        PRIMARY KEY(`entryId`, `tagId`), 
+                        FOREIGN KEY(`entryId`) REFERENCES `list_entries`(`id`) ON DELETE CASCADE, 
+                        FOREIGN KEY(`tagId`) REFERENCES `tags`(`id`) ON DELETE CASCADE
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_entry_tag_cross_ref_entryId` ON `entry_tag_cross_ref` (`entryId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_entry_tag_cross_ref_tagId` ON `entry_tag_cross_ref` (`tagId`)")
+
+                // 2. Migrate existing tagId to cross-ref table
+                db.execSQL("""
+                    INSERT INTO `entry_tag_cross_ref` (`entryId`, `tagId`)
+                    SELECT `id`, `tagId` FROM `list_entries` WHERE `tagId` IS NOT NULL
+                """.trimIndent())
+
+                // 3. Recreate list_entries without tagId
+                db.execSQL("""
+                    CREATE TABLE `list_entries_new` (
+                        `id` TEXT NOT NULL, 
+                        `listId` TEXT NOT NULL, 
+                        `parentId` TEXT, 
+                        `title` TEXT NOT NULL, 
+                        `isChecked` INTEGER NOT NULL, 
+                        `rating` REAL NOT NULL, 
+                        `timestamp` INTEGER NOT NULL, 
+                        PRIMARY KEY(`id`), 
+                        FOREIGN KEY(`listId`) REFERENCES `note_lists`(`id`) ON DELETE CASCADE, 
+                        FOREIGN KEY(`parentId`) REFERENCES `list_entries`(`id`) ON DELETE CASCADE
+                    )
+                """.trimIndent())
+
+                db.execSQL("""
+                    INSERT INTO `list_entries_new` (`id`, `listId`, `parentId`, `title`, `isChecked`, `rating`, `timestamp`)
+                    SELECT `id`, `listId`, `parentId`, `title`, `isChecked`, `rating`, `timestamp` FROM `list_entries`
+                """.trimIndent())
+
+                db.execSQL("DROP TABLE `list_entries`")
+                db.execSQL("ALTER TABLE `list_entries_new` RENAME TO `list_entries`")
+
+                // 4. Re-create indices
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_list_entries_listId` ON `list_entries` (`listId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_list_entries_parentId` ON `list_entries` (`parentId`)")
+            }
+        }
+        val MIGRATION_9_10 = object : androidx.room.migration.Migration(9, 10) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                // 1. Create tags table
+                db.execSQL("CREATE TABLE IF NOT EXISTS `tags` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `colorArgb` INTEGER, PRIMARY KEY(`id`))")
+
+                // 2. Create new list_entries table with tagId
+                db.execSQL("""
+                    CREATE TABLE `list_entries_new` (
+                        `id` TEXT NOT NULL, 
+                        `listId` TEXT NOT NULL, 
+                        `parentId` TEXT, 
+                        `tagId` TEXT, 
+                        `title` TEXT NOT NULL, 
+                        `isChecked` INTEGER NOT NULL, 
+                        `rating` REAL NOT NULL, 
+                        `timestamp` INTEGER NOT NULL, 
+                        PRIMARY KEY(`id`), 
+                        FOREIGN KEY(`listId`) REFERENCES `note_lists`(`id`) ON DELETE CASCADE, 
+                        FOREIGN KEY(`parentId`) REFERENCES `list_entries`(`id`) ON DELETE CASCADE, 
+                        FOREIGN KEY(`tagId`) REFERENCES `tags`(`id`) ON DELETE SET NULL
+                    )
+                """.trimIndent())
+
+                // 3. Copy data from old table to new table
+                db.execSQL("""
+                    INSERT INTO `list_entries_new` (`id`, `listId`, `parentId`, `tagId`, `title`, `isChecked`, `rating`, `timestamp`)
+                    SELECT `id`, `listId`, `parentId`, NULL, `title`, `isChecked`, `rating`, `timestamp` FROM `list_entries`
+                """.trimIndent())
+
+                // 4. Drop old table and rename new one
+                db.execSQL("DROP TABLE `list_entries`")
+                db.execSQL("ALTER TABLE `list_entries_new` RENAME TO `list_entries`")
+
+                // 5. Create indices
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_list_entries_listId` ON `list_entries` (`listId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_list_entries_parentId` ON `list_entries` (`parentId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_list_entries_tagId` ON `list_entries` (`tagId`)")
+            }
+        }
         val MIGRATION_8_9 = object : androidx.room.migration.Migration(8, 9) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE notes ADD COLUMN type TEXT NOT NULL DEFAULT 'TEXT'")

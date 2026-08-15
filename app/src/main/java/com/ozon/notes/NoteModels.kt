@@ -78,13 +78,25 @@ data class NoteListWithCounts(
 
 @androidx.compose.runtime.Immutable
 @Serializable
+data class Tag(
+    val id: String = UUID.randomUUID().toString(),
+    val listId: String,
+    val name: String,
+    val colorArgb: Int? = null
+)
+
+@androidx.compose.runtime.Immutable
+@Serializable
 data class ListEntry(
     val id: String = UUID.randomUUID().toString(),
     val listId: String,
     val parentId: String? = null,
+    val tagIds: List<String> = emptyList(),
     val title: String,
     val isChecked: Boolean = false,
     val rating: Float = 0f,
+    val isPinned: Boolean = false,
+    val description: String? = null,
     val timestamp: Long = System.currentTimeMillis()
 )
 
@@ -126,10 +138,15 @@ enum class ChecklistBehavior {
     GREY_OUT, MOVE_TO_BOTTOM, HIDE
 }
 
+enum class TagFilterMode {
+    AND, OR
+}
+
 @androidx.compose.runtime.Immutable
 @Serializable
 data class BackupData(
     val notes: List<Note>,
     val lists: List<NoteList>,
-    val entries: List<ListEntry>
+    val entries: List<ListEntry>,
+    val tags: List<Tag> = emptyList()
 )

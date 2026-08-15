@@ -68,14 +68,17 @@ fun NoteList.toEntity(): NoteListEntity {
 
 // --- ListEntry Mappers ---
 
-fun ListEntryEntity.toDomain(): ListEntry {
+fun ListEntryEntity.toDomain(tagIds: List<String>): ListEntry {
     return ListEntry(
         id = id,
         listId = listId,
         parentId = parentId,
+        tagIds = tagIds,
         title = title,
         isChecked = isChecked,
         rating = rating,
+        isPinned = isPinned,
+        description = description,
         timestamp = timestamp
     )
 }
@@ -88,6 +91,28 @@ fun ListEntry.toEntity(): ListEntryEntity {
         title = title,
         isChecked = isChecked,
         rating = rating,
+        isPinned = isPinned,
+        description = description,
         timestamp = timestamp
+    )
+}
+
+// --- Tag Mappers ---
+
+fun TagEntity.toDomain(): Tag {
+    return Tag(
+        id = id,
+        listId = listId,
+        name = name,
+        colorArgb = colorArgb
+    )
+}
+
+fun Tag.toEntity(): TagEntity {
+    return TagEntity(
+        id = id,
+        listId = listId,
+        name = name,
+        colorArgb = colorArgb
     )
 }

@@ -34,18 +34,40 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
 
+    private val _selectedFilterTagIds = MutableStateFlow<Set<String>>(emptySet())
+    val selectedFilterTagIds = _selectedFilterTagIds.asStateFlow()
+
+    private val _tagFilterMode = MutableStateFlow(TagFilterMode.OR)
+    val tagFilterMode = _tagFilterMode.asStateFlow()
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val allTags: StateFlow<List<Tag>> = _currentListId.flatMapLatest { id ->
+        if (id == null) flowOf(emptyList())
+        else repository.getTagsForList(id)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val entriesState: StateFlow<List<ListEntry>> = combine(
         _currentListId,
         _listSortOrder,
         _searchQuery,
+        _selectedFilterTagIds,
+        _tagFilterMode,
         repository.getChecklistBehavior(),
         repository.getAllLists()
-    ) { listId, sortOrder, query, behavior, allLists ->
+    ) { args ->
+        val listId = args[0] as String?
+        val sortOrder = args[1] as ListSortOrder
+        val query = args[2] as String
+        val tagIds = args[3] as Set<String>
+        val filterMode = args[4] as TagFilterMode
+        val behavior = args[5] as ChecklistBehavior
+        val allLists = args[6] as List<NoteList>
+
         val currentList = allLists.find { it.id == listId }
         val isChecklist = currentList?.type == ListType.CHECKLIST
         
-        ChecklistFilterParams(listId, sortOrder, query, behavior, isChecklist)
+        ChecklistFilterParams(listId, sortOrder, query, tagIds, filterMode, behavior, isChecklist)
     }.flatMapLatest { params ->
         val listId = params.listId
         if (listId == null) return@flatMapLatest flowOf(emptyList<ListEntry>())
@@ -54,6 +76,8 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
             getFilteredEntriesUseCase(
                 entries,
                 params.query,
+                params.tagIds,
+                params.filterMode,
                 params.sortOrder,
                 params.behavior,
                 params.isChecklist
@@ -70,6 +94,16 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
             is NoteEvent.SetCurrentList -> _currentListId.value = event.listId
             is NoteEvent.UpdateListSortOrder -> _listSortOrder.value = event.sortOrder
             is NoteEvent.UpdateSearchQuery -> _searchQuery.value = event.query
+            is NoteEvent.ToggleFilterTag -> {
+                _selectedFilterTagIds.update { current ->
+                    if (current.contains(event.tagId)) current - event.tagId else current + event.tagId
+                }
+            }
+            is NoteEvent.ClearFilterTags -> _selectedFilterTagIds.value = emptySet()
+            is NoteEvent.UpdateTagFilterMode -> _tagFilterMode.value = event.mode
+            is NoteEvent.SaveList -> viewModelScope.launch { repository.saveList(event.list) }
+            is NoteEvent.SaveTag -> viewModelScope.launch { repository.saveTag(event.tag) }
+            is NoteEvent.DeleteTag -> viewModelScope.launch { repository.deleteTag(event.tagId) }
             is NoteEvent.SaveEntry -> viewModelScope.launch { repository.saveEntry(event.entry) }
             is NoteEvent.DeleteEntry -> viewModelScope.launch { repository.deleteEntry(event.entryId) }
             else -> { /* Handled elsewhere */ }
@@ -80,6 +114,8 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
         val listId: String?,
         val sortOrder: ListSortOrder,
         val query: String,
+        val tagIds: Set<String>,
+        val filterMode: TagFilterMode,
         val behavior: ChecklistBehavior,
         val isChecklist: Boolean
     )

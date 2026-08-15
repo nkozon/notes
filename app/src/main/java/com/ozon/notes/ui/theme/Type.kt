@@ -137,7 +137,7 @@ val Typography = Typography(
     ),
     titleLarge = TextStyle(
         fontFamily = GoogleSansFlexRounded,
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = FontWeight.Medium,
         fontSize = 22.sp,
         lineHeight = 28.sp,
         letterSpacing = 0.sp

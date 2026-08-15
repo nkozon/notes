@@ -11,6 +11,11 @@ sealed interface NoteEvent {
     data class SetCurrentList(val listId: String?) : NoteEvent
     data class SaveEntry(val entry: ListEntry) : NoteEvent
     data class DeleteEntry(val entryId: String) : NoteEvent
+    data class SaveTag(val tag: Tag) : NoteEvent
+    data class DeleteTag(val tagId: String) : NoteEvent
+    data class ToggleFilterTag(val tagId: String) : NoteEvent
+    data object ClearFilterTags : NoteEvent
+    data class UpdateTagFilterMode(val mode: TagFilterMode) : NoteEvent
     data class UpdateListSortOrder(val sortOrder: ListSortOrder) : NoteEvent
     data class UpdateStartupView(val view: AppView) : NoteEvent
     data class UpdateTheme(val theme: AppTheme) : NoteEvent

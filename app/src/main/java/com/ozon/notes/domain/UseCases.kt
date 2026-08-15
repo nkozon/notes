@@ -104,50 +104,78 @@ class GetFilteredEntriesUseCase {
     operator fun invoke(
         entries: List<ListEntry>,
         query: String,
+        tagIds: Set<String>,
+        filterMode: TagFilterMode,
         sortOrder: ListSortOrder,
         behavior: ChecklistBehavior,
         isChecklist: Boolean
     ): List<ListEntry> {
-        val filteredByQuery = if (query.isBlank()) {
+        val filteredByTag = if (isChecklist || tagIds.isEmpty()) {
             entries
         } else {
-            val matchingIds = entries.filter {
+            entries.filter { entry ->
+                if (filterMode == TagFilterMode.AND) {
+                    entry.tagIds.containsAll(tagIds)
+                } else {
+                    entry.tagIds.any { it in tagIds }
+                }
+            }
+        }
+
+        val filteredByQuery = if (query.isBlank()) {
+            filteredByTag
+        } else {
+            val matchingIds = filteredByTag.filter {
                 it.title.contains(query, ignoreCase = true)
             }.map { it.id }.toSet()
 
-            val resultIds = mutableSetOf<String>()
-            val rootEntries = entries.filter { it.parentId.isNullOrBlank() }
+            if (isChecklist) {
+                // Flat filtering for checklists
+                filteredByTag.filter { it.id in matchingIds }
+            } else {
+                // Hierarchical filtering for rating lists
+                val resultIds = mutableSetOf<String>()
+                val rootEntries = filteredByTag.filter { it.parentId.isNullOrBlank() }
 
-            rootEntries.forEach { root ->
-                fun hasMatchingDescendant(parentId: String): Boolean {
-                    val children = entries.filter { it.parentId == parentId }
-                    return children.any { it.id in matchingIds || hasMatchingDescendant(it.id) }
-                }
-
-                if (root.id in matchingIds || hasMatchingDescendant(root.id)) {
-                    resultIds.add(root.id)
-                    fun addAllDescendants(parentId: String) {
-                        entries.filter { it.parentId == parentId }.forEach { child ->
-                            resultIds.add(child.id)
-                            addAllDescendants(child.id)
-                        }
+                rootEntries.forEach { root ->
+                    fun hasMatchingDescendant(parentId: String): Boolean {
+                        val children = filteredByTag.filter { it.parentId == parentId }
+                        return children.any { it.id in matchingIds || hasMatchingDescendant(it.id) }
                     }
-                    addAllDescendants(root.id)
+
+                    if (root.id in matchingIds || hasMatchingDescendant(root.id)) {
+                        resultIds.add(root.id)
+                        fun addAllDescendants(parentId: String) {
+                            filteredByTag.filter { it.parentId == parentId }.forEach { child ->
+                                resultIds.add(child.id)
+                                addAllDescendants(child.id)
+                            }
+                        }
+                        addAllDescendants(root.id)
+                    }
                 }
+                filteredByTag.filter { it.id in resultIds }
             }
-            entries.filter { it.id in resultIds }
         }
 
         return filteredByQuery.filter {
             if (isChecklist && behavior == ChecklistBehavior.HIDE) !it.isChecked else true
         }.sortedWith { a, b ->
-            // Move checked to bottom logic if behavior is MOVE_TO_BOTTOM
+            // 1. Pinning priority (Checklists only)
+            if (isChecklist) {
+                if (a.isPinned != b.isPinned) {
+                    return@sortedWith b.isPinned.compareTo(a.isPinned)
+                }
+            }
+
+            // 2. Move checked to bottom logic if behavior is MOVE_TO_BOTTOM
             if (isChecklist && behavior == ChecklistBehavior.MOVE_TO_BOTTOM) {
                 if (a.isChecked != b.isChecked) {
                     return@sortedWith a.isChecked.compareTo(b.isChecked)
                 }
             }
 
+            // 3. Normal sorting
             when (sortOrder) {
                 ListSortOrder.ALPHABETICAL -> {
                     val res = a.title.compareTo(b.title, ignoreCase = true)

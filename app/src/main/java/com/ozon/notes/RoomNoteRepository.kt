@@ -61,24 +61,61 @@ class RoomNoteRepository(
     }
 
     override fun getAllEntries(): Flow<List<ListEntry>> {
-        return database.listDao().getAllEntries().map { entities ->
-            entities.map { it.toDomain() }
+        return combine(
+            database.listDao().getAllEntries(),
+            database.entryTagCrossRefDao().getAllCrossRefs()
+        ) { entities, crossRefs ->
+            val crossRefsByEntryId = crossRefs.groupBy { it.entryId }
+            entities.map { entity ->
+                val tagIds = crossRefsByEntryId[entity.id]?.map { it.tagId } ?: emptyList()
+                entity.toDomain(tagIds)
+            }
         }
     }
 
     override fun getEntriesForList(listId: String): Flow<List<ListEntry>> {
-        return database.listDao().getEntriesForList(listId).map { entities ->
-            entities.map { it.toDomain() }
+        return combine(
+            database.listDao().getEntriesForList(listId),
+            database.entryTagCrossRefDao().getAllCrossRefs()
+        ) { entities, crossRefs ->
+            val crossRefsByEntryId = crossRefs.groupBy { it.entryId }
+            entities.map { entity ->
+                val tagIds = crossRefsByEntryId[entity.id]?.map { it.tagId } ?: emptyList()
+                entity.toDomain(tagIds)
+            }
         }
     }
 
     override suspend fun saveEntry(entry: ListEntry) {
-        database.listDao().upsertEntry(entry.toEntity())
+        database.withTransaction {
+            database.listDao().upsertEntry(entry.toEntity())
+            database.entryTagCrossRefDao().deleteByEntryId(entry.id)
+            database.entryTagCrossRefDao().insertAll(
+                entry.tagIds.map { EntryTagCrossRef(entry.id, it) }
+            )
+        }
         setHasPendingChanges(true)
     }
 
     override suspend fun deleteEntry(entryId: String) {
         database.listDao().deleteEntry(entryId)
+        setHasPendingChanges(true)
+    }
+
+    // --- Tags ---
+    override fun getTagsForList(listId: String): Flow<List<Tag>> {
+        return database.tagDao().getTagsForList(listId).map { entities ->
+            entities.map { it.toDomain() }
+        }
+    }
+
+    override suspend fun saveTag(tag: Tag) {
+        database.tagDao().upsertTag(tag.toEntity())
+        setHasPendingChanges(true)
+    }
+
+    override suspend fun deleteTag(tagId: String) {
+        database.tagDao().deleteTag(tagId)
         setHasPendingChanges(true)
     }
 
@@ -101,8 +138,15 @@ class RoomNoteRepository(
     override suspend fun getBackupData(): BackupData = withContext(Dispatchers.IO) {
         val notes = database.noteDao().getAllNotesList().map { it.toDomain() }
         val lists = database.listDao().getAllListsList().map { it.toDomain() }
-        val entries = database.listDao().getAllEntriesList().map { it.toDomain() }
-        BackupData(notes, lists, entries)
+        val tags = database.tagDao().getAllTagsList().map { it.toDomain() }
+        
+        val crossRefs = database.entryTagCrossRefDao().getAllCrossRefsList().groupBy { it.entryId }
+        val entries = database.listDao().getAllEntriesList().map { entity ->
+            val tagIds = crossRefs[entity.id]?.map { it.tagId } ?: emptyList()
+            entity.toDomain(tagIds)
+        }
+        
+        BackupData(notes, lists, entries, tags)
     }
 
     override suspend fun restoreBackupData(data: BackupData) = withContext(Dispatchers.IO) {
@@ -112,15 +156,19 @@ class RoomNoteRepository(
             // 1. Restore Notes
             database.noteDao().upsertNotes(data.notes.map { it.toEntity() })
             
-            // 2. Restore Lists
+            // 2. Restore Tags
+            database.tagDao().upsertTags(data.tags.map { it.toEntity() })
+
+            // 3. Restore Lists
             database.listDao().upsertLists(data.lists.map { it.toEntity() })
 
-            // 3. Restore Entries with a multi-pass strategy to satisfy self-referencing Foreign Keys
+            // 4. Restore Entries and CrossRefs
             val validListIds = data.lists.map { it.id }.toSet()
-            val entriesToInsert = data.entries.filter { it.listId in validListIds }
-            val validEntryIds = entriesToInsert.map { it.id }.toSet()
+            val validTagIds = data.tags.map { it.id }.toSet()
+            val entriesToRestore = data.entries.filter { it.listId in validListIds }
+            val validEntryIds = entriesToRestore.map { it.id }.toSet()
             
-            val allEntryEntities = entriesToInsert.map { it.toEntity() }.map { 
+            val allEntryEntities = entriesToRestore.map { it.toEntity() }.map { 
                 it.copy(
                     // Sanitize parentId: must exist in the set of IDs we are about to insert
                     parentId = it.parentId?.takeIf { p -> p in validEntryIds }
@@ -138,6 +186,16 @@ class RoomNoteRepository(
             
             if (updates.isNotEmpty()) {
                 database.listDao().updateEntriesParents(updates)
+            }
+
+            // Pass 3: Restore Tag CrossRefs
+            val crossRefs = entriesToRestore.flatMap { entry ->
+                entry.tagIds
+                    .filter { it in validTagIds }
+                    .map { EntryTagCrossRef(entry.id, it) }
+            }
+            if (crossRefs.isNotEmpty()) {
+                database.entryTagCrossRefDao().insertAll(crossRefs)
             }
         }
     }
