@@ -331,43 +331,49 @@ fun ListCard(
 @Composable
 fun SystemBarGradients(
     modifier: Modifier = Modifier,
-    color: Color = MaterialTheme.colorScheme.background
+    color: Color = MaterialTheme.colorScheme.background,
+    showTop: Boolean = true,
+    showBottom: Boolean = true
 ) {
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navigationBarHeight = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
     Box(modifier = modifier.fillMaxSize()) {
         // Status Bar Gradient
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(statusBarHeight * 3f)
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            color,
-                            Color.Transparent
+        if (showTop) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(statusBarHeight * 3f)
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                color,
+                                Color.Transparent
+                            )
                         )
                     )
-                )
-                .align(Alignment.TopCenter)
-        )
+                    .align(Alignment.TopCenter)
+            )
+        }
 
         // Navigation Bar Gradient
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(navigationBarHeight * 3f)
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            color
+        if (showBottom) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(navigationBarHeight * 3f)
+                    .background(
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                color
+                            )
                         )
                     )
-                )
-                .align(Alignment.BottomCenter)
-        )
+                    .align(Alignment.BottomCenter)
+            )
+        }
     }
 }
 

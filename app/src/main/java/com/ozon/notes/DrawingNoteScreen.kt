@@ -33,6 +33,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.geometry.Offset
@@ -45,6 +46,7 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
@@ -104,6 +106,8 @@ fun DrawingNoteScreen(
 
     var canvasSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
     var lastStylusTouchTime by remember { mutableLongStateOf(0L) }
+    var utilityToolbarOffset by remember { mutableStateOf(Offset.Zero) }
+    var utilityToolbarSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
 
     val viewConfiguration = LocalViewConfiguration.current
 
@@ -235,8 +239,25 @@ fun DrawingNoteScreen(
 
     Scaffold(
         containerColor = Color.Transparent,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = {
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
+    ) { scaffoldPadding ->
+        val isNormalTablet = isSplitScreen && isSidePanelVisible
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(scaffoldPadding)
+                .then(
+                    if (isNormalTablet) {
+                        Modifier
+                            .windowInsetsPadding(WindowInsets.statusBars)
+                            .clip(RoundedCornerShape(topStart = 12.dp))
+                    } else Modifier
+                )
+                .background(Color.White)
+                .onSizeChanged { canvasSize = it }
+        ) {
+            // Floating Header (zIndex 12f to be above gradients and toolbars if needed)
             TopAppBar(
                 title = {
                     Box(modifier = Modifier.padding(start = 16.dp)) {
@@ -320,27 +341,14 @@ fun DrawingNoteScreen(
                             contentColor = Color.Black
                         )
                     }
-                }
+                },
+                modifier = Modifier.zIndex(12f).statusBarsPadding()
             )
-        }
-    ) { scaffoldPadding ->
-        val isNormalTablet = isSplitScreen && isSidePanelVisible
-        
-        val topPadding = if (isSplitScreen) 0.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-        val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(if (isNormalTablet) Modifier.windowInsetsPadding(WindowInsets.statusBars) else Modifier)
-                .background(Color.White)
-                .onSizeChanged { canvasSize = it }
-        ) {
             // 1. Canvas Layer (Bottom)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(top = if (isSplitScreen) scaffoldPadding.calculateTopPadding() else topPadding, bottom = bottomPadding)
                     .zIndex(0f)
                     .pointerInput(updatedTool, updatedForceStylus) {
                         awaitPointerEventScope {
@@ -572,65 +580,95 @@ fun DrawingNoteScreen(
             }
 
             // 2. Gradients Layer (Middle)
-            SystemBarGradients(color = Color.White, modifier = Modifier.zIndex(1f))
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(if (isNormalTablet) Modifier.statusBarsPadding() else Modifier)
+                    .zIndex(1f)
+            ) {
+                SystemBarGradients(
+                    color = Color.White, 
+                    showTop = true,
+                    showBottom = true
+                )
+            }
 
             // 3. UI Layer (Top)
             // Utility Toolbar (Undo/Redo/Paste)
-            Surface(
+            BoxWithConstraints(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = topPadding + 64.dp)
-                    .zIndex(10f),
-                color = Color.Transparent
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(top = 64.dp)
+                    .zIndex(10f)
             ) {
-                Row(
+                val density = LocalDensity.current
+                val maxX = with(density) { 16.dp.toPx() }
+                val minX = with(density) { - (maxWidth.toPx() - utilityToolbarSize.width - 16.dp.toPx()) }
+                val maxY = with(density) { maxHeight.toPx() - utilityToolbarSize.height }
+
+                Surface(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.End
+                        .align(Alignment.TopEnd)
+                        .padding(end = 16.dp)
+                        .onSizeChanged { utilityToolbarSize = it }
+                        .offset { 
+                            IntOffset(
+                                utilityToolbarOffset.x.roundToInt(), 
+                                utilityToolbarOffset.y.roundToInt()
+                            ) 
+                        }
+                        .pointerInput(utilityToolbarSize, constraints) {
+                            detectDragGestures { change, dragAmount ->
+                                change.consume()
+                                val newOffset = utilityToolbarOffset + dragAmount
+                                utilityToolbarOffset = Offset(
+                                    x = newOffset.x.coerceIn(minX, maxX),
+                                    y = newOffset.y.coerceIn(0f, maxY)
+                                )
+                            }
+                        },
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp),
+                    shadowElevation = 2.dp
                 ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp),
-                        shadowElevation = 2.dp
+                    Row(
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        IconButton(
+                            onClick = { if (strokes.isNotEmpty()) { redoStack = redoStack + strokes.last(); strokes = strokes.dropLast(1) } },
+                            enabled = strokes.isNotEmpty(),
+                            modifier = Modifier.size(36.dp)
                         ) {
-                            IconButton(
-                                onClick = { if (strokes.isNotEmpty()) { redoStack = redoStack + strokes.last(); strokes = strokes.dropLast(1) } },
-                                enabled = strokes.isNotEmpty(),
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    Icons.AutoMirrored.Rounded.Undo,
-                                    contentDescription = "Undo",
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            IconButton(
-                                onClick = { handlePaste() },
-                                enabled = clipboardStrokes != null,
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    Icons.Rounded.ContentPaste,
-                                    contentDescription = "Paste",
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            IconButton(
-                                onClick = { if (redoStack.isNotEmpty()) { strokes = strokes + redoStack.last(); redoStack = redoStack.dropLast(1) } },
-                                enabled = redoStack.isNotEmpty(),
-                                modifier = Modifier.size(36.dp)
-                            ) {
-                                Icon(
-                                    Icons.AutoMirrored.Rounded.Redo,
-                                    contentDescription = "Redo",
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
+                            Icon(
+                                Icons.AutoMirrored.Rounded.Undo,
+                                contentDescription = "Undo",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = { handlePaste() },
+                            enabled = clipboardStrokes != null,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Rounded.ContentPaste,
+                                contentDescription = "Paste",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        IconButton(
+                            onClick = { if (redoStack.isNotEmpty()) { strokes = strokes + redoStack.last(); redoStack = redoStack.dropLast(1) } },
+                            enabled = redoStack.isNotEmpty(),
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Rounded.Redo,
+                                contentDescription = "Redo",
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                     }
                 }
