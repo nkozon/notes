@@ -108,9 +108,12 @@ class GetFilteredEntriesUseCase {
         filterMode: TagFilterMode,
         sortOrder: ListSortOrder,
         behavior: ChecklistBehavior,
-        isChecklist: Boolean
+        isChecklist: Boolean,
+        allTags: List<Tag> = emptyList()
     ): List<ListEntry> {
-        val filteredByTag = if (isChecklist || tagIds.isEmpty()) {
+        val tagMap = allTags.associate { it.id to it.name }
+
+        val filteredByTag = if (tagIds.isEmpty()) {
             entries
         } else {
             entries.filter { entry ->
@@ -184,6 +187,18 @@ class GetFilteredEntriesUseCase {
                 ListSortOrder.REVERSE_ALPHABETICAL -> {
                     val res = b.title.compareTo(a.title, ignoreCase = true)
                     if (res == 0) b.timestamp.compareTo(a.timestamp) else res
+                }
+                ListSortOrder.TAG_ALPHABETICAL -> {
+                    val aTag = a.tagIds.firstOrNull()?.let { tagMap[it] } ?: ""
+                    val bTag = b.tagIds.firstOrNull()?.let { tagMap[it] } ?: ""
+                    val res = aTag.compareTo(bTag, ignoreCase = true)
+                    if (res == 0) a.title.compareTo(b.title, ignoreCase = true) else res
+                }
+                ListSortOrder.TAG_REVERSE_ALPHABETICAL -> {
+                    val aTag = a.tagIds.firstOrNull()?.let { tagMap[it] } ?: ""
+                    val bTag = b.tagIds.firstOrNull()?.let { tagMap[it] } ?: ""
+                    val res = bTag.compareTo(aTag, ignoreCase = true)
+                    if (res == 0) a.title.compareTo(b.title, ignoreCase = true) else res
                 }
                 ListSortOrder.RATING_LOW_TO_HIGH -> {
                     val res = a.rating.compareTo(b.rating)

@@ -1,6 +1,7 @@
 package com.ozon.notes
 
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -68,7 +69,7 @@ fun CircleIconButton(
 fun SortDropdown(
     selectedOrder: ListSortOrder,
     onOrderSelected: (ListSortOrder) -> Unit,
-    availableOrders: List<ListSortOrder> = listOf(ListSortOrder.ALPHABETICAL, ListSortOrder.REVERSE_ALPHABETICAL, ListSortOrder.NEWEST, ListSortOrder.OLDEST),
+    availableOrders: List<ListSortOrder> = listOf(ListSortOrder.ALPHABETICAL, ListSortOrder.REVERSE_ALPHABETICAL),
     modifier: Modifier = Modifier
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -100,25 +101,130 @@ fun SortDropdown(
 
         DropdownMenu(
             expanded = expanded,
-            onDismissRequest = { expanded = false }
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.width(280.dp),
+            shape = RoundedCornerShape(24.dp),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = 0.dp
         ) {
-            availableOrders.forEach { order ->
-                DropdownMenuItem(
-                    text = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(
-                                selected = selectedOrder == order,
-                                onClick = null
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(order.toFullLabel())
+            var selectedGroup by remember { 
+                mutableStateOf(
+                    if (selectedOrder == ListSortOrder.TAG_ALPHABETICAL || selectedOrder == ListSortOrder.TAG_REVERSE_ALPHABETICAL) 1 else 0
+                ) 
+            }
+
+            val titleOptions = availableOrders.filter { it != ListSortOrder.TAG_ALPHABETICAL && it != ListSortOrder.TAG_REVERSE_ALPHABETICAL }
+            val tagOptions = availableOrders.filter { it == ListSortOrder.TAG_ALPHABETICAL || it == ListSortOrder.TAG_REVERSE_ALPHABETICAL }
+            val hasTagsGroup = tagOptions.isNotEmpty()
+
+            // DropdownMenu adds 8.dp vertical padding by default. 
+            // We add horizontal padding only to achieve a perfectly symmetrical 8.dp border.
+            Column(modifier = Modifier.padding(horizontal = 8.dp)) {
+                // Header Selector (only if both groups exist)
+                if (hasTagsGroup) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(24.dp))
+                            .padding(4.dp)
+                    ) {
+                        listOf("Title", "Tags").forEachIndexed { index, title ->
+                            val isSelected = selectedGroup == index
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clip(CircleShape)
+                                    .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                    .clickable { selectedGroup = index },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = title,
+                                    style = MaterialTheme.typography.labelLarge.copy(
+                                        fontFamily = if (isSelected) com.ozon.notes.ui.theme.GoogleSansFlexRounded else MaterialTheme.typography.labelLarge.fontFamily
+                                    ),
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
+                // Options with animation
+                AnimatedContent(
+                    targetState = selectedGroup,
+                    transitionSpec = {
+                        if (targetState > initialState) {
+                            slideInHorizontally { it } + fadeIn() togetherWith slideOutHorizontally { -it } + fadeOut()
+                        } else {
+                            slideInHorizontally { -it } + fadeIn() togetherWith slideOutHorizontally { it } + fadeOut()
                         }
                     },
-                    onClick = {
-                        onOrderSelected(order)
-                        expanded = false
+                    label = "SortOptions"
+                ) { groupIndex ->
+                    val filteredOptions = if (groupIndex == 0) titleOptions else tagOptions
+
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        filteredOptions.forEachIndexed { index, order ->
+                            val isSelected = selectedOrder == order
+                            val shape = if (isSelected) {
+                                CircleShape
+                            } else {
+                                when {
+                                    filteredOptions.size == 1 -> RoundedCornerShape(16.dp)
+                                    index == 0 -> RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
+                                    index == filteredOptions.size - 1 -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 16.dp, bottomEnd = 16.dp)
+                                    else -> RoundedCornerShape(4.dp)
+                                }
+                            }
+
+                            Surface(
+                                onClick = {
+                                    onOrderSelected(order)
+                                    expanded = false
+                                },
+                                shape = shape,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
+                                contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = when(order) {
+                                            ListSortOrder.ALPHABETICAL -> "Alphabetical"
+                                            ListSortOrder.REVERSE_ALPHABETICAL -> "Reverse alphabetical"
+                                            ListSortOrder.TAG_ALPHABETICAL -> "Alphabetical"
+                                            ListSortOrder.TAG_REVERSE_ALPHABETICAL -> "Reverse alphabetical"
+                                            ListSortOrder.RATING_LOW_TO_HIGH -> "Increasing score"
+                                            ListSortOrder.RATING_HIGH_TO_LOW -> "Decreasing score"
+                                            else -> ""
+                                        },
+                                        style = MaterialTheme.typography.bodyLarge.copy(
+                                            fontFamily = if (isSelected) com.ozon.notes.ui.theme.GoogleSansFlexRounded else MaterialTheme.typography.bodyLarge.fontFamily
+                                        ),
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                    Text(
+                                        text = order.toShortLabel(),
+                                        style = MaterialTheme.typography.labelLarge.copy(
+                                            fontFamily = if (isSelected) com.ozon.notes.ui.theme.GoogleSansFlexRounded else MaterialTheme.typography.labelLarge.fontFamily
+                                        ),
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
                     }
-                )
+                }
             }
         }
     }

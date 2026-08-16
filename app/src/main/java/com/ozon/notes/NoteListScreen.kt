@@ -164,7 +164,8 @@ fun NoteListScreen(
                             ) {
                                 SortDropdown(
                                     selectedOrder = noteSortOrder,
-                                    onOrderSelected = { notesViewModel.onEvent(NoteEvent.UpdateNoteSortOrder(it)) }
+                                    onOrderSelected = { notesViewModel.onEvent(NoteEvent.UpdateNoteSortOrder(it)) },
+                                    availableOrders = listOf(ListSortOrder.ALPHABETICAL, ListSortOrder.REVERSE_ALPHABETICAL)
                                 )
                                 Spacer(modifier = Modifier.width(12.dp))
                                 CircleIconButton(

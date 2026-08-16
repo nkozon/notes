@@ -55,9 +55,12 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.ozon.notes.ui.theme.GoogleSansFlexRounded
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -65,7 +68,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.math.roundToInt
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ListDetailScreen(
     listId: String,
@@ -98,22 +101,29 @@ fun ListDetailScreen(
 
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val listState = rememberLazyListState()
     val dummyFocusRequester = remember { FocusRequester() }
-    
     var editingEntry by remember { mutableStateOf<ListEntry?>(null) }
     var entryForDescription by remember { mutableStateOf<ListEntry?>(null) }
     var previewEntry by remember { mutableStateOf<ListEntry?>(null) }
     var entryToDelete by remember { mutableStateOf<ListEntry?>(null) }
     var parentForNewSubentry by remember { mutableStateOf<ListEntry?>(null) }
     var showAddEntryDialog by remember { mutableStateOf(false) }
+    var isInlineAdding by remember { mutableStateOf(false) }
+    var inlineEntryText by remember { mutableStateOf("") }
     var expandedEntries by remember { mutableStateOf(setOf<String>()) }
+
+    LaunchedEffect(isInlineAdding) {
+        if (isInlineAdding) {
+            listState.animateScrollToItem(0)
+        }
+    }
     var isCompletedCollapsed by remember { mutableStateOf(true) }
     var isSearchActive by remember { mutableStateOf(false) }
     var showRenameListDialog by remember { mutableStateOf(false) }
 
     // Search bar scrolling state
     val density = LocalDensity.current
-    val listState = rememberLazyListState()
     val topAlpha by remember {
         derivedStateOf {
             if (listState.firstVisibleItemIndex > 0) 1f
@@ -180,16 +190,14 @@ fun ListDetailScreen(
                                     }
                                 }
                             )
-                            if (currentList.type == ListType.RATING) {
-                                TagFilterDropdown(
-                                    selectedTagIds = selectedFilterTagIds,
-                                    allTags = allTags,
-                                    filterMode = tagFilterMode,
-                                    onTagToggle = { checklistViewModel.onEvent(NoteEvent.ToggleFilterTag(it)) },
-                                    onModeToggle = { checklistViewModel.onEvent(NoteEvent.UpdateTagFilterMode(it)) },
-                                    onClearAll = { checklistViewModel.onEvent(NoteEvent.ClearFilterTags) }
-                                )
-                            }
+                            TagFilterDropdown(
+                                selectedTagIds = selectedFilterTagIds,
+                                allTags = allTags,
+                                filterMode = tagFilterMode,
+                                onTagToggle = { checklistViewModel.onEvent(NoteEvent.ToggleFilterTag(it)) },
+                                onModeToggle = { checklistViewModel.onEvent(NoteEvent.UpdateTagFilterMode(it)) },
+                                onClearAll = { checklistViewModel.onEvent(NoteEvent.ClearFilterTags) }
+                            )
                             LaunchedEffect(Unit) {
                                 dummyFocusRequester.requestFocus()
                             }
@@ -263,7 +271,12 @@ fun ListDetailScreen(
                                 SortDropdown(
                                     selectedOrder = sortOrder,
                                     onOrderSelected = { checklistViewModel.onEvent(NoteEvent.UpdateListSortOrder(it)) },
-                                    availableOrders = ListSortOrder.entries
+                                    availableOrders = ListSortOrder.entries.filter { order ->
+                                        val isNotNewOld = order != ListSortOrder.NEWEST && order != ListSortOrder.OLDEST
+                                        if (currentList.type == ListType.CHECKLIST) {
+                                            isNotNewOld && order != ListSortOrder.RATING_LOW_TO_HIGH && order != ListSortOrder.RATING_HIGH_TO_LOW
+                                        } else isNotNewOld
+                                    }
                                 )
                             }
                         }
@@ -273,7 +286,13 @@ fun ListDetailScreen(
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { showAddEntryDialog = true },
+                onClick = { 
+                    if (currentList.type == ListType.CHECKLIST) {
+                        isInlineAdding = true
+                    } else {
+                        showAddEntryDialog = true
+                    }
+                },
                 modifier = Modifier.zIndex(3f) // Above gradients
             ) {
                 Icon(Icons.Rounded.Add, contentDescription = "Add Entry")
@@ -327,6 +346,36 @@ fun ListDetailScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
+                if (isInlineAdding && currentList.type == ListType.CHECKLIST) {
+                    item(key = "inline_add") {
+                        InlineAddEntryItem(
+                            text = inlineEntryText,
+                            onTextChange = { inlineEntryText = it },
+                            onSave = {
+                                if (inlineEntryText.isNotBlank()) {
+                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(
+                                        ListEntry(listId = listId, title = inlineEntryText)
+                                    ))
+                                }
+                                inlineEntryText = ""
+                                isInlineAdding = false
+                            },
+                            onEnter = {
+                                if (inlineEntryText.isNotBlank()) {
+                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(
+                                        ListEntry(listId = listId, title = inlineEntryText)
+                                    ))
+                                }
+                                inlineEntryText = ""
+                            },
+                            onCancel = {
+                                inlineEntryText = ""
+                                isInlineAdding = false
+                            }
+                        )
+                    }
+                }
+
                 items(
                     items = uncheckedEntries,
                     key = { item -> item.first.id }
@@ -337,30 +386,30 @@ fun ListDetailScreen(
                     val hasChildren = entries.any { it.parentId == entry.id }
                     val isExpanded = expandedEntries.contains(entry.id)
                     
-                    val topStartRadius = if (index == 0) 28.dp else 4.dp
-                    val topEndRadius = if (index == 0) 28.dp else 4.dp
-                    val bottomStartRadius = if (index == uncheckedEntries.size - 1) 28.dp else 4.dp
-                    val bottomEndRadius = if (index == uncheckedEntries.size - 1) 28.dp else 4.dp
+                    val isFirstItemInList = index == 0 && !(isInlineAdding && currentList.type == ListType.CHECKLIST)
+                    val isLastItemInList = index == uncheckedEntries.size - 1
 
-                    val topStartRadiusAnimated by animateDpAsState(targetValue = topStartRadius, label = "topStart")
-                    val topEndRadiusAnimated by animateDpAsState(targetValue = topEndRadius, label = "topEnd")
-                    val bottomStartRadiusAnimated by animateDpAsState(targetValue = bottomStartRadius, label = "bottomStart")
-                    val bottomEndRadiusAnimated by animateDpAsState(targetValue = bottomEndRadius, label = "bottomEnd")
+                    val topRadius = if (isFirstItemInList) 28.dp else 4.dp
+                    val bottomRadius = if (isLastItemInList) 28.dp else 4.dp
+
+                    val topStartRadiusAnimated by animateDpAsState(targetValue = topRadius, label = "topStart")
+                    val topEndRadiusAnimated by animateDpAsState(targetValue = topRadius, label = "topEnd")
+                    val bottomStartRadiusAnimated by animateDpAsState(targetValue = bottomRadius, label = "bottomStart")
+                    val bottomEndRadiusAnimated by animateDpAsState(targetValue = bottomRadius, label = "bottomEnd")
 
                     val shape = RoundedCornerShape(topStartRadiusAnimated, topEndRadiusAnimated, bottomEndRadiusAnimated, bottomStartRadiusAnimated)
 
                     Box(modifier = Modifier.animateItem()) {
-                        key(entry.id, entry.isPinned, entry.isChecked) {
-                            SwipeToDismissWrapper(
-                                entry = entry,
-                                listType = currentList.type,
-                                shape = shape,
-                                onDelete = { entryToDelete = it },
-                                onAddSub = { parentForNewSubentry = it },
-                                onTogglePin = { 
-                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(it.copy(isPinned = !it.isPinned)))
-                                }
-                            ) {
+                        SwipeToDismissWrapper(
+                            entry = entry,
+                            listType = currentList.type,
+                            shape = shape,
+                            onDelete = { entryToDelete = it },
+                            onAddSub = { parentForNewSubentry = it },
+                            onTogglePin = { 
+                                checklistViewModel.onEvent(NoteEvent.SaveEntry(it.copy(isPinned = !it.isPinned)))
+                            }
+                        ) {
                                 val green = Color(0xFF4CAF50)
                                 val indicatorContentColor = if (currentList.type == ListType.RATING && ratingIndicatorsEnabled) {
                                     when {
@@ -379,7 +428,7 @@ fun ListDetailScreen(
                                     searchQuery = searchQuery,
                                     indicatorColor = indicatorContentColor?.copy(alpha = 0.12f),
                                     indicatorContentColor = indicatorContentColor,
-                                    tagNames = if (currentList.type == ListType.RATING) allTags.filter { it.id in entry.tagIds }.map { it.name } else emptyList(),
+                                    tagNames = allTags.filter { it.id in entry.tagIds }.map { it.name },
                                     onToggleExpand = {
                                         expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
                                     },
@@ -396,7 +445,6 @@ fun ListDetailScreen(
                             }
                         }
                     }
-                }
 
                 if (isMoveToBottom && checkedEntries.isNotEmpty()) {
                     item(key = "completed_header") {
@@ -448,17 +496,16 @@ fun ListDetailScreen(
                             val shape = RoundedCornerShape(topStartRadiusAnimated, topEndRadiusAnimated, bottomEndRadiusAnimated, bottomStartRadiusAnimated)
 
                             Box(modifier = Modifier.animateItem()) {
-                                key(entry.id, entry.isPinned, entry.isChecked) {
-                                    SwipeToDismissWrapper(
-                                        entry = entry,
-                                        listType = currentList.type,
-                                        shape = shape,
-                                        onDelete = { entryToDelete = it },
-                                        onAddSub = { parentForNewSubentry = it },
-                                        onTogglePin = {
-                                            checklistViewModel.onEvent(NoteEvent.SaveEntry(it.copy(isPinned = !it.isPinned)))
-                                        }
-                                    ) {
+                                SwipeToDismissWrapper(
+                                    entry = entry,
+                                    listType = currentList.type,
+                                    shape = shape,
+                                    onDelete = { entryToDelete = it },
+                                    onAddSub = { parentForNewSubentry = it },
+                                    onTogglePin = {
+                                        checklistViewModel.onEvent(NoteEvent.SaveEntry(it.copy(isPinned = !it.isPinned)))
+                                    }
+                                ) {
                                         ListEntryItem(
                                             entry = entry,
                                             listType = currentList.type,
@@ -468,7 +515,7 @@ fun ListDetailScreen(
                                             searchQuery = searchQuery,
                                             indicatorColor = null,
                                             indicatorContentColor = null,
-                                            tagNames = if (currentList.type == ListType.RATING) allTags.filter { it.id in entry.tagIds }.map { it.name } else emptyList(),
+                                            tagNames = allTags.filter { it.id in entry.tagIds }.map { it.name },
                                             onToggleExpand = {
                                                 expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
                                             },
@@ -485,7 +532,6 @@ fun ListDetailScreen(
                                     }
                                 }
                             }
-                        }
                     }
                 }
             }
@@ -666,6 +712,28 @@ fun ListDetailScreen(
                                     style = MaterialTheme.typography.headlineMedium,
                                     color = MaterialTheme.colorScheme.primary
                                 )
+                                if (currentList.type == ListType.RATING && entry.tagIds.isNotEmpty()) {
+                                    val tagNames = allTags.filter { it.id in entry.tagIds }.map { it.name }
+                                    FlowRow(
+                                        modifier = Modifier.padding(top = 8.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        tagNames.forEach { name ->
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                                            ) {
+                                                Text(
+                                                    text = name,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
 
                             // Rating and Close Button at the bottom
@@ -752,6 +820,28 @@ fun ListDetailScreen(
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.primary
                             )
+                            if (currentList.type == ListType.RATING && entry.tagIds.isNotEmpty()) {
+                                val tagNames = allTags.filter { it.id in entry.tagIds }.map { it.name }
+                                FlowRow(
+                                    modifier = Modifier.padding(top = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    tagNames.forEach { name ->
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                                        ) {
+                                            Text(
+                                                text = name,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
 
                         // Rating and Close Button
@@ -1009,7 +1099,7 @@ fun ListEntryItem(
                                 )
                             }
                         }
-                        if (listType == ListType.RATING && tagNames.isNotEmpty()) {
+                        if (tagNames.isNotEmpty()) {
                             FlowRow(
                                 modifier = Modifier.padding(top = 4.dp),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1180,43 +1270,39 @@ fun EntryDialog(
                     }
                 }
 
-                // Tag Selection (Rating lists only)
-                if (listType == ListType.RATING) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("Tags", style = MaterialTheme.typography.labelLarge)
-                            IconButton(onClick = { showAddTagDialog = true }) {
-                                Icon(Icons.Rounded.Add, contentDescription = "Add New Tag")
-                            }
-                        }
-                        
-                        FlowRow(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            allTags.forEach { tag ->
-                                val isSelected = selectedTagIds.contains(tag.id)
-                                FilterChip(
-                                    selected = isSelected,
-                                    onClick = {
-                                        selectedTagIds = if (isSelected) {
-                                            selectedTagIds - tag.id
-                                        } else {
-                                            selectedTagIds + tag.id
-                                        }
-                                    },
-                                    label = { Text(tag.name) }
-                                )
-                            }
+                // Tag Selection
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Tags", style = MaterialTheme.typography.labelLarge)
+                        IconButton(onClick = { showAddTagDialog = true }) {
+                            Icon(Icons.Rounded.Add, contentDescription = "Add New Tag")
                         }
                     }
-                } else {
-                    // No description text box here for checklists as requested
+                    
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        allTags.forEach { tag ->
+                            val isSelected = selectedTagIds.contains(tag.id)
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    selectedTagIds = if (isSelected) {
+                                        selectedTagIds - tag.id
+                                    } else {
+                                        selectedTagIds + tag.id
+                                    }
+                                },
+                                label = { Text(tag.name) }
+                            )
+                        }
+                    }
                 }
             }
         },
@@ -1227,7 +1313,7 @@ fun EntryDialog(
                         onConfirm(
                             title.text, 
                             ((rating * 2).roundToInt() / 2.0).toFloat(), 
-                            if (listType == ListType.RATING) selectedTagIds.toList() else emptyList()
+                            selectedTagIds.toList()
                         )
                     }
                 }
@@ -1345,64 +1431,208 @@ fun TagFilterDropdown(
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
-            modifier = Modifier.width(IntrinsicSize.Max).widthIn(min = 180.dp)
+            modifier = Modifier.width(280.dp),
+            shape = RoundedCornerShape(24.dp),
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = 0.dp
         ) {
-            // Mode Toggle Header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                SingleChoiceSegmentedButtonRow {
-                    SegmentedButton(
-                        selected = filterMode == TagFilterMode.OR,
-                        onClick = { onModeToggle(TagFilterMode.OR) },
-                        shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2)
-                    ) { Text("OR") }
-                    SegmentedButton(
-                        selected = filterMode == TagFilterMode.AND,
-                        onClick = { onModeToggle(TagFilterMode.AND) },
-                        shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2)
-                    ) { Text("AND") }
+            Column(modifier = Modifier.padding(horizontal = 8.dp)) {
+                // Mode Toggle Header
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(24.dp))
+                        .padding(4.dp)
+                ) {
+                    listOf(TagFilterMode.OR to "OR", TagFilterMode.AND to "AND").forEach { (mode, label) ->
+                        val isSelected = filterMode == mode
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clip(CircleShape)
+                                .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                .clickable { onModeToggle(mode) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontFamily = if (isSelected) GoogleSansFlexRounded else MaterialTheme.typography.labelLarge.fontFamily
+                                ),
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (selectedTagIds.isNotEmpty()) {
+                    Surface(
+                        onClick = {
+                            onClearAll()
+                            expanded = false
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
+                        contentColor = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Rounded.Clear, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text("Clear all filters", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    allTags.forEachIndexed { index, tag ->
+                        val isSelected = selectedTagIds.contains(tag.id)
+                        val shape = if (isSelected) {
+                            CircleShape
+                        } else {
+                            when {
+                                allTags.size == 1 -> RoundedCornerShape(16.dp)
+                                index == 0 -> RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
+                                index == allTags.size - 1 -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 16.dp, bottomEnd = 16.dp)
+                                else -> RoundedCornerShape(4.dp)
+                            }
+                        }
+
+                        Surface(
+                            onClick = { onTagToggle(tag.id) },
+                            shape = shape,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
+                            contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = isSelected,
+                                    onCheckedChange = null,
+                                    colors = CheckboxDefaults.colors(
+                                        checkedColor = Color.Transparent,
+                                        uncheckedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                        checkmarkColor = MaterialTheme.colorScheme.onPrimary
+                                    ),
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Text(
+                                    text = tag.name,
+                                    style = MaterialTheme.typography.bodyLarge.copy(
+                                        fontFamily = if (isSelected) GoogleSansFlexRounded else MaterialTheme.typography.bodyLarge.fontFamily
+                                    ),
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+                }
+                
+                if (allTags.isEmpty()) {
+                    Text(
+                        "No tags available",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                        textAlign = TextAlign.Center
+                    )
                 }
             }
-            
-            HorizontalDivider()
-            
-            DropdownMenuItem(
-                text = { Text("Clear All Filters") },
-                onClick = {
-                    onClearAll()
-                    expanded = false
+        }
+    }
+}
+
+@Composable
+fun InlineAddEntryItem(
+    text: String,
+    onTextChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onEnter: () -> Unit,
+    onCancel: () -> Unit
+) {
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+        keyboardController?.show()
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp, 28.dp, 4.dp, 4.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 16.dp, vertical = 4.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextField(
+                value = text,
+                onValueChange = onTextChange,
+                placeholder = { 
+                    Text(
+                        "New item...",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    ) 
                 },
-                leadingIcon = {
-                    Icon(Icons.Rounded.Clear, contentDescription = null)
-                },
-                enabled = selectedTagIds.isNotEmpty()
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(focusRequester),
+                textStyle = MaterialTheme.typography.bodyLarge,
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    cursorColor = MaterialTheme.colorScheme.primary
+                ),
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Sentences,
+                    imeAction = ImeAction.Done
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = { onEnter() }
+                )
             )
             
-            HorizontalDivider()
-
-            allTags.forEach { tag ->
-                val isSelected = selectedTagIds.contains(tag.id)
-                DropdownMenuItem(
-                    text = { Text(tag.name) },
-                    onClick = {
-                        onTagToggle(tag.id)
-                    },
-                    leadingIcon = {
-                        Checkbox(checked = isSelected, onCheckedChange = null)
-                    }
+            TextButton(
+                onClick = onSave,
+                enabled = text.isNotBlank()
+            ) {
+                Text(
+                    "Save",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = GoogleSansFlexRounded
                 )
             }
             
-            if (allTags.isEmpty()) {
-                DropdownMenuItem(
-                    text = { Text("No tags available", style = MaterialTheme.typography.bodySmall) },
-                    onClick = { expanded = false },
-                    enabled = false
+            IconButton(onClick = onCancel) {
+                Icon(
+                    Icons.Rounded.Clear,
+                    contentDescription = "Cancel",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

@@ -101,11 +101,13 @@ data class ListEntry(
 )
 
 enum class ListSortOrder {
-    ALPHABETICAL, REVERSE_ALPHABETICAL, RATING_LOW_TO_HIGH, RATING_HIGH_TO_LOW, NEWEST, OLDEST;
+    ALPHABETICAL, REVERSE_ALPHABETICAL, TAG_ALPHABETICAL, TAG_REVERSE_ALPHABETICAL, RATING_LOW_TO_HIGH, RATING_HIGH_TO_LOW, NEWEST, OLDEST;
 
     fun toShortLabel(): String = when (this) {
         ALPHABETICAL -> "A-Z"
         REVERSE_ALPHABETICAL -> "Z-A"
+        TAG_ALPHABETICAL -> "T-AZ"
+        TAG_REVERSE_ALPHABETICAL -> "T-ZA"
         RATING_LOW_TO_HIGH -> "0-9"
         RATING_HIGH_TO_LOW -> "9-0"
         NEWEST -> "New"
@@ -115,6 +117,8 @@ enum class ListSortOrder {
     fun toFullLabel(): String = when (this) {
         ALPHABETICAL -> "Alphabetical"
         REVERSE_ALPHABETICAL -> "Reverse Alphabetical"
+        TAG_ALPHABETICAL -> "Tags: A to Z"
+        TAG_REVERSE_ALPHABETICAL -> "Tags: Z to A"
         RATING_LOW_TO_HIGH -> "Score: Low to High"
         RATING_HIGH_TO_LOW -> "Score: High to Low"
         NEWEST -> "Newest first"

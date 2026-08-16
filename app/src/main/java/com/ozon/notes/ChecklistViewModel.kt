@@ -54,7 +54,8 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
         _selectedFilterTagIds,
         _tagFilterMode,
         repository.getChecklistBehavior(),
-        repository.getAllLists()
+        repository.getAllLists(),
+        allTags
     ) { args ->
         val listId = args[0] as String?
         val sortOrder = args[1] as ListSortOrder
@@ -63,11 +64,12 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
         val filterMode = args[4] as TagFilterMode
         val behavior = args[5] as ChecklistBehavior
         val allLists = args[6] as List<NoteList>
+        val tags = args[7] as List<Tag>
 
         val currentList = allLists.find { it.id == listId }
         val isChecklist = currentList?.type == ListType.CHECKLIST
         
-        ChecklistFilterParams(listId, sortOrder, query, tagIds, filterMode, behavior, isChecklist)
+        ChecklistFilterParams(listId, sortOrder, query, tagIds, filterMode, behavior, isChecklist, tags)
     }.flatMapLatest { params ->
         val listId = params.listId
         if (listId == null) return@flatMapLatest flowOf(emptyList<ListEntry>())
@@ -80,7 +82,8 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
                 params.filterMode,
                 params.sortOrder,
                 params.behavior,
-                params.isChecklist
+                params.isChecklist,
+                params.tags
             )
         }.flowOn(Dispatchers.Default)
     }.stateIn(
@@ -117,7 +120,8 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
         val tagIds: Set<String>,
         val filterMode: TagFilterMode,
         val behavior: ChecklistBehavior,
-        val isChecklist: Boolean
+        val isChecklist: Boolean,
+        val tags: List<Tag>
     )
 
     companion object {
