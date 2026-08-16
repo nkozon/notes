@@ -174,7 +174,7 @@ fun NoteListScreen(
                                     shape = if (activeRoute is DetailRoute.Settings) RoundedCornerShape(12.dp) else CircleShape,
                                     containerColor = if (activeRoute is DetailRoute.Settings) 
                                         MaterialTheme.colorScheme.primaryContainer 
-                                    else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+                                    else MaterialTheme.colorScheme.secondaryContainer,
                                     contentColor = if (activeRoute is DetailRoute.Settings)
                                         MaterialTheme.colorScheme.onPrimaryContainer
                                     else MaterialTheme.colorScheme.onSecondaryContainer

@@ -125,6 +125,8 @@ class RoomNoteRepository(
             prefs.edit().clear().apply()
             _theme.value = AppTheme.SYSTEM
             _useDynamicColor.value = true
+            _customPrimaryColor.value = null
+            _customSecondaryColor.value = null
             _customAccentColor.value = null
             _isOledMode.value = false
             _checklistBehavior.value = ChecklistBehavior.GREY_OUT
@@ -235,6 +237,26 @@ class RoomNoteRepository(
     override suspend fun setUseDynamicColor(enabled: Boolean) {
         prefs.edit().putBoolean("use_dynamic_color", enabled).apply()
         _useDynamicColor.value = enabled
+    }
+
+    private val _customPrimaryColor = MutableStateFlow(
+        if (prefs.contains("custom_primary_color")) prefs.getInt("custom_primary_color", 0) else null
+    )
+    override fun getCustomPrimaryColor(): Flow<Int?> = _customPrimaryColor
+    override suspend fun setCustomPrimaryColor(color: Int?) {
+        if (color == null) prefs.edit().remove("custom_primary_color").apply()
+        else prefs.edit().putInt("custom_primary_color", color).apply()
+        _customPrimaryColor.value = color
+    }
+
+    private val _customSecondaryColor = MutableStateFlow(
+        if (prefs.contains("custom_secondary_color")) prefs.getInt("custom_secondary_color", 0) else null
+    )
+    override fun getCustomSecondaryColor(): Flow<Int?> = _customSecondaryColor
+    override suspend fun setCustomSecondaryColor(color: Int?) {
+        if (color == null) prefs.edit().remove("custom_secondary_color").apply()
+        else prefs.edit().putInt("custom_secondary_color", color).apply()
+        _customSecondaryColor.value = color
     }
 
     private val _customAccentColor = MutableStateFlow(

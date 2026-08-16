@@ -39,6 +39,10 @@ interface NoteRepository {
     suspend fun setTheme(theme: AppTheme)
     fun getUseDynamicColor(): Flow<Boolean>
     suspend fun setUseDynamicColor(enabled: Boolean)
+    fun getCustomPrimaryColor(): Flow<Int?>
+    suspend fun setCustomPrimaryColor(color: Int?)
+    fun getCustomSecondaryColor(): Flow<Int?>
+    suspend fun setCustomSecondaryColor(color: Int?)
     fun getCustomAccentColor(): Flow<Int?>
     suspend fun setCustomAccentColor(color: Int?)
     fun getIsOledMode(): Flow<Boolean>

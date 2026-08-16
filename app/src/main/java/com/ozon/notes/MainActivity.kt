@@ -43,6 +43,8 @@ class MainActivity : ComponentActivity() {
 
             val appTheme by settingsViewModel.themeState.collectAsStateWithLifecycle()
             val useDynamicColor by settingsViewModel.useDynamicColorState.collectAsStateWithLifecycle()
+            val customPrimaryColor by settingsViewModel.customPrimaryColorState.collectAsStateWithLifecycle()
+            val customSecondaryColor by settingsViewModel.customSecondaryColorState.collectAsStateWithLifecycle()
             val customAccentColor by settingsViewModel.customAccentColorState.collectAsStateWithLifecycle()
             val isOledMode by settingsViewModel.isOledModeState.collectAsStateWithLifecycle()
 
@@ -82,6 +84,8 @@ class MainActivity : ComponentActivity() {
             NotesTheme(
                 darkTheme = isDarkTheme,
                 dynamicColor = useDynamicColor,
+                customPrimaryColor = customPrimaryColor,
+                customSecondaryColor = customSecondaryColor,
                 customAccentColor = customAccentColor,
                 isOledMode = isOledMode
             ) {

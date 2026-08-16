@@ -28,6 +28,12 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
     val useDynamicColorState: StateFlow<Boolean> = repository.getUseDynamicColor()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
+    val customPrimaryColorState: StateFlow<Int?> = repository.getCustomPrimaryColor()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val customSecondaryColorState: StateFlow<Int?> = repository.getCustomSecondaryColor()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     val customAccentColorState: StateFlow<Int?> = repository.getCustomAccentColor()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
@@ -80,6 +86,8 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
         when (event) {
             is NoteEvent.UpdateTheme -> viewModelScope.launch { repository.setTheme(event.theme) }
             is NoteEvent.UpdateUseDynamicColor -> viewModelScope.launch { repository.setUseDynamicColor(event.enabled) }
+            is NoteEvent.UpdateCustomPrimaryColor -> viewModelScope.launch { repository.setCustomPrimaryColor(event.color) }
+            is NoteEvent.UpdateCustomSecondaryColor -> viewModelScope.launch { repository.setCustomSecondaryColor(event.color) }
             is NoteEvent.UpdateCustomAccentColor -> viewModelScope.launch { repository.setCustomAccentColor(event.color) }
             is NoteEvent.UpdateIsOledMode -> viewModelScope.launch { repository.setIsOledMode(event.enabled) }
             is NoteEvent.UpdateTabletMode -> viewModelScope.launch { repository.setTabletMode(event.mode) }

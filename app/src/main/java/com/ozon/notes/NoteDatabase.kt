@@ -239,10 +239,10 @@ abstract class NoteDatabase : RoomDatabase() {
                         title TEXT NOT NULL,
                         content TEXT NOT NULL,
                         contentHtml TEXT,
-                        type TEXT NOT NULL DEFAULT 'TEXT',
+                        type TEXT NOT NULL,
                         drawingData TEXT,
                         timestamp INTEGER NOT NULL,
-                        isPinned INTEGER NOT NULL DEFAULT 0,
+                        isPinned INTEGER NOT NULL,
                         PRIMARY KEY(id)
                     )
                 """.trimIndent())

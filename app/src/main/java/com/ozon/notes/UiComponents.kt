@@ -44,7 +44,7 @@ fun CircleIconButton(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     shape: Shape = CircleShape,
-    containerColor: Color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f),
+    containerColor: Color = MaterialTheme.colorScheme.secondaryContainer,
     contentColor: Color = MaterialTheme.colorScheme.onSecondaryContainer
 ) {
     Box(
@@ -79,7 +79,7 @@ fun SortDropdown(
             modifier = Modifier
                 .height(38.dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f))
+                .background(MaterialTheme.colorScheme.secondaryContainer)
                 .clickable { expanded = true }
                 .padding(horizontal = 14.dp)
         ) {

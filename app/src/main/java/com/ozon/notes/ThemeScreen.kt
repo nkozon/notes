@@ -40,7 +40,6 @@ fun ThemeScreen(
 ) {
     val theme by viewModel.themeState.collectAsStateWithLifecycle()
     val useDynamicColor by viewModel.useDynamicColorState.collectAsStateWithLifecycle()
-    val customAccentColor by viewModel.customAccentColorState.collectAsStateWithLifecycle()
     val isOledMode by viewModel.isOledModeState.collectAsStateWithLifecycle()
 
     val presetColors = listOf(
@@ -148,15 +147,16 @@ fun ThemeScreen(
                 }
             }
 
-            // Accent Color Section
-            SettingsSection(title = "Accent Color") {
+            // Custom Colors Section
+            SettingsSection(title = "Custom Colors") {
                 val showDynamicColor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-                val showCustomAccent = !useDynamicColor || !showDynamicColor
-                val accentTotal = (if (showDynamicColor) 1 else 0) + (if (showCustomAccent) 1 else 0)
+                val showCustomColors = !useDynamicColor || !showDynamicColor
+                val customPrimaryColor by viewModel.customPrimaryColorState.collectAsStateWithLifecycle()
+                val customSecondaryColor by viewModel.customSecondaryColorState.collectAsStateWithLifecycle()
 
                 Column {
                     if (showDynamicColor) {
-                        SettingsItemContainer(index = 0, total = accentTotal) {
+                        SettingsItemContainer(index = 0, total = if (showCustomColors) 2 else 1) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -181,63 +181,33 @@ fun ThemeScreen(
                     }
 
                     AnimatedVisibility(
-                        visible = showCustomAccent,
+                        visible = showCustomColors,
                         enter = expandVertically() + fadeIn(),
                         exit = shrinkVertically() + fadeOut()
                     ) {
-                        SettingsItemContainer(index = if (showDynamicColor) 1 else 0, total = accentTotal) {
+                        SettingsItemContainer(index = if (showDynamicColor) 1 else 0, total = if (showDynamicColor) 2 else 1) {
                             Column(modifier = Modifier.padding(16.dp)) {
-                                Text("Custom Accent", style = MaterialTheme.typography.titleMedium)
-                                Spacer(Modifier.height(16.dp))
-                                
-                                var showColorPicker by remember { mutableStateOf(false) }
+                                // Primary Color Selection
+                                Text("Primary Color", style = MaterialTheme.typography.titleMedium)
+                                Text("App background and card color (will be automatically dimmed)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.height(12.dp))
+                                ColorPickerRow(
+                                    selectedColor = customPrimaryColor,
+                                    presetColors = presetColors,
+                                    onColorSelected = { viewModel.onEvent(NoteEvent.UpdateCustomPrimaryColor(it)) }
+                                )
 
-                                LazyRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    contentPadding = PaddingValues(horizontal = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    items(presetColors) { color ->
-                                        ColorPresetItem(
-                                            color = color,
-                                            selected = customAccentColor == color.toArgb(),
-                                            onClick = { viewModel.onEvent(NoteEvent.UpdateCustomAccentColor(color.toArgb())) }
-                                        )
-                                    }
-                                    
-                                    item {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(44.dp)
-                                                .clip(CircleShape)
-                                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                                .clickable { showColorPicker = true }
-                                                .border(
-                                                    width = if (customAccentColor != null && presetColors.none { it.toArgb() == customAccentColor }) 3.dp else 0.dp,
-                                                    color = MaterialTheme.colorScheme.primary,
-                                                    shape = CircleShape
-                                                ),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                Icons.Rounded.Palette,
-                                                contentDescription = "Custom Color",
-                                                tint = MaterialTheme.colorScheme.primary
-                                            )
-                                        }
-                                    }
-                                }
+                                Spacer(Modifier.height(24.dp))
 
-                                if (showColorPicker) {
-                                    FullColorPickerDialog(
-                                        initialColor = customAccentColor?.let { Color(it) } ?: MaterialTheme.colorScheme.primary,
-                                        onColorChange = { 
-                                            viewModel.onEvent(NoteEvent.UpdateCustomAccentColor(it.toArgb()))
-                                            showColorPicker = false
-                                        },
-                                        onDismiss = { showColorPicker = false }
-                                    )
-                                }
+                                // Secondary (Accent) Color Selection
+                                Text("Secondary (Accent) Color", style = MaterialTheme.typography.titleMedium)
+                                Text("Color for interactive elements like toggles and buttons", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.height(12.dp))
+                                ColorPickerRow(
+                                    selectedColor = customSecondaryColor,
+                                    presetColors = presetColors,
+                                    onColorSelected = { viewModel.onEvent(NoteEvent.UpdateCustomSecondaryColor(it)) }
+                                )
                             }
                         }
                     }
@@ -248,6 +218,62 @@ fun ThemeScreen(
         SystemBarGradients(
             modifier = Modifier.zIndex(1f),
             topAlpha = topAlpha
+        )
+    }
+}
+
+@Composable
+fun ColorPickerRow(
+    selectedColor: Int?,
+    presetColors: List<Color>,
+    onColorSelected: (Int?) -> Unit
+) {
+    var showFullPicker by remember { mutableStateOf(false) }
+
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        items(presetColors) { color ->
+            ColorPresetItem(
+                color = color,
+                selected = selectedColor == color.toArgb(),
+                onClick = { onColorSelected(color.toArgb()) }
+            )
+        }
+        
+        item {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .clickable { showFullPicker = true }
+                    .border(
+                        width = if (selectedColor != null && presetColors.none { it.toArgb() == selectedColor }) 3.dp else 0.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Rounded.Palette,
+                    contentDescription = "Custom Color",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+
+    if (showFullPicker) {
+        FullColorPickerDialog(
+            initialColor = selectedColor?.let { Color(it) } ?: MaterialTheme.colorScheme.primary,
+            onColorChange = { 
+                onColorSelected(it.toArgb())
+                showFullPicker = false
+            },
+            onDismiss = { showFullPicker = false }
         )
     }
 }
