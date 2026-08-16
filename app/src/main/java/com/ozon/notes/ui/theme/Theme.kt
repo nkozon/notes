@@ -40,16 +40,46 @@ fun NotesTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     // Dynamic color is available on Android 12+
     dynamicColor: Boolean = true,
+    customAccentColor: Int? = null,
+    isOledMode: Boolean = false,
     content: @Composable () -> Unit
 ) {
+    val context = LocalContext.current
     val colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
             if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
+
+        customAccentColor != null -> {
+            val primary = Color(customAccentColor)
+            if (darkTheme) {
+                darkColorScheme(
+                    primary = primary,
+                    onPrimary = Color.Black, // Simplified
+                    primaryContainer = primary.copy(alpha = 0.3f),
+                    onPrimaryContainer = Color.White
+                )
+            } else {
+                lightColorScheme(
+                    primary = primary,
+                    onPrimary = Color.White,
+                    primaryContainer = primary.copy(alpha = 0.3f),
+                    onPrimaryContainer = Color.Black
+                )
+            }
         }
 
         darkTheme -> DarkColorScheme
         else -> LightColorScheme
+    }.let { scheme ->
+        if (darkTheme && isOledMode) {
+            scheme.copy(
+                background = Color.Black,
+                surface = Color.Black
+            )
+        } else {
+            scheme
+        }
     }
 
     MaterialTheme(

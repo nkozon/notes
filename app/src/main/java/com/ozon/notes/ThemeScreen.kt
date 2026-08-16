@@ -1,0 +1,313 @@
+package com.ozon.notes
+
+import android.os.Build
+import androidx.compose.animation.*
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ozon.notes.ui.theme.GoogleSansFlexRounded
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ThemeScreen(
+    viewModel: SettingsViewModel,
+    onNavigateUp: () -> Unit
+) {
+    val theme by viewModel.themeState.collectAsStateWithLifecycle()
+    val useDynamicColor by viewModel.useDynamicColorState.collectAsStateWithLifecycle()
+    val customAccentColor by viewModel.customAccentColorState.collectAsStateWithLifecycle()
+    val isOledMode by viewModel.isOledModeState.collectAsStateWithLifecycle()
+
+    val presetColors = listOf(
+        Color(0xFF6750A4), // Purple
+        Color(0xFF006C4C), // Green
+        Color(0xFFBA1A1A), // Red
+        Color(0xFF0061A4), // Blue
+        Color(0xFF7D5800), // Yellow
+        Color(0xFF984061), // Pink
+        Color(0xFF006874), // Cyan
+        Color(0xFF625B71), // Grey
+    )
+
+    Scaffold(
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        topBar = {
+            TopAppBar(
+                title = { 
+                    Text(
+                        text = "Theme Settings", 
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.padding(start = 16.dp)
+                    ) 
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent
+                ),
+                navigationIcon = {
+                    Box(modifier = Modifier.padding(start = 16.dp)) {
+                        CircleIconButton(
+                            onClick = onNavigateUp,
+                            icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val scrollState = rememberScrollState()
+        val topAlpha by remember {
+            derivedStateOf {
+                (scrollState.value / 100f).coerceIn(0f, 1f)
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(horizontal = 16.dp)
+                .padding(top = topPadding + 64.dp, bottom = bottomPadding + 16.dp)
+                .animateContentSize(animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing)),
+            verticalArrangement = Arrangement.spacedBy(24.dp)
+        ) {
+            // Mode Section
+            SettingsSection(title = "Mode") {
+                Column {
+                    SettingsItemContainer(index = 0, total = 2) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("App Theme", style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(12.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                AppTheme.entries.forEach { appTheme ->
+                                    ThemeModeItem(
+                                        label = appTheme.name.lowercase().replaceFirstChar { it.uppercase() },
+                                        selected = theme == appTheme,
+                                        onClick = { viewModel.onEvent(NoteEvent.UpdateTheme(appTheme)) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    SettingsItemContainer(index = 1, total = 2) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("OLED Mode", style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    "Pure black background in dark theme",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = isOledMode,
+                                onCheckedChange = { viewModel.onEvent(NoteEvent.UpdateIsOledMode(it)) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Accent Color Section
+            SettingsSection(title = "Accent Color") {
+                val showDynamicColor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                val showCustomAccent = !useDynamicColor || !showDynamicColor
+                val accentTotal = (if (showDynamicColor) 1 else 0) + (if (showCustomAccent) 1 else 0)
+
+                Column {
+                    if (showDynamicColor) {
+                        SettingsItemContainer(index = 0, total = accentTotal) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Dynamic Color", style = MaterialTheme.typography.titleMedium)
+                                    Text(
+                                        "Use system accent color",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Switch(
+                                    checked = useDynamicColor,
+                                    onCheckedChange = { viewModel.onEvent(NoteEvent.UpdateUseDynamicColor(it)) }
+                                )
+                            }
+                        }
+                    }
+
+                    AnimatedVisibility(
+                        visible = showCustomAccent,
+                        enter = expandVertically() + fadeIn(),
+                        exit = shrinkVertically() + fadeOut()
+                    ) {
+                        SettingsItemContainer(index = if (showDynamicColor) 1 else 0, total = accentTotal) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text("Custom Accent", style = MaterialTheme.typography.titleMedium)
+                                Spacer(Modifier.height(16.dp))
+                                
+                                var showColorPicker by remember { mutableStateOf(false) }
+
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    items(presetColors) { color ->
+                                        ColorPresetItem(
+                                            color = color,
+                                            selected = customAccentColor == color.toArgb(),
+                                            onClick = { viewModel.onEvent(NoteEvent.UpdateCustomAccentColor(color.toArgb())) }
+                                        )
+                                    }
+                                    
+                                    item {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(44.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                                .clickable { showColorPicker = true }
+                                                .border(
+                                                    width = if (customAccentColor != null && presetColors.none { it.toArgb() == customAccentColor }) 3.dp else 0.dp,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    shape = CircleShape
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                Icons.Rounded.Palette,
+                                                contentDescription = "Custom Color",
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (showColorPicker) {
+                                    FullColorPickerDialog(
+                                        initialColor = customAccentColor?.let { Color(it) } ?: MaterialTheme.colorScheme.primary,
+                                        onColorChange = { 
+                                            viewModel.onEvent(NoteEvent.UpdateCustomAccentColor(it.toArgb()))
+                                            showColorPicker = false
+                                        },
+                                        onDismiss = { showColorPicker = false }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        SystemBarGradients(
+            modifier = Modifier.zIndex(1f),
+            topAlpha = topAlpha
+        )
+    }
+}
+
+@Composable
+fun ThemeModeItem(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(48.dp),
+        shape = if (selected) CircleShape else RoundedCornerShape(12.dp),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontFamily = GoogleSansFlexRounded
+                ),
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+fun ColorPresetItem(
+    color: Color,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(color)
+            .clickable(onClick = onClick)
+            .border(
+                width = if (selected) 3.dp else 0.dp,
+                color = if (selected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                shape = CircleShape
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        if (selected) {
+            Icon(
+                Icons.Rounded.Check,
+                contentDescription = null,
+                tint = if (color.luminance() > 0.5f) Color.Black else Color.White,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+    }
+}
+
+private fun Color.luminance(): Float {
+    return 0.2126f * red + 0.7152f * green + 0.0722f * blue
+}

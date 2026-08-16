@@ -17,8 +17,10 @@ sealed interface NoteEvent {
     data object ClearFilterTags : NoteEvent
     data class UpdateTagFilterMode(val mode: TagFilterMode) : NoteEvent
     data class UpdateListSortOrder(val sortOrder: ListSortOrder) : NoteEvent
-    data class UpdateStartupView(val view: AppView) : NoteEvent
     data class UpdateTheme(val theme: AppTheme) : NoteEvent
+    data class UpdateUseDynamicColor(val enabled: Boolean) : NoteEvent
+    data class UpdateCustomAccentColor(val color: Int?) : NoteEvent
+    data class UpdateIsOledMode(val enabled: Boolean) : NoteEvent
     data class UpdateTabletMode(val mode: TabletMode) : NoteEvent
     data class UpdateNoteSortOrder(val sortOrder: ListSortOrder) : NoteEvent
     data class UpdateListsSortOrder(val sortOrder: ListSortOrder) : NoteEvent

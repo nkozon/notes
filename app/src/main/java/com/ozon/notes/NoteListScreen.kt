@@ -76,6 +76,13 @@ fun NoteListScreen(
 
     val gridState = androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
 
+    val topAlpha by remember {
+        derivedStateOf {
+            if (gridState.firstVisibleItemIndex > 0) 1f
+            else (gridState.firstVisibleItemScrollOffset / 100f).coerceIn(0f, 1f)
+        }
+    }
+
     LaunchedEffect(Unit) {
         focusManager.clearFocus()
         keyboardController?.hide()
@@ -297,7 +304,10 @@ fun NoteListScreen(
                 }
             }
 
-            SystemBarGradients(modifier = Modifier.zIndex(1f))
+            SystemBarGradients(
+                modifier = Modifier.zIndex(1f),
+                topAlpha = topAlpha
+            )
         }
     }
 

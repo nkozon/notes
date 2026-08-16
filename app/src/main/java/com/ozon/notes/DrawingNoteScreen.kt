@@ -937,52 +937,6 @@ fun ColorCircle(color: Color, isSelected: Boolean, onClick: () -> Unit) {
     )
 }
 
-@Composable
-fun FullColorPickerDialog(
-    initialColor: Color,
-    onColorChange: (Color) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var hsv by remember { 
-        val hsv = FloatArray(3)
-        android.graphics.Color.colorToHSV(initialColor.toArgb(), hsv)
-        mutableStateOf(hsv)
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Custom Color") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(80.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Color(android.graphics.Color.HSVToColor(hsv)))
-                        .border(1.dp, Color.Gray, RoundedCornerShape(12.dp))
-                )
-                
-                Text("Hue: ${hsv[0].toInt()}°", style = MaterialTheme.typography.labelSmall)
-                Slider(value = hsv[0], onValueChange = { hsv = hsv.copyOf().apply { set(0, it) } }, valueRange = 0f..360f)
-                
-                Text("Saturation: ${(hsv[1] * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
-                Slider(value = hsv[1], onValueChange = { hsv = hsv.copyOf().apply { set(1, it) } }, valueRange = 0f..1f)
-                
-                Text("Value: ${(hsv[2] * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
-                Slider(value = hsv[2], onValueChange = { hsv = hsv.copyOf().apply { set(2, it) } }, valueRange = 0f..1f)
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onColorChange(Color(android.graphics.Color.HSVToColor(hsv))) }) {
-                Text("Select")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
-}
 
 @Composable
 fun ThicknessPopup(thickness: Float, onThicknessChange: (Float) -> Unit, color: Color) {

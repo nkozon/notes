@@ -156,11 +156,17 @@ fun BackupRestoreScreen(
     ) { padding ->
         val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val scrollState = rememberScrollState()
+        val topAlpha by remember {
+            derivedStateOf {
+                (scrollState.value / 100f).coerceIn(0f, 1f)
+            }
+        }
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .padding(horizontal = 16.dp)
                 .padding(top = topPadding + 64.dp, bottom = bottomPadding + 16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
@@ -309,6 +315,9 @@ fun BackupRestoreScreen(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        SystemBarGradients(modifier = Modifier.zIndex(1f))
+        SystemBarGradients(
+            modifier = Modifier.zIndex(1f),
+            topAlpha = topAlpha
+        )
     }
 }

@@ -123,8 +123,10 @@ class RoomNoteRepository(
         withContext(Dispatchers.IO) {
             database.clearAllTables()
             prefs.edit().clear().apply()
-            _startupView.value = AppView.MAIN
             _theme.value = AppTheme.SYSTEM
+            _useDynamicColor.value = true
+            _customAccentColor.value = null
+            _isOledMode.value = false
             _checklistBehavior.value = ChecklistBehavior.GREY_OUT
             _showEntryCount.value = false
             _listsSortOrder.value = ListSortOrder.NEWEST
@@ -205,11 +207,6 @@ class RoomNoteRepository(
     // --- Settings ---
     private val prefs = context.getSharedPreferences("notes_settings", Context.MODE_PRIVATE)
 
-    private val _startupView = MutableStateFlow(
-        prefs.getString("startup_view", null)?.let {
-            try { AppView.valueOf(it) } catch (e: Exception) { null }
-        } ?: AppView.MAIN
-    )
     private val _theme = MutableStateFlow(
         prefs.getString("app_theme", null)?.let {
             try { AppTheme.valueOf(it) } catch (e: Exception) { null }
@@ -227,16 +224,37 @@ class RoomNoteRepository(
     )
     private val _showEntryCount = MutableStateFlow(prefs.getBoolean("show_entry_count", false))
 
-    override fun getStartupView(): Flow<AppView> = _startupView
-    override suspend fun setStartupView(view: AppView) {
-        prefs.edit().putString("startup_view", view.name).apply()
-        _startupView.value = view
-    }
-
     override fun getTheme(): Flow<AppTheme> = _theme
     override suspend fun setTheme(theme: AppTheme) {
         prefs.edit().putString("app_theme", theme.name).apply()
         _theme.value = theme
+    }
+
+    private val _useDynamicColor = MutableStateFlow(prefs.getBoolean("use_dynamic_color", true))
+    override fun getUseDynamicColor(): Flow<Boolean> = _useDynamicColor
+    override suspend fun setUseDynamicColor(enabled: Boolean) {
+        prefs.edit().putBoolean("use_dynamic_color", enabled).apply()
+        _useDynamicColor.value = enabled
+    }
+
+    private val _customAccentColor = MutableStateFlow(
+        if (prefs.contains("custom_accent_color")) prefs.getInt("custom_accent_color", 0) else null
+    )
+    override fun getCustomAccentColor(): Flow<Int?> = _customAccentColor
+    override suspend fun setCustomAccentColor(color: Int?) {
+        if (color == null) {
+            prefs.edit().remove("custom_accent_color").apply()
+        } else {
+            prefs.edit().putInt("custom_accent_color", color).apply()
+        }
+        _customAccentColor.value = color
+    }
+
+    private val _isOledMode = MutableStateFlow(prefs.getBoolean("is_oled_mode", false))
+    override fun getIsOledMode(): Flow<Boolean> = _isOledMode
+    override suspend fun setIsOledMode(enabled: Boolean) {
+        prefs.edit().putBoolean("is_oled_mode", enabled).apply()
+        _isOledMode.value = enabled
     }
 
     override fun getTabletMode(): Flow<TabletMode> = _tabletMode

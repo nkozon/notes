@@ -35,10 +35,14 @@ interface NoteRepository {
     fun getContext(): Context
 
     // --- Settings ---
-    fun getStartupView(): Flow<AppView>
-    suspend fun setStartupView(view: AppView)
     fun getTheme(): Flow<AppTheme>
     suspend fun setTheme(theme: AppTheme)
+    fun getUseDynamicColor(): Flow<Boolean>
+    suspend fun setUseDynamicColor(enabled: Boolean)
+    fun getCustomAccentColor(): Flow<Int?>
+    suspend fun setCustomAccentColor(color: Int?)
+    fun getIsOledMode(): Flow<Boolean>
+    suspend fun setIsOledMode(enabled: Boolean)
     fun getTabletMode(): Flow<TabletMode>
     suspend fun setTabletMode(mode: TabletMode)
     fun getNoteSortOrder(): Flow<ListSortOrder>

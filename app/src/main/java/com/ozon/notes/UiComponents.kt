@@ -3,6 +3,7 @@ package com.ozon.notes
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -33,6 +34,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 
 @Composable
@@ -333,7 +335,8 @@ fun SystemBarGradients(
     modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.background,
     showTop: Boolean = true,
-    showBottom: Boolean = true
+    showBottom: Boolean = true,
+    topAlpha: Float = 1f
 ) {
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navigationBarHeight = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -345,6 +348,7 @@ fun SystemBarGradients(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(statusBarHeight * 3f)
+                    .graphicsLayer(alpha = topAlpha)
                     .background(
                         brush = Brush.verticalGradient(
                             colors = listOf(
@@ -375,6 +379,53 @@ fun SystemBarGradients(
             )
         }
     }
+}
+
+@Composable
+fun FullColorPickerDialog(
+    initialColor: Color,
+    onColorChange: (Color) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var hsv by remember { 
+        val hsv = FloatArray(3)
+        android.graphics.Color.colorToHSV(initialColor.toArgb(), hsv)
+        mutableStateOf(hsv)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Custom Color") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(80.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(android.graphics.Color.HSVToColor(hsv)))
+                        .border(1.dp, Color.Gray, RoundedCornerShape(12.dp))
+                )
+                
+                Text("Hue: ${hsv[0].toInt()}°", style = MaterialTheme.typography.labelSmall)
+                Slider(value = hsv[0], onValueChange = { hsv = hsv.copyOf().apply { set(0, it) } }, valueRange = 0f..360f)
+                
+                Text("Saturation: ${(hsv[1] * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+                Slider(value = hsv[1], onValueChange = { hsv = hsv.copyOf().apply { set(1, it) } }, valueRange = 0f..1f)
+                
+                Text("Value: ${(hsv[2] * 100).toInt()}%", style = MaterialTheme.typography.labelSmall)
+                Slider(value = hsv[2], onValueChange = { hsv = hsv.copyOf().apply { set(2, it) } }, valueRange = 0f..1f)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onColorChange(Color(android.graphics.Color.HSVToColor(hsv))) }) {
+                Text("Select")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable

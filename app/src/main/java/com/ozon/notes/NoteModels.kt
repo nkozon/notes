@@ -13,6 +13,7 @@ sealed class DetailRoute {
     data class List(val id: String) : DetailRoute()
     data object BackupRestore : DetailRoute()
     data object Settings : DetailRoute()
+    data object Theme : DetailRoute()
     data object About : DetailRoute()
 }
 
@@ -120,10 +121,6 @@ enum class ListSortOrder {
         NEWEST -> "Newest first"
         OLDEST -> "Oldest first"
     }
-}
-
-enum class AppView {
-    MAIN, SETTINGS
 }
 
 enum class AppTheme {

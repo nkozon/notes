@@ -22,11 +22,17 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
 
     private val updateManager = UpdateManager(repository.getContext())
 
-    val startupViewState: StateFlow<AppView> = repository.getStartupView()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppView.MAIN)
-
     val themeState: StateFlow<AppTheme> = repository.getTheme()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppTheme.SYSTEM)
+
+    val useDynamicColorState: StateFlow<Boolean> = repository.getUseDynamicColor()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    val customAccentColorState: StateFlow<Int?> = repository.getCustomAccentColor()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val isOledModeState: StateFlow<Boolean> = repository.getIsOledMode()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val tabletModeState: StateFlow<TabletMode> = repository.getTabletMode()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TabletMode.AUTOMATIC)
@@ -72,8 +78,10 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
 
     fun onEvent(event: NoteEvent) {
         when (event) {
-            is NoteEvent.UpdateStartupView -> viewModelScope.launch { repository.setStartupView(event.view) }
             is NoteEvent.UpdateTheme -> viewModelScope.launch { repository.setTheme(event.theme) }
+            is NoteEvent.UpdateUseDynamicColor -> viewModelScope.launch { repository.setUseDynamicColor(event.enabled) }
+            is NoteEvent.UpdateCustomAccentColor -> viewModelScope.launch { repository.setCustomAccentColor(event.color) }
+            is NoteEvent.UpdateIsOledMode -> viewModelScope.launch { repository.setIsOledMode(event.enabled) }
             is NoteEvent.UpdateTabletMode -> viewModelScope.launch { repository.setTabletMode(event.mode) }
             is NoteEvent.UpdateChecklistBehavior -> viewModelScope.launch { repository.setChecklistBehavior(event.behavior) }
             is NoteEvent.UpdateShowEntryCount -> viewModelScope.launch { repository.setShowEntryCount(event.show) }

@@ -114,6 +114,12 @@ fun ListDetailScreen(
     // Search bar scrolling state
     val density = LocalDensity.current
     val listState = rememberLazyListState()
+    val topAlpha by remember {
+        derivedStateOf {
+            if (listState.firstVisibleItemIndex > 0) 1f
+            else (listState.firstVisibleItemScrollOffset / 100f).coerceIn(0f, 1f)
+        }
+    }
 
     LaunchedEffect(listId) {
         checklistViewModel.onEvent(NoteEvent.SetCurrentList(listId))
@@ -485,7 +491,10 @@ fun ListDetailScreen(
             }
 
             // 1. Gradients (zIndex 1)
-            SystemBarGradients(modifier = Modifier.zIndex(1f))
+            SystemBarGradients(
+                modifier = Modifier.zIndex(1f),
+                topAlpha = topAlpha
+            )
         }
     }
 

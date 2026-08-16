@@ -40,11 +40,11 @@ import kotlin.math.roundToInt
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel,
+    onNavigateToTheme: () -> Unit,
     onNavigateToBackupRestore: () -> Unit,
     onNavigateToAbout: () -> Unit,
     onNavigateUp: () -> Unit
 ) {
-    val startupView by viewModel.startupViewState.collectAsStateWithLifecycle()
     val theme by viewModel.themeState.collectAsStateWithLifecycle()
     val tabletMode by viewModel.tabletModeState.collectAsStateWithLifecycle()
     val checklistBehavior by viewModel.checklistBehaviorState.collectAsStateWithLifecycle()
@@ -97,11 +97,17 @@ fun SettingsScreen(
     ) { padding ->
         val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val scrollState = rememberScrollState()
+        val topAlpha by remember {
+            derivedStateOf {
+                (scrollState.value / 100f).coerceIn(0f, 1f)
+            }
+        }
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(scrollState)
                 .padding(horizontal = 16.dp)
                 .padding(top = topPadding + 64.dp, bottom = bottomPadding + 16.dp)
                 .animateContentSize(animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing)),
@@ -109,25 +115,33 @@ fun SettingsScreen(
         ) {
             // Preferences Section
             SettingsSection(title = "Preferences") {
-                SettingsDropdown(
-                    label = "Startup View",
-                    items = AppView.entries,
-                    selectedItem = startupView,
-                    onItemSelected = { viewModel.onEvent(NoteEvent.UpdateStartupView(it)) },
-                    itemLabel = { it.name.lowercase().replaceFirstChar { char -> char.uppercase() } },
-                    index = 0,
-                    total = 5
-                )
-
-                SettingsDropdown(
-                    label = "Theme",
-                    items = AppTheme.entries,
-                    selectedItem = theme,
-                    onItemSelected = { viewModel.onEvent(NoteEvent.UpdateTheme(it)) },
-                    itemLabel = { it.name.lowercase().replaceFirstChar { char -> char.uppercase() } },
-                    index = 1,
-                    total = 6
-                )
+                SettingsItemContainer(index = 0, total = 5, onClick = onNavigateToTheme) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("Theme", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                text = when (theme) {
+                                    AppTheme.LIGHT -> "Light"
+                                    AppTheme.DARK -> "Dark"
+                                    AppTheme.SYSTEM -> "System default"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Rounded.Palette,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
 
                 SettingsDropdown(
                     label = "Tablet Mode",
@@ -135,8 +149,8 @@ fun SettingsScreen(
                     selectedItem = tabletMode,
                     onItemSelected = { viewModel.onEvent(NoteEvent.UpdateTabletMode(it)) },
                     itemLabel = { it.name.lowercase().replaceFirstChar { char -> char.uppercase() } },
-                    index = 2,
-                    total = 6
+                    index = 1,
+                    total = 5
                 )
 
                 SettingsDropdown(
@@ -151,11 +165,11 @@ fun SettingsScreen(
                             ChecklistBehavior.HIDE -> "Hide"
                         }
                     },
-                    index = 3,
-                    total = 6
+                    index = 2,
+                    total = 5
                 )
 
-                SettingsItemContainer(index = 4, total = 6) {
+                SettingsItemContainer(index = 3, total = 5) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -192,8 +206,8 @@ fun SettingsScreen(
                     onLowEnabledChange = { viewModel.onEvent(NoteEvent.UpdateLowScoreEnabled(it)) },
                     lowThreshold = lowScoreThreshold,
                     onLowThresholdChange = { viewModel.onEvent(NoteEvent.UpdateLowScoreThreshold(it)) },
-                    index = 5,
-                    total = 6
+                    index = 4,
+                    total = 5
                 )
             }
 
@@ -313,7 +327,10 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        SystemBarGradients(modifier = Modifier.zIndex(1f))
+        SystemBarGradients(
+            modifier = Modifier.zIndex(1f),
+            topAlpha = topAlpha
+        )
     }
 
     if (showClearDataDialog) {

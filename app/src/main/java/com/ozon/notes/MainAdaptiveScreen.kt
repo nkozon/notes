@@ -86,8 +86,15 @@ fun MainAdaptiveScreen(
                 composable("settings") {
                     SettingsScreen(
                         viewModel = settingsViewModel,
+                        onNavigateToTheme = { navController.navigate("theme") },
                         onNavigateToBackupRestore = { navController.navigate("backupRestore") },
                         onNavigateToAbout = { navController.navigate("about") },
+                        onNavigateUp = { navController.popBackStack() }
+                    )
+                }
+                composable("theme") {
+                    ThemeScreen(
+                        viewModel = settingsViewModel,
                         onNavigateUp = { navController.popBackStack() }
                     )
                 }
@@ -276,9 +283,16 @@ fun MainAdaptiveScreen(
                             is DetailRoute.Settings -> {
                                 SettingsScreen(
                                     viewModel = settingsViewModel,
+                                    onNavigateToTheme = { currentDetailRoute = DetailRoute.Theme },
                                     onNavigateToBackupRestore = { currentDetailRoute = DetailRoute.BackupRestore },
                                     onNavigateToAbout = { currentDetailRoute = DetailRoute.About },
                                     onNavigateUp = { currentDetailRoute = null }
+                                )
+                            }
+                            is DetailRoute.Theme -> {
+                                ThemeScreen(
+                                    viewModel = settingsViewModel,
+                                    onNavigateUp = { currentDetailRoute = DetailRoute.Settings }
                                 )
                             }
                             is DetailRoute.BackupRestore -> {
