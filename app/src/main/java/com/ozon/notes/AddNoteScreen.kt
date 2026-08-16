@@ -37,8 +37,6 @@ import com.mohamedrejeb.richeditor.model.RichTextState
 import com.mohamedrejeb.richeditor.model.rememberRichTextState
 import com.mohamedrejeb.richeditor.ui.material3.RichTextEditor
 import com.mohamedrejeb.richeditor.ui.material3.RichTextEditorDefaults
-import com.ozon.notes.ui.theme.NoteColors
-import com.ozon.notes.ui.theme.adaptNoteColor
 import java.util.UUID
 
 @Composable
@@ -68,10 +66,8 @@ private fun AddNoteScreenContent(
         ) 
     }
     val richTextState = rememberRichTextState()
-    var selectedColorArgb by remember { mutableIntStateOf(Color.Transparent.toArgb()) }
     var isPinned by remember { mutableStateOf(false) }
     var isDeleted by remember { mutableStateOf(false) }
-    var isColorMenuExpanded by remember { mutableStateOf(false) }
     var showTypeMenu by remember { mutableStateOf(false) }
     
     // We only want to track if the note was saved (to avoid double saving on back)
@@ -87,7 +83,6 @@ private fun AddNoteScreenContent(
             if (note != null) {
                 title = TextFieldValue(text = note.title, selection = TextRange(note.title.length))
                 richTextState.setHtml(note.contentHtml ?: "")
-                selectedColorArgb = note.colorArgb
                 isPinned = note.isPinned
                 timestamp = note.timestamp
             }
@@ -107,7 +102,6 @@ private fun AddNoteScreenContent(
                         content = richTextState.annotatedString.text,
                         contentHtml = richTextState.toHtml(),
                         timestamp = if (noteId == null) System.currentTimeMillis() else timestamp,
-                        colorArgb = selectedColorArgb,
                         isPinned = isPinned
                     )
                 )
@@ -279,60 +273,6 @@ private fun AddNoteScreenContent(
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
-        },
-        bottomBar = {
-            BottomAppBar(
-                containerColor = Color.Transparent,
-                actions = {
-                    Box(modifier = Modifier.padding(start = 8.dp)) {
-                        IconButton(onClick = { isColorMenuExpanded = true }) {
-                            val displayColor = if (selectedColorArgb == Color.Transparent.toArgb()) {
-                                MaterialTheme.colorScheme.surfaceVariant
-                            } else {
-                                adaptNoteColor(selectedColorArgb)
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .clip(CircleShape)
-                                    .background(displayColor)
-                                    .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f), CircleShape)
-                            )
-                        }
-
-                        DropdownMenu(
-                            expanded = isColorMenuExpanded,
-                            onDismissRequest = { isColorMenuExpanded = false }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                ColorOptionCircle(
-                                    colorToApply = Color.Transparent,
-                                    displayColor = MaterialTheme.colorScheme.surfaceVariant,
-                                    isSelected = selectedColorArgb == Color.Transparent.toArgb(),
-                                    onClick = {
-                                        selectedColorArgb = Color.Transparent.toArgb()
-                                        isColorMenuExpanded = false
-                                    }
-                                )
-                                NoteColors.forEach { color ->
-                                    ColorOptionCircle(
-                                        colorToApply = color,
-                                        displayColor = color,
-                                        isSelected = adaptNoteColor(selectedColorArgb) == color,
-                                        onClick = {
-                                            selectedColorArgb = color.toArgb()
-                                            isColorMenuExpanded = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            )
         }
     ) { padding ->
         val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -389,23 +329,3 @@ private fun AddNoteScreenContent(
     }
 }
 
-@Composable
-fun ColorOptionCircle(
-    colorToApply: Color,
-    displayColor: Color,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .size(32.dp)
-            .clip(CircleShape)
-            .background(displayColor)
-            .clickable { onClick() }
-            .border(
-                width = if (isSelected) 3.dp else 1.dp,
-                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
-                shape = CircleShape
-            )
-    )
-}

@@ -25,7 +25,6 @@ fun NoteEntity.toDomain(): Note {
             try { json.decodeFromString<DrawingData>(it) } catch (e: Exception) { null }
         },
         timestamp = timestamp,
-        colorArgb = colorArgb,
         isPinned = isPinned
     )
 }
@@ -39,7 +38,6 @@ fun Note.toEntity(): NoteEntity {
         type = type.name,
         drawingData = drawingData?.let { json.encodeToString(it) },
         timestamp = timestamp,
-        colorArgb = colorArgb,
         isPinned = isPinned
     )
 }

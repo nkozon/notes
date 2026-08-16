@@ -14,7 +14,6 @@ data class NoteEntity(
     val type: String = "TEXT", // "TEXT" or "DRAWING"
     val drawingData: String? = null, // JSON representation of DrawingData
     val timestamp: Long,
-    val colorArgb: Int,
     val isPinned: Boolean = false
 )
 
@@ -221,7 +220,7 @@ interface EntryTagCrossRefDao {
 
 @Database(
     entities = [NoteEntity::class, NoteListEntity::class, ListEntryEntity::class, TagEntity::class, EntryTagCrossRef::class],
-    version = 13, 
+    version = 14, 
     exportSchema = false
 )
 abstract class NoteDatabase : RoomDatabase() {
@@ -231,6 +230,34 @@ abstract class NoteDatabase : RoomDatabase() {
     abstract fun entryTagCrossRefDao(): EntryTagCrossRefDao
 
     companion object {
+        val MIGRATION_13_14 = object : androidx.room.migration.Migration(13, 14) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                // 1. Create the new notes table without colorArgb
+                db.execSQL("""
+                    CREATE TABLE notes_new (
+                        id TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        contentHtml TEXT,
+                        type TEXT NOT NULL DEFAULT 'TEXT',
+                        drawingData TEXT,
+                        timestamp INTEGER NOT NULL,
+                        isPinned INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY(id)
+                    )
+                """.trimIndent())
+
+                // 2. Copy data from the old table
+                db.execSQL("""
+                    INSERT INTO notes_new (id, title, content, contentHtml, type, drawingData, timestamp, isPinned)
+                    SELECT id, title, content, contentHtml, type, drawingData, timestamp, isPinned FROM notes
+                """.trimIndent())
+
+                // 3. Drop the old table and rename the new one
+                db.execSQL("DROP TABLE notes")
+                db.execSQL("ALTER TABLE notes_new RENAME TO notes")
+            }
+        }
         val MIGRATION_12_13 = object : androidx.room.migration.Migration(12, 13) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 // 1. Add columns to list_entries

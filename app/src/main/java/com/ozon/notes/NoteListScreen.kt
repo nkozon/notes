@@ -42,7 +42,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.ozon.notes.ui.theme.adaptNoteColor
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -581,49 +580,40 @@ fun NoteCard(
     shape: Shape = RoundedCornerShape(12.dp),
     isSelected: Boolean = false
 ) {
-    val isDefaultColor = note.colorArgb == Color.Transparent.toArgb()
-    val baseColor = if (isDefaultColor) MaterialTheme.colorScheme.surfaceContainerLow else adaptNoteColor(note.colorArgb)
-    
     val isDrawing = note.type == NoteType.DRAWING
 
-    val cardColor = when {
-        isSelected -> MaterialTheme.colorScheme.primaryContainer
-        isDrawing -> MaterialTheme.colorScheme.surfaceContainerLow
-        else -> baseColor
+    val cardColor = if (isSelected) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerLow
     }
-
-    val cardBorder = if (!isSelected && isDefaultColor) {
-        BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-    } else null
 
     Card(
         modifier = Modifier
             .fillMaxWidth(),
         shape = if (isSelected) CircleShape else shape,
         colors = CardDefaults.cardColors(containerColor = cardColor),
-        border = cardBorder,
+        border = null,
         onClick = onClick
     ) {
         ListItem(
             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-            leadingContent = if (isDrawing) {
-                {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Brush,
-                            contentDescription = null,
-                            modifier = Modifier.size(24.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
+            leadingContent = {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (isDrawing) Icons.Rounded.Brush else Icons.Rounded.Description,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
                 }
-            } else null,
+            },
             headlineContent = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -644,26 +634,27 @@ fun NoteCard(
                     }
                 }
             },
-            supportingContent = if (isDrawing) {
-                {
+            supportingContent = {
+                if (isDrawing) {
                     Text(
                         text = "Drawing",
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         fontStyle = FontStyle.Italic,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
-                }
-            } else if (note.content.isNotBlank()) {
-                {
+                } else if (note.content.isNotBlank()) {
+                    val firstSentence = remember(note.content) {
+                        note.content.split(Regex("(?<=[.!?])\\s+")).firstOrNull() ?: note.content
+                    }
                     Text(
-                        text = note.content,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 5,
+                        text = firstSentence,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-            } else null,
+            },
             trailingContent = if (isDrawing && note.drawingData?.strokes?.isNotEmpty() == true) {
                 {
                     Box(

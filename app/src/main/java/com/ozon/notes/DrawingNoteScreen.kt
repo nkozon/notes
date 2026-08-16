@@ -191,8 +191,7 @@ fun DrawingNoteScreen(
                 title = finalTitle,
                 content = "Drawing Note",
                 type = NoteType.DRAWING,
-                drawingData = DrawingData(strokes = strokes),
-                colorArgb = Color.White.toArgb()
+                drawingData = DrawingData(strokes = strokes)
             )
         ))
     }

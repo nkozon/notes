@@ -134,7 +134,8 @@ object AppContainer {
             NoteDatabase.MIGRATION_9_10,
             NoteDatabase.MIGRATION_10_11,
             NoteDatabase.MIGRATION_11_12,
-            NoteDatabase.MIGRATION_12_13
+            NoteDatabase.MIGRATION_12_13,
+            NoteDatabase.MIGRATION_13_14
         )
             .fallbackToDestructiveMigration()
             .build().also { database = it }

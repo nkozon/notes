@@ -27,7 +27,6 @@ data class Note(
     val type: NoteType = NoteType.TEXT,
     val drawingData: DrawingData? = null,
     val timestamp: Long = System.currentTimeMillis(),
-    val colorArgb: Int,
     val attachments: List<String> = emptyList(),
     val isPinned: Boolean = false
 )
