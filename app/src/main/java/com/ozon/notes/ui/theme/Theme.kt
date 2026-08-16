@@ -43,7 +43,25 @@ fun NotesTheme(
     val context = LocalContext.current
     val colorScheme = when {
         dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            val baseScheme = if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+            
+            fun Color.adjust(v: Float): Color {
+                val hsv = FloatArray(3)
+                android.graphics.Color.colorToHSV(this.toArgb(), hsv)
+                return Color.hsv(hsv[0], hsv[1], (hsv[2] + v).coerceIn(0f, 1f))
+            }
+
+            if (darkTheme) {
+                baseScheme.copy(
+                    surfaceContainerLow = baseScheme.surfaceContainerLow.adjust(0.04f),
+                    surfaceContainerHigh = baseScheme.surfaceContainerHigh.adjust(0.08f)
+                )
+            } else {
+                baseScheme.copy(
+                    surfaceContainerLow = Color.White,
+                    surfaceContainerHigh = baseScheme.surfaceContainerHigh.adjust(-0.06f)
+                )
+            }
         }
 
         customPrimaryColor != null || customSecondaryColor != null -> {

@@ -16,10 +16,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -97,6 +94,7 @@ fun DrawingNoteScreen(
     var isToolbarCollapsed by remember { mutableStateOf(false) }
 
     var canvasOffset by remember { mutableStateOf(Offset.Zero) }
+    var canvasScale by remember { mutableFloatStateOf(1f) }
     var penThickness by remember { mutableFloatStateOf(5f) }
     var eraserThickness by remember { mutableFloatStateOf(40f) }
     var selectedPenColor by remember { mutableStateOf(Color(lastDrawingColor)) }
@@ -158,6 +156,7 @@ fun DrawingNoteScreen(
     val updatedBounds by rememberUpdatedState(selectionBounds)
     val updatedTool by rememberUpdatedState(currentTool)
     val updatedCanvasOffset by rememberUpdatedState(canvasOffset)
+    val updatedCanvasScale by rememberUpdatedState(canvasScale)
     val updatedForceStylus by rememberUpdatedState(forceStylusOnly)
 
     fun getBounds(strokesList: List<com.ozon.notes.Stroke>): Rect {
@@ -316,6 +315,15 @@ fun DrawingNoteScreen(
                         modifier = Modifier.padding(end = 16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        if (canvasScale != 1f || canvasOffset != Offset.Zero) {
+                            TextButton(
+                                onClick = { canvasScale = 1f; canvasOffset = Offset.Zero },
+                                colors = ButtonDefaults.textButtonColors(contentColor = Color.Black)
+                            ) {
+                                Text("${(canvasScale * 100).roundToInt()}%")
+                            }
+                            Spacer(Modifier.width(4.dp))
+                        }
                         var showExportMenu by remember { mutableStateOf(false) }
                         Box {
                             CircleIconButton(
@@ -349,10 +357,33 @@ fun DrawingNoteScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .zIndex(0f)
+                    .pointerInput(Unit) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+                            do {
+                                val event = awaitPointerEvent()
+                                if (event.changes.size >= 2) {
+                                    val zoom = event.calculateZoom()
+                                    val pan = event.calculatePan()
+                                    val centroid = event.calculateCentroid(useCurrent = false)
+                                    
+                                    if (zoom != 1f || pan != Offset.Zero) {
+                                        val oldScale = canvasScale
+                                        val newScale = (canvasScale * zoom).coerceIn(0.1f, 10f)
+                                        canvasOffset = (canvasOffset - centroid) * (newScale / oldScale) + centroid + pan
+                                        canvasScale = newScale
+                                    }
+                                    event.changes.forEach { it.consume() }
+                                }
+                            } while (event.changes.any { it.pressed })
+                        }
+                    }
                     .pointerInput(updatedTool, updatedForceStylus) {
                         awaitPointerEventScope {
                             while (true) {
                                 val firstEvent = awaitPointerEvent()
+                                if (firstEvent.changes.size > 1) continue
+                                
                                 val down = firstEvent.changes.find { it.changedToDown() } ?: continue
                                 
                                 val isStylus = down.type == PointerType.Stylus || down.type == PointerType.Eraser
@@ -390,7 +421,7 @@ fun DrawingNoteScreen(
                                 
                                 showThicknessPopup = false
                                 val startPos = down.position
-                                val worldStartPos = startPos - updatedCanvasOffset
+                                val worldStartPos = (startPos - updatedCanvasOffset) / updatedCanvasScale
                                 val bStart = updatedBounds
                                 val strokesAtStart = updatedStrokes
                                 val selectedAtStart = updatedSelectedIds
@@ -399,7 +430,7 @@ fun DrawingNoteScreen(
                                     updatedForceStylus && !isStylus -> DragMode.PAN
                                     currentWorkingTool == DrawingTool.HAND -> DragMode.PAN
                                     currentWorkingTool == DrawingTool.LASSO && bStart != null -> {
-                                        val h = 40f
+                                        val h = 40f / updatedCanvasScale
                                         when {
                                             worldStartPos.x in (bStart.left-h)..(bStart.left+h) && worldStartPos.y in (bStart.top-h)..(bStart.top+h) -> DragMode.RESIZE_TL
                                             worldStartPos.x in (bStart.right-h)..(bStart.right+h) && worldStartPos.y in (bStart.top-h)..(bStart.top+h) -> DragMode.RESIZE_TR
@@ -428,6 +459,16 @@ fun DrawingNoteScreen(
                                 // Manual drag loop to allow mid-stroke tool switching
                                 while (true) {
                                     val event = awaitPointerEvent()
+                                    
+                                    // Exit if multiple fingers are detected (zoom/pan mode)
+                                    if (event.changes.size > 1) {
+                                        if (dragMode == DragMode.MOVE || dragMode.name.startsWith("RESIZE")) {
+                                            strokes = strokesAtStart
+                                        }
+                                        currentPathPoints.clear()
+                                        break
+                                    }
+
                                     val change = event.changes.find { it.id == down.id } ?: break
                                     if (change.changedToUp()) {
                                         if (hasMovedPastSlop && currentPathPoints.size > 1 && dragMode == DragMode.DRAW) {
@@ -476,11 +517,11 @@ fun DrawingNoteScreen(
 
                                     if (hasMovedPastSlop) {
                                         val dragDelta = currentPos - lastPosition
-                                        val worldPos = currentPos - updatedCanvasOffset
+                                        val worldPos = (currentPos - updatedCanvasOffset) / updatedCanvasScale
                                         when (dragMode) {
                                             DragMode.PAN -> canvasOffset += dragDelta
                                             DragMode.MOVE -> {
-                                                val totalMove = currentPos - startPos
+                                                val totalMove = (currentPos - startPos) / updatedCanvasScale
                                                 strokes = strokesAtStart.map { s -> if (s.id in selectedAtStart) s.copy(points = s.points.map { DrawingPoint(it.x + totalMove.x, it.y + totalMove.y) }) else s }
                                             }
                                             DragMode.RESIZE_TL, DragMode.RESIZE_TR, DragMode.RESIZE_BL, DragMode.RESIZE_BR -> {
@@ -503,7 +544,7 @@ fun DrawingNoteScreen(
                                             DragMode.LASSO, DragMode.DRAW -> {
                                                 val addedPoints = mutableListOf<DrawingPoint>()
                                                 change.historical.forEach { h -> 
-                                                    val pt = DrawingPoint(h.position.x - updatedCanvasOffset.x, h.position.y - updatedCanvasOffset.y)
+                                                    val pt = DrawingPoint((h.position.x - updatedCanvasOffset.x) / updatedCanvasScale, (h.position.y - updatedCanvasOffset.y) / updatedCanvasScale)
                                                     addedPoints.add(pt)
                                                     currentPathPoints.add(pt)
                                                 }
@@ -558,7 +599,10 @@ fun DrawingNoteScreen(
                     }
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
-                    withTransform({ translate(canvasOffset.x, canvasOffset.y) }) {
+                    withTransform({
+                        translate(canvasOffset.x, canvasOffset.y)
+                        scale(canvasScale, canvasScale, Offset.Zero)
+                    }) {
                         strokes.forEach { stroke ->
                             val path = Path().apply { stroke.points.forEachIndexed { i, p -> if (i == 0) moveTo(p.x, p.y) else lineTo(p.x, p.y) } }
                             drawPath(path = path, color = if (stroke.id in selectedStrokeIds) Color.Blue.copy(alpha = 0.6f) else Color(stroke.colorArgb), style = Stroke(width = stroke.width, cap = StrokeCap.Round, join = StrokeJoin.Round))
@@ -566,13 +610,17 @@ fun DrawingNoteScreen(
                         val drawingTool = activeDrawingTool ?: updatedTool
                         if (currentPathPoints.isNotEmpty()) {
                             val path = Path().apply { currentPathPoints.forEachIndexed { i, p -> if (i == 0) moveTo(p.x, p.y) else lineTo(p.x, p.y) } }
-                            if (drawingTool == DrawingTool.LASSO) drawPath(path = path, color = Color.Blue, style = Stroke(width = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)))
+                            if (drawingTool == DrawingTool.LASSO) drawPath(path = path, color = Color.Blue, style = Stroke(width = 1.dp.toPx() / canvasScale, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f / canvasScale, 10f / canvasScale), 0f)))
                             else if (drawingTool != DrawingTool.HAND) drawPath(path = path, color = if (drawingTool == DrawingTool.ERASER) Color.LightGray else selectedPenColor, style = Stroke(width = if (drawingTool == DrawingTool.ERASER) eraserThickness else penThickness, cap = StrokeCap.Round, join = StrokeJoin.Round))
                         }
                         selectionBounds?.let { bounds ->
-                            drawRect(color = Color.Blue, topLeft = bounds.topLeft, size = bounds.size, style = Stroke(width = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)))
-                            val r = 6.dp.toPx()
-                            listOf(bounds.topLeft, bounds.topRight, bounds.bottomLeft, bounds.bottomRight).forEach { c -> drawCircle(color = Color.White, radius = r, center = c); drawCircle(color = Color.Blue, radius = r, center = c, style = Stroke(width = 2.dp.toPx())) }
+                            drawRect(color = Color.Blue, topLeft = bounds.topLeft, size = bounds.size, style = Stroke(width = 1.dp.toPx() / canvasScale, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f / canvasScale, 10f / canvasScale), 0f)))
+                            val r = 6.dp.toPx() / canvasScale
+                            val strokeW = 2.dp.toPx() / canvasScale
+                            listOf(bounds.topLeft, bounds.topRight, bounds.bottomLeft, bounds.bottomRight).forEach { c -> 
+                                drawCircle(color = Color.White, radius = r, center = c)
+                                drawCircle(color = Color.Blue, radius = r, center = c, style = Stroke(width = strokeW)) 
+                            }
                         }
                     }
                 }
