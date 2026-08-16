@@ -151,55 +151,68 @@ fun ListDetailScreen(
         topBar = {
             Box(modifier = Modifier.fillMaxWidth().zIndex(3f)) {
                 if (isSearchActive) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth().statusBarsPadding(),
-                        color = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 4.dp
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().height(headerHeight).padding(horizontal = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp),
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            tonalElevation = 3.dp
                         ) {
-                            CircleIconButton(
-                                onClick = { 
-                                    isSearchActive = false
-                                    checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
-                                    focusManager.clearFocus()
-                                    keyboardController?.hide()
-                                },
-                                icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                                contentDescription = "Close Search"
-                            )
-                            TextField(
-                                value = searchQuery,
-                                onValueChange = { checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
-                                placeholder = { Text("Search entries...") },
-                                modifier = Modifier.weight(1f).focusRequester(dummyFocusRequester),
-                                colors = TextFieldDefaults.colors(
-                                    focusedContainerColor = Color.Transparent,
-                                    unfocusedContainerColor = Color.Transparent,
-                                    focusedIndicatorColor = Color.Transparent,
-                                    unfocusedIndicatorColor = Color.Transparent
-                                ),
-                                singleLine = true,
-                                trailingIcon = {
-                                    if (searchQuery.isNotEmpty()) {
-                                        IconButton(onClick = { checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }) {
-                                            Icon(Icons.Rounded.Clear, contentDescription = "Clear")
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircleIconButton(
+                                    onClick = { 
+                                        isSearchActive = false
+                                        checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
+                                        focusManager.clearFocus()
+                                        keyboardController?.hide()
+                                    },
+                                    icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                                    contentDescription = "Close Search",
+                                    containerColor = Color.Transparent
+                                )
+                                TextField(
+                                    value = searchQuery,
+                                    onValueChange = { checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
+                                    placeholder = { Text("Search entries...") },
+                                    modifier = Modifier.weight(1f).focusRequester(dummyFocusRequester),
+                                    colors = TextFieldDefaults.colors(
+                                        focusedContainerColor = Color.Transparent,
+                                        unfocusedContainerColor = Color.Transparent,
+                                        focusedIndicatorColor = Color.Transparent,
+                                        unfocusedIndicatorColor = Color.Transparent
+                                    ),
+                                    singleLine = true,
+                                    trailingIcon = {
+                                        if (searchQuery.isNotEmpty()) {
+                                            IconButton(onClick = { checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }) {
+                                                Icon(Icons.Rounded.Clear, contentDescription = "Clear")
+                                            }
                                         }
                                     }
+                                )
+                                TagFilterDropdown(
+                                    selectedTagIds = selectedFilterTagIds,
+                                    allTags = allTags,
+                                    filterMode = tagFilterMode,
+                                    onTagToggle = { checklistViewModel.onEvent(NoteEvent.ToggleFilterTag(it)) },
+                                    onModeToggle = { checklistViewModel.onEvent(NoteEvent.UpdateTagFilterMode(it)) },
+                                    onClearAll = { checklistViewModel.onEvent(NoteEvent.ClearFilterTags) }
+                                )
+                                LaunchedEffect(Unit) {
+                                    dummyFocusRequester.requestFocus()
                                 }
-                            )
-                            TagFilterDropdown(
-                                selectedTagIds = selectedFilterTagIds,
-                                allTags = allTags,
-                                filterMode = tagFilterMode,
-                                onTagToggle = { checklistViewModel.onEvent(NoteEvent.ToggleFilterTag(it)) },
-                                onModeToggle = { checklistViewModel.onEvent(NoteEvent.UpdateTagFilterMode(it)) },
-                                onClearAll = { checklistViewModel.onEvent(NoteEvent.ClearFilterTags) }
-                            )
-                            LaunchedEffect(Unit) {
-                                dummyFocusRequester.requestFocus()
                             }
                         }
                     }

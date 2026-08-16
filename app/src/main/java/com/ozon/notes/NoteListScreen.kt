@@ -96,48 +96,61 @@ fun NoteListScreen(
         topBar = { 
             Box(modifier = Modifier.fillMaxWidth().zIndex(3f)) {
                 if (isSearchActive) {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth().statusBarsPadding(),
-                        color = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 4.dp
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().height(headerHeight).padding(horizontal = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp),
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            tonalElevation = 3.dp
                         ) {
-                            CircleIconButton(
-                                onClick = { 
-                                    isSearchActive = false
-                                    notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
-                                    focusManager.clearFocus()
-                                    keyboardController?.hide()
-                                },
-                                icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                                contentDescription = "Close Search"
-                            )
-                            TextField(
-                                value = searchQuery,
-                                onValueChange = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
-                                placeholder = { Text("Search your notes...") },
-                                modifier = Modifier.weight(1f).focusRequester(dummyFocusRequester),
-                                textStyle = LocalTextStyle.current.copy(textAlign = TextAlign.Start),
-                                colors = TextFieldDefaults.colors(
-                                    focusedContainerColor = Color.Transparent,
-                                    unfocusedContainerColor = Color.Transparent,
-                                    focusedIndicatorColor = Color.Transparent,
-                                    unfocusedIndicatorColor = Color.Transparent
-                                ),
-                                singleLine = true,
-                                trailingIcon = {
-                                    if (searchQuery.isNotEmpty()) {
-                                        IconButton(onClick = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }) {
-                                            Icon(Icons.Rounded.Clear, contentDescription = "Clear")
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircleIconButton(
+                                    onClick = { 
+                                        isSearchActive = false
+                                        notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
+                                        focusManager.clearFocus()
+                                        keyboardController?.hide()
+                                    },
+                                    icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                                    contentDescription = "Close Search",
+                                    containerColor = Color.Transparent
+                                )
+                                TextField(
+                                    value = searchQuery,
+                                    onValueChange = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
+                                    placeholder = { Text("Search your notes...") },
+                                    modifier = Modifier.weight(1f).focusRequester(dummyFocusRequester),
+                                    textStyle = LocalTextStyle.current.copy(textAlign = TextAlign.Start),
+                                    colors = TextFieldDefaults.colors(
+                                        focusedContainerColor = Color.Transparent,
+                                        unfocusedContainerColor = Color.Transparent,
+                                        focusedIndicatorColor = Color.Transparent,
+                                        unfocusedIndicatorColor = Color.Transparent
+                                    ),
+                                    singleLine = true,
+                                    trailingIcon = {
+                                        if (searchQuery.isNotEmpty()) {
+                                            IconButton(onClick = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }) {
+                                                Icon(Icons.Rounded.Clear, contentDescription = "Clear")
+                                            }
                                         }
                                     }
+                                )
+                                LaunchedEffect(Unit) {
+                                    dummyFocusRequester.requestFocus()
                                 }
-                            )
-                            LaunchedEffect(Unit) {
-                                dummyFocusRequester.requestFocus()
                             }
                         }
                     }
