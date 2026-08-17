@@ -16,6 +16,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
@@ -981,13 +984,29 @@ fun DrawingToolbar(
                 val isHorizontal = anchor == ToolbarAnchor.TOP || anchor == ToolbarAnchor.BOTTOM || 
                                anchor == ToolbarAnchor.TOP_LEFT || anchor == ToolbarAnchor.TOP_RIGHT ||
                                anchor == ToolbarAnchor.BOTTOM_LEFT || anchor == ToolbarAnchor.BOTTOM_RIGHT
-                val padding = if (isCollapsed) 4.dp else 6.dp
+                val padding = if (isCollapsed) 6.dp else 10.dp
                 if (isHorizontal) {
-                    Row(modifier = Modifier.padding(padding), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier
+                            .widthIn(max = (screenWidth / LocalDensity.current.density).dp - 48.dp)
+                            .clip(CircleShape)
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = padding, vertical = padding),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         ToolbarContent(isHorizontal, isCollapsed, currentTool, onToolChange, selectedPenColor, showColorPopup, onToggleColorPopup, onToggleCollapse, undoEnabled, onUndo, redoEnabled, onRedo, pasteEnabled, onPaste, canvasScale, onResetZoom)
                     }
                 } else {
-                    Column(modifier = Modifier.padding(padding), verticalArrangement = Arrangement.spacedBy(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(
+                        modifier = Modifier
+                            .heightIn(max = (screenHeight / LocalDensity.current.density).dp - 120.dp)
+                            .clip(CircleShape)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = padding, vertical = padding),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                         ToolbarContent(isHorizontal, isCollapsed, currentTool, onToolChange, selectedPenColor, showColorPopup, onToggleColorPopup, onToggleCollapse, undoEnabled, onUndo, redoEnabled, onRedo, pasteEnabled, onPaste, canvasScale, onResetZoom)
                     }
                 }
@@ -1040,8 +1059,8 @@ private fun ToolbarContent(
 
 @Composable
 private fun ToolbarSeparator(isHorizontal: Boolean) {
-    if (isHorizontal) VerticalDivider(modifier = Modifier.height(20.dp).width(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-    else HorizontalDivider(modifier = Modifier.width(20.dp).height(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    if (isHorizontal) VerticalDivider(modifier = Modifier.height(24.dp).width(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    else HorizontalDivider(modifier = Modifier.width(24.dp).height(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 }
 
 @Composable

@@ -21,6 +21,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextRange
@@ -443,20 +444,28 @@ fun TextFormattingToolbar(
                 val isHorizontal = anchor == ToolbarAnchor.TOP || anchor == ToolbarAnchor.BOTTOM || 
                                anchor == ToolbarAnchor.TOP_LEFT || anchor == ToolbarAnchor.TOP_RIGHT ||
                                anchor == ToolbarAnchor.BOTTOM_LEFT || anchor == ToolbarAnchor.BOTTOM_RIGHT
-                val padding = if (isCollapsed) 4.dp else 6.dp
+                val padding = if (isCollapsed) 6.dp else 10.dp
                 
                 if (isHorizontal) {
                     Row(
-                        modifier = Modifier.padding(padding),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier
+                            .widthIn(max = (screenWidth / LocalDensity.current.density).dp - 48.dp)
+                            .clip(CircleShape)
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = padding, vertical = padding),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         FormattingToolbarContent(isHorizontal, isCollapsed, richTextState, onToggleCollapse)
                     }
                 } else {
                     Column(
-                        modifier = Modifier.padding(padding),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier
+                            .heightIn(max = (screenHeight / LocalDensity.current.density).dp - 120.dp)
+                            .clip(CircleShape)
+                            .verticalScroll(rememberScrollState())
+                            .padding(horizontal = padding, vertical = padding),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         FormattingToolbarContent(isHorizontal, isCollapsed, richTextState, onToggleCollapse)
@@ -612,7 +621,7 @@ private fun FormattingToolbarContent(
 
 @Composable
 private fun ToolbarSeparator(isHorizontal: Boolean) {
-    if (isHorizontal) VerticalDivider(modifier = Modifier.height(20.dp).width(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-    else HorizontalDivider(modifier = Modifier.width(20.dp).height(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    if (isHorizontal) VerticalDivider(modifier = Modifier.height(24.dp).width(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    else HorizontalDivider(modifier = Modifier.width(24.dp).height(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 }
 
