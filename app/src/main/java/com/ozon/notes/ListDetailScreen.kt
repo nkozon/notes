@@ -111,6 +111,9 @@ fun ListDetailScreen(
     var showAddEntryDialog by remember { mutableStateOf(false) }
     var isInlineAdding by remember { mutableStateOf(false) }
     var inlineEntryText by remember { mutableStateOf("") }
+    var inlineSelectedTagIds by remember { mutableStateOf(setOf<String>()) }
+    var showInlineAddTagDialog by remember { mutableStateOf(false) }
+    var lastAddedId by remember { mutableStateOf<String?>(null) }
     var expandedEntries by remember { mutableStateOf(setOf<String>()) }
 
     LaunchedEffect(isInlineAdding) {
@@ -347,6 +350,16 @@ fun ListDetailScreen(
             val checkedEntries = if (isMoveToBottom) hierarchicalEntries.filter { it.first.isChecked } else emptyList()
             val uncheckedEntries = if (isMoveToBottom) hierarchicalEntries.filter { !it.first.isChecked } else hierarchicalEntries
 
+            LaunchedEffect(entries) {
+                lastAddedId?.let { id ->
+                    val index = uncheckedEntries.indexOfFirst { it.first.id == id }
+                    if (index != -1) {
+                        listState.animateScrollToItem(index + if (isInlineAdding && currentList.type == ListType.CHECKLIST) 1 else 0)
+                        lastAddedId = null
+                    }
+                }
+            }
+
             // 0. LIST (zIndex 0)
             LazyColumn(
                 state = listState,
@@ -364,25 +377,46 @@ fun ListDetailScreen(
                         InlineAddEntryItem(
                             text = inlineEntryText,
                             onTextChange = { inlineEntryText = it },
+                            allTags = allTags,
+                            selectedTagIds = inlineSelectedTagIds,
+                            onTagToggle = { tagId ->
+                                inlineSelectedTagIds = if (inlineSelectedTagIds.contains(tagId)) {
+                                    inlineSelectedTagIds - tagId
+                                } else {
+                                    inlineSelectedTagIds + tagId
+                                }
+                            },
+                            onAddTagClick = { showInlineAddTagDialog = true },
                             onSave = {
                                 if (inlineEntryText.isNotBlank()) {
-                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(
-                                        ListEntry(listId = listId, title = inlineEntryText)
-                                    ))
+                                    val newEntry = ListEntry(
+                                        listId = listId, 
+                                        title = inlineEntryText,
+                                        tagIds = inlineSelectedTagIds.toList()
+                                    )
+                                    lastAddedId = newEntry.id
+                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(newEntry))
                                 }
                                 inlineEntryText = ""
+                                inlineSelectedTagIds = emptySet()
                                 isInlineAdding = false
                             },
                             onEnter = {
                                 if (inlineEntryText.isNotBlank()) {
-                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(
-                                        ListEntry(listId = listId, title = inlineEntryText)
-                                    ))
+                                    val newEntry = ListEntry(
+                                        listId = listId, 
+                                        title = inlineEntryText,
+                                        tagIds = inlineSelectedTagIds.toList()
+                                    )
+                                    lastAddedId = newEntry.id
+                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(newEntry))
                                 }
                                 inlineEntryText = ""
+                                inlineSelectedTagIds = emptySet()
                             },
                             onCancel = {
                                 inlineEntryText = ""
+                                inlineSelectedTagIds = emptySet()
                                 isInlineAdding = false
                             }
                         )
@@ -399,7 +433,7 @@ fun ListDetailScreen(
                     val hasChildren = entries.any { it.parentId == entry.id }
                     val isExpanded = expandedEntries.contains(entry.id)
                     
-                    val isFirstItemInList = index == 0 && !(isInlineAdding && currentList.type == ListType.CHECKLIST)
+                    val isFirstItemInList = index == 0
                     val isLastItemInList = index == uncheckedEntries.size - 1
 
                     val topRadius = if (isFirstItemInList) 28.dp else 4.dp
@@ -621,6 +655,38 @@ fun ListDetailScreen(
                     checklistViewModel.onEvent(NoteEvent.SaveEntry(it.copy(description = description)))
                 }
                 entryForDescription = null
+            }
+        )
+    }
+
+    if (showInlineAddTagDialog) {
+        var newTagName by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showInlineAddTagDialog = false },
+            title = { Text("New Tag") },
+            text = {
+                OutlinedTextField(
+                    value = newTagName,
+                    onValueChange = { newTagName = it },
+                    label = { Text("Tag Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (newTagName.isNotBlank()) {
+                            val newTag = Tag(name = newTagName, listId = listId)
+                            checklistViewModel.onEvent(NoteEvent.SaveTag(newTag))
+                            inlineSelectedTagIds = inlineSelectedTagIds + newTag.id
+                            showInlineAddTagDialog = false
+                        }
+                    }
+                ) { Text("Create") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showInlineAddTagDialog = false }) { Text("Cancel") }
             }
         )
     }
@@ -1568,10 +1634,15 @@ fun TagFilterDropdown(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun InlineAddEntryItem(
     text: String,
     onTextChange: (String) -> Unit,
+    allTags: List<Tag>,
+    selectedTagIds: Set<String>,
+    onTagToggle: (String) -> Unit,
+    onAddTagClick: () -> Unit,
     onSave: () -> Unit,
     onEnter: () -> Unit,
     onCancel: () -> Unit
@@ -1586,66 +1657,129 @@ fun InlineAddEntryItem(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp, 28.dp, 4.dp, 4.dp),
+        shape = RoundedCornerShape(28.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         )
     ) {
-        Row(
-            modifier = Modifier
-                .padding(horizontal = 16.dp, vertical = 4.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier.padding(bottom = 12.dp)
         ) {
-            TextField(
-                value = text,
-                onValueChange = onTextChange,
-                placeholder = { 
-                    Text(
-                        "New item...",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                    ) 
-                },
+            Row(
                 modifier = Modifier
-                    .weight(1f)
-                    .focusRequester(focusRequester),
-                textStyle = MaterialTheme.typography.bodyLarge,
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    cursorColor = MaterialTheme.colorScheme.primary
-                ),
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.Sentences,
-                    imeAction = ImeAction.Done
-                ),
-                keyboardActions = KeyboardActions(
-                    onDone = { onEnter() }
-                )
-            )
-            
-            TextButton(
-                onClick = onSave,
-                enabled = text.isNotBlank()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    "Save",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = GoogleSansFlexRounded
+                TextField(
+                    value = text,
+                    onValueChange = onTextChange,
+                    placeholder = {
+                        Text(
+                            "New item...",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(focusRequester),
+                    textStyle = MaterialTheme.typography.bodyLarge,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        cursorColor = MaterialTheme.colorScheme.primary
+                    ),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = { onEnter() }
+                    )
                 )
+
+                Button(
+                    onClick = onSave,
+                    enabled = text.isNotBlank(),
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+                    modifier = Modifier.height(40.dp)
+                ) {
+                    Text(
+                        "Save",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = GoogleSansFlexRounded
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                FilledTonalIconButton(
+                    onClick = onCancel,
+                    modifier = Modifier.size(40.dp),
+                    shape = CircleShape,
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                ) {
+                    Icon(
+                        Icons.Rounded.Clear,
+                        contentDescription = "Cancel",
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
-            
-            IconButton(onClick = onCancel) {
-                Icon(
-                    Icons.Rounded.Clear,
-                    contentDescription = "Cancel",
-                    modifier = Modifier.size(20.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+
+            // Tag Selection Row
+            FlowRow(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                allTags.forEach { tag ->
+                    val isSelected = selectedTagIds.contains(tag.id)
+                    InputChip(
+                        selected = isSelected,
+                        onClick = { onTagToggle(tag.id) },
+                        label = { Text(tag.name) },
+                        shape = CircleShape,
+                        colors = InputChipDefaults.inputChipColors(
+                            containerColor = Color.Transparent,
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                        border = InputChipDefaults.inputChipBorder(
+                            enabled = true,
+                            selected = isSelected,
+                            borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                            selectedBorderColor = Color.Transparent,
+                            borderWidth = 1.dp
+                        )
+                    )
+                }
+
+                // Add Tag Button
+                AssistChip(
+                    onClick = onAddTagClick,
+                    label = { Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                    shape = CircleShape,
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f)
+                    ),
+                    border = null
                 )
             }
         }

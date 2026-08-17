@@ -40,6 +40,8 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
     private val _tagFilterMode = MutableStateFlow(TagFilterMode.OR)
     val tagFilterMode = _tagFilterMode.asStateFlow()
 
+    private val _pendingEntries = MutableStateFlow<List<ListEntry>>(emptyList())
+
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val allTags: StateFlow<List<Tag>> = _currentListId.flatMapLatest { id ->
         if (id == null) flowOf(emptyList())
@@ -74,9 +76,14 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
         val listId = params.listId
         if (listId == null) return@flatMapLatest flowOf(emptyList<ListEntry>())
 
-        repository.getEntriesForList(listId).map { entries ->
+        combine(repository.getEntriesForList(listId), _pendingEntries) { entries, pending ->
+            val pendingIds = pending.map { it.id }.toSet()
+            val filteredDb = entries.filter { it.id !in pendingIds }
+            val relevantPending = pending.filter { it.listId == listId }
+            filteredDb + relevantPending
+        }.map { allEntries ->
             getFilteredEntriesUseCase(
-                entries,
+                allEntries,
                 params.query,
                 params.tagIds,
                 params.filterMode,
@@ -107,7 +114,16 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
             is NoteEvent.SaveList -> viewModelScope.launch { repository.saveList(event.list) }
             is NoteEvent.SaveTag -> viewModelScope.launch { repository.saveTag(event.tag) }
             is NoteEvent.DeleteTag -> viewModelScope.launch { repository.deleteTag(event.tagId) }
-            is NoteEvent.SaveEntry -> viewModelScope.launch { repository.saveEntry(event.entry) }
+            is NoteEvent.SaveEntry -> {
+                _pendingEntries.update { current -> 
+                    current.filter { it.id != event.entry.id } + event.entry 
+                }
+                viewModelScope.launch { 
+                    repository.saveEntry(event.entry)
+                    // Keep in pending for a short while to ensure Room has emitted the change
+                    _pendingEntries.update { current -> current.filter { it.id != event.entry.id } }
+                }
+            }
             is NoteEvent.DeleteEntry -> viewModelScope.launch { repository.deleteEntry(event.entryId) }
             else -> { /* Handled elsewhere */ }
         }
