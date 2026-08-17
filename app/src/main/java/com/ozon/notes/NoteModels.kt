@@ -34,7 +34,17 @@ data class Note(
 @Serializable
 data class DrawingData(
     val strokes: List<Stroke> = emptyList(),
+    val images: List<DrawingImage> = emptyList(),
     val backgroundPdfPath: String? = null
+)
+
+@Serializable
+data class DrawingImage(
+    val id: String = UUID.randomUUID().toString(),
+    val path: String, // Internal file path
+    val offset: DrawingPoint,
+    val scale: DrawingPoint, // For width/height scaling
+    val rotation: Float = 0f
 )
 
 @Serializable

@@ -11,6 +11,7 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -30,7 +31,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.geometry.Offset
@@ -47,16 +47,18 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import java.io.File
 import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.roundToInt
 
 enum class DragMode { NONE, DRAW, LASSO, MOVE, RESIZE_TL, RESIZE_TR, RESIZE_BL, RESIZE_BR, PAN }
-enum class ToolbarAnchor { TOP, BOTTOM, LEFT, RIGHT }
+enum class ToolbarAnchor { TOP, BOTTOM, LEFT, RIGHT, TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,12 +82,14 @@ fun DrawingNoteScreen(
     
     var title by remember { mutableStateOf("") }
     var strokes by remember { mutableStateOf(listOf<com.ozon.notes.Stroke>()) }
+    var images by remember { mutableStateOf(listOf<com.ozon.notes.DrawingImage>()) }
     var redoStack by remember { mutableStateOf(listOf<com.ozon.notes.Stroke>()) }
     
     var currentTool by remember { mutableStateOf(DrawingTool.PEN) }
     var activeDrawingTool by remember { mutableStateOf<DrawingTool?>(null) }
     val currentPathPoints = remember { mutableStateListOf<DrawingPoint>() }
     var selectedStrokeIds by remember { mutableStateOf(setOf<String>()) }
+    var selectedImageIds by remember { mutableStateOf(setOf<String>()) }
     var selectionBounds by remember { mutableStateOf<Rect?>(null) }
 
     var clipboardStrokes by remember { mutableStateOf<List<com.ozon.notes.Stroke>?>(null) }
@@ -101,18 +105,17 @@ fun DrawingNoteScreen(
     
     var showThicknessPopup by remember { mutableStateOf(false) }
     var showColorPopup by remember { mutableStateOf(false) }
+    var showSelectionThicknessPopup by remember { mutableStateOf(false) }
+    var showSelectionColorPopup by remember { mutableStateOf(false) }
 
     var canvasSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
     var lastStylusTouchTime by remember { mutableLongStateOf(0L) }
-    var utilityToolbarOffset by remember { mutableStateOf(Offset.Zero) }
-    var utilityToolbarSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
 
     val viewConfiguration = LocalViewConfiguration.current
 
     val isFullscreenTablet = isSplitScreen && !isSidePanelVisible
     val shouldBeImmersive = !isSplitScreen || isFullscreenTablet
 
-    // Force light status bar (dark icons) for white background, and restore on dispose
     LaunchedEffect(shouldBeImmersive, isDarkTheme) {
         if (shouldBeImmersive) {
             (context as? ComponentActivity)?.enableEdgeToEdge(
@@ -122,7 +125,6 @@ fun DrawingNoteScreen(
                 )
             )
         } else {
-            // Restore normal behavior if we're in split screen and panel is visible
             (context as? ComponentActivity)?.enableEdgeToEdge(
                 statusBarStyle = SystemBarStyle.auto(
                     android.graphics.Color.TRANSPARENT,
@@ -152,15 +154,17 @@ fun DrawingNoteScreen(
     }
 
     val updatedStrokes by rememberUpdatedState(strokes)
-    val updatedSelectedIds by rememberUpdatedState(selectedStrokeIds)
+    val updatedImages by rememberUpdatedState(images)
+    val updatedSelectedStrokeIds by rememberUpdatedState(selectedStrokeIds)
+    val updatedSelectedImageIds by rememberUpdatedState(selectedImageIds)
     val updatedBounds by rememberUpdatedState(selectionBounds)
     val updatedTool by rememberUpdatedState(currentTool)
     val updatedCanvasOffset by rememberUpdatedState(canvasOffset)
     val updatedCanvasScale by rememberUpdatedState(canvasScale)
     val updatedForceStylus by rememberUpdatedState(forceStylusOnly)
 
-    fun getBounds(strokesList: List<com.ozon.notes.Stroke>): Rect {
-        if (strokesList.isEmpty()) return Rect.Zero
+    fun getBounds(strokesList: List<com.ozon.notes.Stroke>, imagesList: List<com.ozon.notes.DrawingImage>): Rect {
+        if (strokesList.isEmpty() && imagesList.isEmpty()) return Rect.Zero
         var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
         strokesList.forEach { s ->
             val halfWidth = s.width / 2f
@@ -169,15 +173,25 @@ fun DrawingNoteScreen(
                 maxX = maxOf(maxX, p.x + halfWidth); maxY = maxOf(maxY, p.y + halfWidth)
             }
         }
+        imagesList.forEach { img ->
+            minX = minOf(minX, img.offset.x)
+            minY = minOf(minY, img.offset.y)
+            maxX = maxOf(maxX, img.offset.x + img.scale.x)
+            maxY = maxOf(maxY, img.offset.y + img.scale.y)
+        }
         return Rect(minX, minY, maxX, maxY)
     }
 
-    LaunchedEffect(strokes, selectedStrokeIds) {
-        val selected = strokes.filter { it.id in selectedStrokeIds && it.tool != DrawingTool.ERASER }
-        if (selected.isEmpty()) {
+    LaunchedEffect(strokes, images, selectedStrokeIds, selectedImageIds) {
+        val selectedStrokes = strokes.filter { it.id in selectedStrokeIds && it.tool != DrawingTool.ERASER }
+        val selectedImages = images.filter { it.id in selectedImageIds }
+        
+        if (selectedStrokes.isEmpty() && selectedImages.isEmpty()) {
             selectionBounds = null
+            showSelectionThicknessPopup = false
+            showSelectionColorPopup = false
         } else {
-            selectionBounds = getBounds(selected)
+            selectionBounds = getBounds(selectedStrokes, selectedImages)
         }
     }
 
@@ -190,9 +204,14 @@ fun DrawingNoteScreen(
                 title = finalTitle,
                 content = "Drawing Note",
                 type = NoteType.DRAWING,
-                drawingData = DrawingData(strokes = strokes)
+                drawingData = DrawingData(strokes = strokes, images = images)
             )
         ))
+    }
+
+    androidx.activity.compose.BackHandler {
+        saveDrawing()
+        onNavigateUp()
     }
 
     LaunchedEffect(noteId) {
@@ -201,18 +220,67 @@ fun DrawingNoteScreen(
             if (note != null && note.type == NoteType.DRAWING) {
                 title = note.title
                 strokes = note.drawingData?.strokes ?: emptyList()
+                images = note.drawingData?.images ?: emptyList()
             }
         }
     }
 
     val pngLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png")) { uri ->
-        uri?.let { context.contentResolver.openOutputStream(it)?.use { stream -> exportToPng(stream, strokes, canvasSize) } }
+        uri?.let { context.contentResolver.openOutputStream(it)?.use { stream -> exportToPng(stream, strokes, images, canvasSize) } }
     }
     val pdfBitmapLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
-        uri?.let { context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, strokes, canvasSize, vector = false) } }
+        uri?.let { context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, strokes, images, canvasSize, vector = false) } }
     }
     val pdfVectorLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
-        uri?.let { context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, strokes, canvasSize, vector = true) } }
+        uri?.let { context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, strokes, images, canvasSize, vector = true) } }
+    }
+
+    fun saveImageLocally(uri: android.net.Uri): String? {
+        return try {
+            val inputStream = context.contentResolver.openInputStream(uri)
+            val file = File(context.filesDir, "drawing_img_${UUID.randomUUID()}.png")
+            file.outputStream().use { outputStream ->
+                inputStream?.copyTo(outputStream)
+            }
+            file.absolutePath
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            val path = saveImageLocally(it)
+            if (path != null) {
+                val screenCenter = Offset(canvasSize.width / 2f, canvasSize.height / 2f)
+                val worldCenter = (screenCenter - canvasOffset) / canvasScale
+                
+                val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                android.graphics.BitmapFactory.decodeFile(path, options)
+                val w = options.outWidth.toFloat()
+                val h = options.outHeight.toFloat()
+                
+                val newImage = com.ozon.notes.DrawingImage(
+                    path = path,
+                    offset = DrawingPoint(worldCenter.x - (w/2), worldCenter.y - (h/2)),
+                    scale = DrawingPoint(w, h)
+                )
+                images = images + newImage
+                selectedImageIds = setOf(newImage.id)
+                selectedStrokeIds = emptySet()
+            }
+        }
+    }
+
+    val bitmapCache = remember { mutableStateMapOf<String, ImageBitmap>() }
+    
+    LaunchedEffect(images) {
+        images.forEach { img ->
+            if (!bitmapCache.containsKey(img.path)) {
+                val bitmap = android.graphics.BitmapFactory.decodeFile(img.path)?.asImageBitmap()
+                if (bitmap != null) bitmapCache[img.path] = bitmap
+            }
+        }
     }
 
     fun launchExport(launcher: androidx.activity.result.ActivityResultLauncher<String>, extension: String) {
@@ -224,9 +292,9 @@ fun DrawingNoteScreen(
 
     fun handlePaste() {
         clipboardStrokes?.let { clipboard ->
-            val b = getBounds(clipboard)
+            val b = getBounds(clipboard, emptyList())
             val screenCenter = Offset(canvasSize.width / 2f, canvasSize.height / 2f)
-            val worldCenter = screenCenter - canvasOffset
+            val worldCenter = (screenCenter - canvasOffset) / canvasScale
             val offsetX = worldCenter.x - b.center.x
             val offsetY = worldCenter.y - b.center.y
             val pasted = clipboard.map { s -> s.copy(id = UUID.randomUUID().toString(), points = s.points.map { DrawingPoint(it.x + offsetX, it.y + offsetY) }) }
@@ -255,7 +323,6 @@ fun DrawingNoteScreen(
                 .background(Color.White)
                 .onSizeChanged { canvasSize = it }
         ) {
-            // Floating Header (zIndex 12f to be above gradients and toolbars if needed)
             TopAppBar(
                 title = {
                     Box(modifier = Modifier.padding(start = 16.dp)) {
@@ -315,38 +382,45 @@ fun DrawingNoteScreen(
                         modifier = Modifier.padding(end = 16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (canvasScale != 1f || canvasOffset != Offset.Zero) {
-                            TextButton(
-                                onClick = { canvasScale = 1f; canvasOffset = Offset.Zero },
-                                colors = ButtonDefaults.textButtonColors(contentColor = Color.Black)
-                            ) {
-                                Text("${(canvasScale * 100).roundToInt()}%")
-                            }
-                            Spacer(Modifier.width(4.dp))
-                        }
-                        var showExportMenu by remember { mutableStateOf(false) }
+                        var showMoreMenu by remember { mutableStateOf(false) }
                         Box {
                             CircleIconButton(
-                                onClick = { showExportMenu = true },
-                                icon = Icons.Rounded.IosShare,
-                                contentDescription = "Export",
+                                onClick = { showMoreMenu = true },
+                                icon = Icons.Rounded.MoreVert,
+                                contentDescription = "More",
                                 containerColor = Color.Black.copy(alpha = 0.25f),
                                 contentColor = Color.Black
                             )
-                            DropdownMenu(expanded = showExportMenu, onDismissRequest = { showExportMenu = false }) {
-                                DropdownMenuItem(text = { Text("Export as PNG") }, onClick = { showExportMenu = false; launchExport(pngLauncher, "png") })
-                                DropdownMenuItem(text = { Text("Export as PDF (Bitmap)") }, onClick = { showExportMenu = false; launchExport(pdfBitmapLauncher, "pdf") })
-                                DropdownMenuItem(text = { Text("Export as PDF (Vector)") }, onClick = { showExportMenu = false; launchExport(pdfVectorLauncher, "pdf") })
+                            DropdownMenu(
+                                expanded = showMoreMenu, 
+                                onDismissRequest = { showMoreMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Insert Image") },
+                                    onClick = { 
+                                        showMoreMenu = false
+                                        imagePickerLauncher.launch("image/*")
+                                    },
+                                    leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null) }
+                                )
+                                HorizontalDivider()
+                                DropdownMenuItem(
+                                    text = { Text("Export as PNG") }, 
+                                    onClick = { showMoreMenu = false; launchExport(pngLauncher, "png") },
+                                    leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Export as PDF (Bitmap)") }, 
+                                    onClick = { showMoreMenu = false; launchExport(pdfBitmapLauncher, "pdf") },
+                                    leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, contentDescription = null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Export as PDF (Vector)") }, 
+                                    onClick = { showMoreMenu = false; launchExport(pdfVectorLauncher, "pdf") },
+                                    leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, contentDescription = null) }
+                                )
                             }
                         }
-                        Spacer(Modifier.width(12.dp))
-                        CircleIconButton(
-                            onClick = { saveDrawing(); onNavigateUp() },
-                            icon = Icons.Rounded.Save,
-                            contentDescription = "Save",
-                            containerColor = Color.Black.copy(alpha = 0.25f),
-                            contentColor = Color.Black
-                        )
                     }
                 },
                 modifier = Modifier.zIndex(12f).statusBarsPadding()
@@ -389,10 +463,8 @@ fun DrawingNoteScreen(
                                 val isStylus = down.type == PointerType.Stylus || down.type == PointerType.Eraser
                                 val isEraserType = down.type == PointerType.Eraser
                                 
-                                // Helper to check S Pen button
                                 fun isStylusButtonPressed(event: PointerEvent): Boolean {
                                     if (event.buttons.isSecondaryPressed || event.buttons.isTertiaryPressed) return true
-                                    
                                     val native = event.motionEvent
                                     if (native != null) {
                                         val bs = native.buttonState
@@ -401,7 +473,6 @@ fun DrawingNoteScreen(
                                             (bs and MotionEvent.BUTTON_SECONDARY != 0)) {
                                             return true
                                         }
-                                        // Specific action codes for some S Pen models (e.g. S6 Lite)
                                         val am = native.actionMasked
                                         if (am == 211 || am == 212 || am == 213 || am == 214) return true
                                     }
@@ -424,7 +495,9 @@ fun DrawingNoteScreen(
                                 val worldStartPos = (startPos - updatedCanvasOffset) / updatedCanvasScale
                                 val bStart = updatedBounds
                                 val strokesAtStart = updatedStrokes
-                                val selectedAtStart = updatedSelectedIds
+                                val imagesAtStart = updatedImages
+                                val selectedStrokesAtStart = updatedSelectedStrokeIds
+                                val selectedImagesAtStart = updatedSelectedImageIds
                                 
                                 val dragMode = when {
                                     updatedForceStylus && !isStylus -> DragMode.PAN
@@ -446,24 +519,22 @@ fun DrawingNoteScreen(
 
                                 if (dragMode == DragMode.LASSO || dragMode == DragMode.DRAW) {
                                     selectedStrokeIds = emptySet()
+                                    selectedImageIds = emptySet()
                                     currentPathPoints.clear()
                                     currentPathPoints.add(DrawingPoint(worldStartPos.x, worldStartPos.y))
                                 }
 
                                 val touchSlop = viewConfiguration.touchSlop
-                                // Remove deadzone for drawing and lasso modes, or when using a stylus
                                 val effectiveSlop = if (dragMode == DragMode.DRAW || dragMode == DragMode.LASSO || isStylus) 0.1f else touchSlop
                                 var hasMovedPastSlop = false
                                 var lastPosition = startPos
                                 
-                                // Manual drag loop to allow mid-stroke tool switching
                                 while (true) {
                                     val event = awaitPointerEvent()
-                                    
-                                    // Exit if multiple fingers are detected (zoom/pan mode)
                                     if (event.changes.size > 1) {
                                         if (dragMode == DragMode.MOVE || dragMode.name.startsWith("RESIZE")) {
                                             strokes = strokesAtStart
+                                            images = imagesAtStart
                                         }
                                         currentPathPoints.clear()
                                         break
@@ -485,15 +556,9 @@ fun DrawingNoteScreen(
                                         break
                                     }
 
-                                    // Dynamic tool switching during the stroke
-                                    val newTool = if (isStylus && (isEraserType || isStylusButtonPressed(event))) {
-                                        DrawingTool.ERASER
-                                    } else {
-                                        updatedTool
-                                    }
+                                    val newTool = if (isStylus && (isEraserType || isStylusButtonPressed(event))) DrawingTool.ERASER else updatedTool
 
                                     if (newTool != currentWorkingTool && dragMode == DragMode.DRAW && hasMovedPastSlop) {
-                                        // Save current segment and start new one with new tool
                                         if (currentPathPoints.size > 1) {
                                             if (currentWorkingTool != DrawingTool.ERASER) {
                                                 strokes = updatedStrokes + com.ozon.notes.Stroke(
@@ -522,7 +587,8 @@ fun DrawingNoteScreen(
                                             DragMode.PAN -> canvasOffset += dragDelta
                                             DragMode.MOVE -> {
                                                 val totalMove = (currentPos - startPos) / updatedCanvasScale
-                                                strokes = strokesAtStart.map { s -> if (s.id in selectedAtStart) s.copy(points = s.points.map { DrawingPoint(it.x + totalMove.x, it.y + totalMove.y) }) else s }
+                                                strokes = strokesAtStart.map { s -> if (s.id in selectedStrokesAtStart) s.copy(points = s.points.map { DrawingPoint(it.x + totalMove.x, it.y + totalMove.y) }) else s }
+                                                images = imagesAtStart.map { img -> if (img.id in selectedImagesAtStart) img.copy(offset = DrawingPoint(img.offset.x + totalMove.x, img.offset.y + totalMove.y)) else img }
                                             }
                                             DragMode.RESIZE_TL, DragMode.RESIZE_TR, DragMode.RESIZE_BL, DragMode.RESIZE_BR -> {
                                                 if (bStart != null) {
@@ -538,7 +604,8 @@ fun DrawingNoteScreen(
                                                     val newW = Math.abs(worldPos.x - pivot.x).coerceAtLeast(1f)
                                                     val newH = Math.abs(worldPos.y - pivot.y).coerceAtLeast(1f)
                                                     val sX = newW / oldW; val sY = newH / oldH
-                                                    strokes = strokesAtStart.map { s -> if (s.id in selectedAtStart) s.copy(points = s.points.map { DrawingPoint(pivot.x + (it.x - pivot.x) * sX, pivot.y + (it.y - pivot.y) * sY) }) else s }
+                                                    strokes = strokesAtStart.map { s -> if (s.id in selectedStrokesAtStart) s.copy(points = s.points.map { DrawingPoint(pivot.x + (it.x - pivot.x) * sX, pivot.y + (it.y - pivot.y) * sY) }) else s }
+                                                    images = imagesAtStart.map { img -> if (img.id in selectedImagesAtStart) img.copy(offset = DrawingPoint(pivot.x + (img.offset.x - pivot.x) * sX, pivot.y + (img.offset.y - pivot.y) * sY), scale = DrawingPoint(img.scale.x * sX, img.scale.y * sY)) else img }
                                                 }
                                             }
                                             DragMode.LASSO, DragMode.DRAW -> {
@@ -552,7 +619,6 @@ fun DrawingNoteScreen(
                                                 addedPoints.add(currentPt)
                                                 currentPathPoints.add(currentPt)
 
-                                                // Real-time object-based erasing
                                                 if (dragMode == DragMode.DRAW && currentWorkingTool == DrawingTool.ERASER) {
                                                     val radiusSq = (eraserThickness / 2f) * (eraserThickness / 2f)
                                                     strokes = strokes.filterNot { stroke ->
@@ -574,7 +640,17 @@ fun DrawingNoteScreen(
                                 }
 
                                 if (!hasMovedPastSlop) {
-                                    if (bStart == null || !bStart.contains(worldStartPos)) selectedStrokeIds = emptySet()
+                                    if (bStart == null || !bStart.contains(worldStartPos)) {
+                                        selectedStrokeIds = emptySet()
+                                        selectedImageIds = emptySet()
+                                        if (updatedTool == DrawingTool.LASSO) {
+                                            val tappedImage = updatedImages.findLast { img ->
+                                                val rect = Rect(img.offset.x, img.offset.y, img.offset.x + img.scale.x, img.offset.y + img.scale.y)
+                                                rect.contains(worldStartPos)
+                                            }
+                                            if (tappedImage != null) selectedImageIds = setOf(tappedImage.id)
+                                        }
+                                    }
                                 } else {
                                     if (dragMode == DragMode.LASSO && currentPathPoints.size > 2) {
                                         val lassoPath = android.graphics.Path().apply { currentPathPoints.forEachIndexed { i, p -> if (i == 0) moveTo(p.x, p.y) else lineTo(p.x, p.y) }; close() }
@@ -586,7 +662,7 @@ fun DrawingNoteScreen(
                                         val penStrokes = updatedStrokes.filter { it.tool != DrawingTool.ERASER && it.points.any { pt -> region.contains(pt.x.toInt(), pt.y.toInt()) } }
                                         penStrokes.forEach { newIds.add(it.id) }
                                         if (newIds.isNotEmpty()) {
-                                            val selBounds = getBounds(penStrokes)
+                                            val selBounds = getBounds(penStrokes, emptyList())
                                             updatedStrokes.filter { it.tool == DrawingTool.ERASER }.forEach { eraser -> if (eraser.points.any { pt -> selBounds.contains(Offset(pt.x, pt.y)) }) newIds.add(eraser.id) }
                                         }
                                         selectedStrokeIds = newIds
@@ -603,6 +679,16 @@ fun DrawingNoteScreen(
                         translate(canvasOffset.x, canvasOffset.y)
                         scale(canvasScale, canvasScale, Offset.Zero)
                     }) {
+                        images.forEach { img ->
+                            bitmapCache[img.path]?.let { bitmap ->
+                                drawImage(
+                                    image = bitmap,
+                                    dstOffset = IntOffset(img.offset.x.roundToInt(), img.offset.y.roundToInt()),
+                                    dstSize = androidx.compose.ui.unit.IntSize(img.scale.x.roundToInt(), img.scale.y.roundToInt()),
+                                    alpha = 1f
+                                )
+                            }
+                        }
                         strokes.forEach { stroke ->
                             val path = Path().apply { stroke.points.forEachIndexed { i, p -> if (i == 0) moveTo(p.x, p.y) else lineTo(p.x, p.y) } }
                             drawPath(path = path, color = if (stroke.id in selectedStrokeIds) Color.Blue.copy(alpha = 0.6f) else Color(stroke.colorArgb), style = Stroke(width = stroke.width, cap = StrokeCap.Round, join = StrokeJoin.Round))
@@ -626,114 +712,20 @@ fun DrawingNoteScreen(
                 }
             }
 
-            // 2. Gradients Layer (Middle)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .then(if (isNormalTablet) Modifier.statusBarsPadding() else Modifier)
                     .zIndex(1f)
             ) {
-                SystemBarGradients(
-                    color = Color.White, 
-                    showTop = true,
-                    showBottom = true
-                )
+                SystemBarGradients(color = Color.White, showTop = true, showBottom = true)
             }
 
-            // 3. UI Layer (Top)
-            // Utility Toolbar (Undo/Redo/Paste)
-            BoxWithConstraints(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-                    .padding(top = 64.dp)
-                    .zIndex(10f)
-            ) {
-                val density = LocalDensity.current
-                val maxX = with(density) { 16.dp.toPx() }
-                val minX = with(density) { - (maxWidth.toPx() - utilityToolbarSize.width - 16.dp.toPx()) }
-                val maxY = with(density) { maxHeight.toPx() - utilityToolbarSize.height }
-
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(end = 16.dp)
-                        .onSizeChanged { utilityToolbarSize = it }
-                        .offset { 
-                            IntOffset(
-                                utilityToolbarOffset.x.roundToInt(), 
-                                utilityToolbarOffset.y.roundToInt()
-                            ) 
-                        }
-                        .pointerInput(utilityToolbarSize, constraints) {
-                            detectDragGestures { change, dragAmount ->
-                                change.consume()
-                                val newOffset = utilityToolbarOffset + dragAmount
-                                utilityToolbarOffset = Offset(
-                                    x = newOffset.x.coerceIn(minX, maxX),
-                                    y = newOffset.y.coerceIn(0f, maxY)
-                                )
-                            }
-                        },
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp),
-                    shadowElevation = 2.dp
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(
-                            onClick = { if (strokes.isNotEmpty()) { redoStack = redoStack + strokes.last(); strokes = strokes.dropLast(1) } },
-                            enabled = strokes.isNotEmpty(),
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Rounded.Undo,
-                                contentDescription = "Undo",
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        IconButton(
-                            onClick = { handlePaste() },
-                            enabled = clipboardStrokes != null,
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                Icons.Rounded.ContentPaste,
-                                contentDescription = "Paste",
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        IconButton(
-                            onClick = { if (redoStack.isNotEmpty()) { strokes = strokes + redoStack.last(); redoStack = redoStack.dropLast(1) } },
-                            enabled = redoStack.isNotEmpty(),
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Rounded.Redo,
-                                contentDescription = "Redo",
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Drawing Toolbar Box
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .zIndex(11f) // Above gradients
-            ) {
+            Box(modifier = Modifier.fillMaxSize().zIndex(11f)) {
                 DrawingToolbar(
                     currentTool = currentTool,
                     onToolChange = { 
-                        if (currentTool == it && it == DrawingTool.PEN) {
-                            showThicknessPopup = !showThicknessPopup
-                            showColorPopup = false
-                        } else if (currentTool == it && it == DrawingTool.ERASER) {
+                        if (currentTool == it && (it == DrawingTool.PEN || it == DrawingTool.ERASER)) {
                             showThicknessPopup = !showThicknessPopup
                             showColorPopup = false
                         } else {
@@ -757,26 +749,81 @@ fun DrawingNoteScreen(
                         notesViewModel.onEvent(NoteEvent.UpdateLastDrawingColor(it.toArgb()))
                     },
                     showColorPopup = showColorPopup,
-                    onToggleColorPopup = { showColorPopup = it; if (it) showThicknessPopup = false }
+                    onToggleColorPopup = { showColorPopup = it; if (it) showThicknessPopup = false },
+                    undoEnabled = strokes.isNotEmpty(),
+                    onUndo = { if (strokes.isNotEmpty()) { redoStack = redoStack + strokes.last(); strokes = strokes.dropLast(1) } },
+                    redoEnabled = redoStack.isNotEmpty(),
+                    onRedo = { if (redoStack.isNotEmpty()) { strokes = strokes + redoStack.last(); redoStack = redoStack.dropLast(1) } },
+                    pasteEnabled = clipboardStrokes != null,
+                    onPaste = { handlePaste() },
+                    canvasScale = canvasScale,
+                    onResetZoom = { canvasScale = 1f; canvasOffset = Offset.Zero }
                 )
 
                 selectionBounds?.let { bounds ->
-                    val center = (bounds.center + canvasOffset)
+                    val density = LocalDensity.current
+                    val px16 = with(density) { 16.dp.toPx() }
+                    val px64 = with(density) { 64.dp.toPx() }
+                    val px56 = with(density) { 56.dp.toPx() }
+                    val screenX = bounds.center.x * canvasScale + canvasOffset.x
+                    val screenY = bounds.top * canvasScale + canvasOffset.y
+                    val isTooHigh = screenY < 200f
+                    val yOffset = if (isTooHigh) (bounds.bottom * canvasScale + canvasOffset.y + px16) else (screenY - px64)
+
                     Surface(
                         modifier = Modifier
-                            .offset { IntOffset((center.x - 60.dp.toPx()).roundToInt(), (bounds.top + canvasOffset.y - 60.dp.toPx()).roundToInt()) }
+                            .offset { IntOffset((screenX - px56).roundToInt(), yOffset.roundToInt()) }
                             .shadow(4.dp, CircleShape).clip(CircleShape),
-                        color = MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp)
+                        color = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
+                        tonalElevation = 6.dp
                     ) {
-                        Row(modifier = Modifier.padding(4.dp)) {
+                        Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                             IconButton(onClick = {
-                                clipboardStrokes = strokes.filter { it.id in selectedStrokeIds }.map { it.copy(id = UUID.randomUUID().toString()) }
-                                selectedStrokeIds = emptySet()
-                                Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
-                            }) { Icon(Icons.Rounded.ContentCopy, contentDescription = "Copy") }
-                            IconButton(onClick = { strokes = strokes.filterNot { it.id in selectedStrokeIds }; selectedStrokeIds = emptySet() }) {
-                                Icon(Icons.Rounded.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
+                                val newStrokes = strokes.filter { it.id in selectedStrokeIds }.map { s -> s.copy(id = UUID.randomUUID().toString(), points = s.points.map { DrawingPoint(it.x + 20f, it.y + 20f) }) }
+                                val newImages = images.filter { it.id in selectedImageIds }.map { img -> img.copy(id = UUID.randomUUID().toString(), offset = DrawingPoint(img.offset.x + 20f, img.offset.y + 20f)) }
+                                strokes = strokes + newStrokes
+                                images = images + newImages
+                                selectedStrokeIds = newStrokes.map { it.id }.toSet()
+                                selectedImageIds = newImages.map { it.id }.toSet()
+                                Toast.makeText(context, "Duplicated", Toast.LENGTH_SHORT).show()
+                            }) { Icon(Icons.Rounded.ContentCopy, contentDescription = "Duplicate") }
+                            IconButton(onClick = { 
+                                strokes = strokes.filterNot { it.id in selectedStrokeIds }
+                                images = images.filterNot { it.id in selectedImageIds }
+                                selectedStrokeIds = emptySet(); selectedImageIds = emptySet()
+                                showSelectionThicknessPopup = false; showSelectionColorPopup = false
+                            }) { Icon(Icons.Rounded.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error) }
+                            if (selectedStrokeIds.isNotEmpty()) {
+                                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                                IconButton(onClick = { showSelectionColorPopup = !showSelectionColorPopup; showSelectionThicknessPopup = false }) {
+                                    val firstColor = strokes.find { it.id in selectedStrokeIds }?.colorArgb ?: Color.Black.toArgb()
+                                    Box(modifier = Modifier.size(20.dp).clip(CircleShape).background(Color(firstColor)).border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f), CircleShape))
+                                }
+                                IconButton(onClick = { showSelectionThicknessPopup = !showSelectionThicknessPopup; showSelectionColorPopup = false }) { Icon(Icons.Rounded.LineWeight, contentDescription = "Thickness") }
                             }
+                        }
+                    }
+
+                    Column(
+                        modifier = Modifier.offset { IntOffset((screenX - 100.dp.toPx()).roundToInt(), (yOffset + (if (isTooHigh) 60.dp.toPx() else -200.dp.toPx())).roundToInt()) }.zIndex(15f),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        if (showSelectionColorPopup) {
+                            ColorPopup(
+                                selectedColor = Color(strokes.find { it.id in selectedStrokeIds }?.colorArgb ?: Color.Black.toArgb()),
+                                onColorChange = { newColor ->
+                                    strokes = strokes.map { s -> if (s.id in selectedStrokeIds) s.copy(colorArgb = newColor.toArgb()) else s }
+                                    showSelectionColorPopup = false
+                                },
+                                onOpenPicker = { /* Picker */ }
+                            )
+                        }
+                        if (showSelectionThicknessPopup) {
+                            ThicknessPopup(
+                                thickness = strokes.find { it.id in selectedStrokeIds }?.width ?: 5f,
+                                onThicknessChange = { newWidth -> strokes = strokes.map { s -> if (s.id in selectedStrokeIds) s.copy(width = newWidth) else s } },
+                                color = Color(strokes.find { it.id in selectedStrokeIds }?.colorArgb ?: Color.Black.toArgb())
+                            )
                         }
                     }
                 }
@@ -785,213 +832,243 @@ fun DrawingNoteScreen(
     }
 }
 
-private fun getBounds(strokes: List<com.ozon.notes.Stroke>): Rect {
-    if (strokes.isEmpty()) return Rect.Zero
-    var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
-    strokes.forEach { s ->
-        val halfWidth = s.width / 2f
-        s.points.forEach { p ->
-            minX = minOf(minX, p.x - halfWidth); minY = minOf(minY, p.y - halfWidth)
-            maxX = maxOf(maxX, p.x + halfWidth); maxY = maxOf(maxY, p.y + halfWidth)
-        }
-    }
-    return Rect(minX, minY, maxX, maxY)
-}
-
 @Composable
 fun DrawingToolbar(
-    currentTool: DrawingTool,
-    onToolChange: (DrawingTool) -> Unit,
-    anchor: ToolbarAnchor,
-    onAnchorChange: (ToolbarAnchor) -> Unit,
-    isCollapsed: Boolean,
-    onToggleCollapse: (Boolean) -> Unit,
-    penThickness: Float,
-    onPenThicknessChange: (Float) -> Unit,
-    eraserThickness: Float,
-    onEraserThicknessChange: (Float) -> Unit,
-    showThicknessPopup: Boolean,
-    selectedPenColor: Color,
-    onPenColorChange: (Color) -> Unit,
-    showColorPopup: Boolean,
-    onToggleColorPopup: (Boolean) -> Unit
+    currentTool: DrawingTool, onToolChange: (DrawingTool) -> Unit, anchor: ToolbarAnchor, onAnchorChange: (ToolbarAnchor) -> Unit,
+    isCollapsed: Boolean, onToggleCollapse: (Boolean) -> Unit, penThickness: Float, onPenThicknessChange: (Float) -> Unit,
+    eraserThickness: Float, onEraserThicknessChange: (Float) -> Unit, showThicknessPopup: Boolean,
+    selectedPenColor: Color, onPenColorChange: (Color) -> Unit, showColorPopup: Boolean, onToggleColorPopup: (Boolean) -> Unit,
+    undoEnabled: Boolean, onUndo: () -> Unit, redoEnabled: Boolean, onRedo: () -> Unit, pasteEnabled: Boolean, onPaste: () -> Unit,
+    canvasScale: Float, onResetZoom: () -> Unit
 ) {
-    var offset by remember { mutableStateOf(Offset.Zero) }
+    var dragOffset by remember { mutableStateOf(Offset.Zero) }
+    var predictedAnchor by remember { mutableStateOf<ToolbarAnchor?>(null) }
     var showFullColorPicker by remember { mutableStateOf(false) }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val screenWidth = constraints.maxWidth.toFloat()
+        val screenHeight = constraints.maxHeight.toFloat()
+
         val alignment = when (anchor) {
             ToolbarAnchor.TOP -> Alignment.TopCenter
             ToolbarAnchor.BOTTOM -> Alignment.BottomCenter
             ToolbarAnchor.LEFT -> Alignment.CenterStart
             ToolbarAnchor.RIGHT -> Alignment.CenterEnd
+            ToolbarAnchor.TOP_LEFT -> Alignment.TopStart
+            ToolbarAnchor.TOP_RIGHT -> Alignment.TopEnd
+            ToolbarAnchor.BOTTOM_LEFT -> Alignment.BottomStart
+            ToolbarAnchor.BOTTOM_RIGHT -> Alignment.BottomEnd
         }
         val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val headerHeight = 64.dp // TopAppBar height
+        
+        val isTop = anchor == ToolbarAnchor.TOP || anchor == ToolbarAnchor.TOP_LEFT || anchor == ToolbarAnchor.TOP_RIGHT
+        val isBottom = anchor == ToolbarAnchor.BOTTOM || anchor == ToolbarAnchor.BOTTOM_LEFT || anchor == ToolbarAnchor.BOTTOM_RIGHT
+
+        // Helper to get alignment for any anchor
+        fun getAlignment(a: ToolbarAnchor) = when (a) {
+            ToolbarAnchor.TOP -> Alignment.TopCenter
+            ToolbarAnchor.BOTTOM -> Alignment.BottomCenter
+            ToolbarAnchor.LEFT -> Alignment.CenterStart
+            ToolbarAnchor.RIGHT -> Alignment.CenterEnd
+            ToolbarAnchor.TOP_LEFT -> Alignment.TopStart
+            ToolbarAnchor.TOP_RIGHT -> Alignment.TopEnd
+            ToolbarAnchor.BOTTOM_LEFT -> Alignment.BottomStart
+            ToolbarAnchor.BOTTOM_RIGHT -> Alignment.BottomEnd
+        }
+
+        // --- Drag Preview ---
+        predictedAnchor?.let { pred ->
+            val pTop = pred == ToolbarAnchor.TOP || pred == ToolbarAnchor.TOP_LEFT || pred == ToolbarAnchor.TOP_RIGHT
+            val pBottom = pred == ToolbarAnchor.BOTTOM || pred == ToolbarAnchor.BOTTOM_LEFT || pred == ToolbarAnchor.BOTTOM_RIGHT
+            val pIsHorizontal = pred == ToolbarAnchor.TOP || pred == ToolbarAnchor.BOTTOM || 
+                              pred == ToolbarAnchor.TOP_LEFT || pred == ToolbarAnchor.TOP_RIGHT ||
+                              pred == ToolbarAnchor.BOTTOM_LEFT || pred == ToolbarAnchor.BOTTOM_RIGHT
+
+            Box(
+                modifier = Modifier
+                    .align(getAlignment(pred))
+                    .padding(12.dp)
+                    .padding(
+                        bottom = if (pBottom) navBarPadding + 12.dp else 0.dp, 
+                        top = if (pTop) statusBarPadding + headerHeight else 0.dp
+                    )
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .then(if (pIsHorizontal) Modifier.size(240.dp, 48.dp) else Modifier.size(48.dp, 240.dp)),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                ) {}
+            }
+        }
+
         Column(
-            modifier = Modifier
-                .align(alignment)
-                .padding(16.dp)
-                .padding(bottom = if (anchor == ToolbarAnchor.BOTTOM) navBarPadding + 16.dp else 0.dp),
+            modifier = Modifier.align(alignment).padding(12.dp)
+                .padding(
+                    bottom = if (isBottom) navBarPadding + 12.dp else 0.dp, 
+                    top = if (isTop) statusBarPadding + headerHeight else 0.dp
+                ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             if (!isCollapsed && showThicknessPopup) {
-                ThicknessPopup(
-                    thickness = if (currentTool == DrawingTool.PEN) penThickness else eraserThickness,
-                    onThicknessChange = if (currentTool == DrawingTool.PEN) onPenThicknessChange else onEraserThicknessChange,
-                    color = if (currentTool == DrawingTool.PEN) selectedPenColor else Color.LightGray
-                )
+                ThicknessPopup(thickness = if (currentTool == DrawingTool.PEN) penThickness else eraserThickness, onThicknessChange = if (currentTool == DrawingTool.PEN) onPenThicknessChange else onEraserThicknessChange, color = if (currentTool == DrawingTool.PEN) selectedPenColor else Color.LightGray)
                 Spacer(Modifier.height(8.dp))
             }
             if (!isCollapsed && showColorPopup) {
-                ColorPopup(
-                    selectedColor = selectedPenColor,
-                    onColorChange = { onPenColorChange(it); onToggleColorPopup(false) },
-                    onOpenPicker = { showFullColorPicker = true; onToggleColorPopup(false) }
-                )
+                ColorPopup(selectedColor = selectedPenColor, onColorChange = { onPenColorChange(it); onToggleColorPopup(false) }, onOpenPicker = { showFullColorPicker = true; onToggleColorPopup(false) })
                 Spacer(Modifier.height(8.dp))
             }
-            Box(modifier = Modifier.pointerInput(anchor) {
-                detectDragGestures(
-                    onDrag = { change, dragAmount -> change.consume(); offset += dragAmount },
-                    onDragEnd = {
-                        val threshold = 100f
-                        val newAnchor = when {
-                            offset.y < -threshold -> ToolbarAnchor.TOP
-                            offset.y > threshold -> ToolbarAnchor.BOTTOM
-                            offset.x < -threshold -> ToolbarAnchor.LEFT
-                            offset.x > threshold -> ToolbarAnchor.RIGHT
-                            else -> anchor
-                        }
-                        onAnchorChange(newAnchor)
-                        offset = Offset.Zero
-                    }
-                )
-            }.offset { IntOffset(offset.x.roundToInt(), offset.y.roundToInt()) }) {
-                if (isCollapsed) {
-                    Button(onClick = { onToggleCollapse(false) }, shape = CircleShape, modifier = Modifier.height(48.dp), contentPadding = PaddingValues(horizontal = 16.dp)) {
-                        Icon(
-                            painter = when(currentTool) {
-                                DrawingTool.PEN -> rememberVectorPainter(Icons.Rounded.Edit)
-                                DrawingTool.ERASER -> painterResource(R.drawable.ic_ink_eraser)
-                                DrawingTool.LASSO -> rememberVectorPainter(Icons.Rounded.Gesture)
-                                else -> rememberVectorPainter(Icons.Rounded.PanTool)
+
+            Surface(
+                modifier = Modifier.wrapContentSize().offset { IntOffset(dragOffset.x.roundToInt(), dragOffset.y.roundToInt()) }.shadow(if (isCollapsed) 4.dp else 8.dp, CircleShape).clip(CircleShape)
+                    .pointerInput(anchor) {
+                        detectDragGesturesAfterLongPress(
+                            onDragStart = { 
+                                dragOffset = Offset.Zero 
+                                predictedAnchor = anchor
                             },
-                            contentDescription = "Expand"
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                dragOffset += dragAmount
+                                
+                                // Calculate current approximate position based on anchor and drag
+                                val currentBasePos = when(anchor) {
+                                    ToolbarAnchor.TOP -> Offset(screenWidth / 2, 0f)
+                                    ToolbarAnchor.BOTTOM -> Offset(screenWidth / 2, screenHeight)
+                                    ToolbarAnchor.LEFT -> Offset(0f, screenHeight / 2)
+                                    ToolbarAnchor.RIGHT -> Offset(screenWidth, screenHeight / 2)
+                                    ToolbarAnchor.TOP_LEFT -> Offset(0f, 0f)
+                                    ToolbarAnchor.TOP_RIGHT -> Offset(screenWidth, 0f)
+                                    ToolbarAnchor.BOTTOM_LEFT -> Offset(0f, screenHeight)
+                                    ToolbarAnchor.BOTTOM_RIGHT -> Offset(screenWidth, screenHeight)
+                                }
+                                
+                                val virtualPos = currentBasePos + dragOffset
+                                
+                                // Find the anchor point closest to the virtual position
+                                val anchorPoints = mapOf(
+                                    ToolbarAnchor.TOP to Offset(screenWidth / 2, 0f),
+                                    ToolbarAnchor.BOTTOM to Offset(screenWidth / 2, screenHeight),
+                                    ToolbarAnchor.LEFT to Offset(0f, screenHeight / 2),
+                                    ToolbarAnchor.RIGHT to Offset(screenWidth, screenHeight / 2),
+                                    ToolbarAnchor.TOP_LEFT to Offset(0f, 0f),
+                                    ToolbarAnchor.TOP_RIGHT to Offset(screenWidth, 0f),
+                                    ToolbarAnchor.BOTTOM_LEFT to Offset(0f, screenHeight),
+                                    ToolbarAnchor.BOTTOM_RIGHT to Offset(screenWidth, screenHeight)
+                                )
+                                
+                                predictedAnchor = anchorPoints.minByOrNull { (_, point) ->
+                                    (point - virtualPos).getDistance()
+                                }?.key ?: anchor
+                            },
+                            onDragEnd = {
+                                predictedAnchor?.let { onAnchorChange(it) }
+                                dragOffset = Offset.Zero
+                                predictedAnchor = null
+                            },
+                            onDragCancel = { 
+                                dragOffset = Offset.Zero
+                                predictedAnchor = null
+                            }
                         )
+                    },
+                color = MaterialTheme.colorScheme.surfaceColorAtElevation(if (isCollapsed) 2.dp else 6.dp),
+                tonalElevation = if (isCollapsed) 2.dp else 6.dp
+            ) {
+                val isHorizontal = anchor == ToolbarAnchor.TOP || anchor == ToolbarAnchor.BOTTOM || 
+                               anchor == ToolbarAnchor.TOP_LEFT || anchor == ToolbarAnchor.TOP_RIGHT ||
+                               anchor == ToolbarAnchor.BOTTOM_LEFT || anchor == ToolbarAnchor.BOTTOM_RIGHT
+                val padding = if (isCollapsed) 4.dp else 6.dp
+                if (isHorizontal) {
+                    Row(modifier = Modifier.padding(padding), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        ToolbarContent(isHorizontal, isCollapsed, currentTool, onToolChange, selectedPenColor, showColorPopup, onToggleColorPopup, onToggleCollapse, undoEnabled, onUndo, redoEnabled, onRedo, pasteEnabled, onPaste, canvasScale, onResetZoom)
                     }
                 } else {
-                    Surface(modifier = Modifier.wrapContentSize().shadow(8.dp, CircleShape).clip(CircleShape).pointerInput(anchor) {
-                        detectDragGestures { change, dragAmount ->
-                            val t = 20f
-                            val isCollapsing = when (anchor) {
-                                ToolbarAnchor.TOP -> dragAmount.y < -t; ToolbarAnchor.BOTTOM -> dragAmount.y > t
-                                ToolbarAnchor.LEFT -> dragAmount.x < -t; ToolbarAnchor.RIGHT -> dragAmount.x > t
-                                else -> false
-                            }
-                            if (isCollapsing) onToggleCollapse(true)
-                        }
-                    }, color = MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp)) {
-                        val isHorizontal = anchor == ToolbarAnchor.TOP || anchor == ToolbarAnchor.BOTTOM
-                        if (isHorizontal) Row(modifier = Modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) { 
-                            ToolbarItems(currentTool, onToolChange, selectedPenColor, showColorPopup, onToggleColorPopup) 
-                        }
-                        else Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.CenterHorizontally) { 
-                            ToolbarItems(currentTool, onToolChange, selectedPenColor, showColorPopup, onToggleColorPopup) 
-                        }
+                    Column(modifier = Modifier.padding(padding), verticalArrangement = Arrangement.spacedBy(4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        ToolbarContent(isHorizontal, isCollapsed, currentTool, onToolChange, selectedPenColor, showColorPopup, onToggleColorPopup, onToggleCollapse, undoEnabled, onUndo, redoEnabled, onRedo, pasteEnabled, onPaste, canvasScale, onResetZoom)
                     }
                 }
             }
         }
     }
+    if (showFullColorPicker) { FullColorPickerDialog(initialColor = selectedPenColor, onColorChange = { onPenColorChange(it); showFullColorPicker = false }, onDismiss = { showFullColorPicker = false }) }
+}
 
-    if (showFullColorPicker) {
-        FullColorPickerDialog(
-            initialColor = selectedPenColor,
-            onColorChange = { onPenColorChange(it); showFullColorPicker = false },
-            onDismiss = { showFullColorPicker = false }
-        )
+@Composable
+private fun ToolbarContent(
+    isHorizontal: Boolean, isCollapsed: Boolean, currentTool: DrawingTool, onToolChange: (DrawingTool) -> Unit,
+    selectedPenColor: Color, showColorPopup: Boolean, onToggleColorPopup: (Boolean) -> Unit, onToggleCollapse: (Boolean) -> Unit,
+    undoEnabled: Boolean, onUndo: () -> Unit, redoEnabled: Boolean, onRedo: () -> Unit, pasteEnabled: Boolean, onPaste: () -> Unit,
+    canvasScale: Float, onResetZoom: () -> Unit
+) {
+    if (!isCollapsed) {
+        ToolbarItem(DrawingTool.PEN, rememberVectorPainter(Icons.Rounded.Edit), currentTool == DrawingTool.PEN) { onToolChange(DrawingTool.PEN) }
+        IconButton(onClick = { onToggleColorPopup(!showColorPopup) }, modifier = Modifier.size(34.dp).clip(CircleShape).background(if (showColorPopup) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)) {
+            Box(modifier = Modifier.size(20.dp).clip(CircleShape).background(selectedPenColor).border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f), CircleShape))
+        }
+        ToolbarItem(DrawingTool.ERASER, painterResource(R.drawable.ic_ink_eraser), currentTool == DrawingTool.ERASER) { onToolChange(DrawingTool.ERASER) }
+        ToolbarItem(DrawingTool.LASSO, rememberVectorPainter(Icons.Rounded.Gesture), currentTool == DrawingTool.LASSO) { onToolChange(DrawingTool.LASSO) }
+        ToolbarItem(DrawingTool.HAND, rememberVectorPainter(Icons.Rounded.PanTool), currentTool == DrawingTool.HAND) { onToolChange(DrawingTool.HAND) }
+        ToolbarSeparator(isHorizontal)
+    } else {
+        IconButton(onClick = { onToggleCollapse(false) }, modifier = Modifier.size(34.dp)) {
+            Icon(painter = when(currentTool) { DrawingTool.PEN -> rememberVectorPainter(Icons.Rounded.Edit); DrawingTool.ERASER -> painterResource(R.drawable.ic_ink_eraser); DrawingTool.LASSO -> rememberVectorPainter(Icons.Rounded.Gesture); else -> rememberVectorPainter(Icons.Rounded.PanTool) }, contentDescription = "Expand", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+        }
+        ToolbarSeparator(isHorizontal)
+    }
+    IconButton(onClick = onUndo, enabled = undoEnabled, modifier = Modifier.size(34.dp)) { Icon(Icons.AutoMirrored.Rounded.Undo, null, modifier = Modifier.size(18.dp)) }
+    IconButton(onClick = onPaste, enabled = pasteEnabled, modifier = Modifier.size(34.dp)) { Icon(Icons.Rounded.ContentPaste, null, modifier = Modifier.size(18.dp)) }
+    IconButton(onClick = onRedo, enabled = redoEnabled, modifier = Modifier.size(34.dp)) { Icon(Icons.AutoMirrored.Rounded.Redo, null, modifier = Modifier.size(18.dp)) }
+    ToolbarSeparator(isHorizontal)
+    if (isHorizontal) {
+        TextButton(onClick = onResetZoom, modifier = Modifier.size(width = 48.dp, height = 34.dp), contentPadding = PaddingValues(0.dp)) {
+            Text(text = "${(canvasScale * 100).roundToInt()}%", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = if (canvasScale != 1f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    } else {
+        IconButton(onClick = onResetZoom, modifier = Modifier.size(34.dp)) {
+            Icon(Icons.Rounded.ZoomIn, contentDescription = "Reset Zoom", modifier = Modifier.size(20.dp), tint = if (canvasScale != 1f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+    if (!isCollapsed) {
+        ToolbarSeparator(isHorizontal)
+        IconButton(onClick = { onToggleCollapse(true) }, modifier = Modifier.size(34.dp)) { Icon(Icons.Rounded.UnfoldLess, contentDescription = "Collapse", modifier = Modifier.size(18.dp)) }
     }
 }
 
 @Composable
-fun ColorPopup(
-    selectedColor: Color,
-    onColorChange: (Color) -> Unit,
-    onOpenPicker: () -> Unit
-) {
-    val presetColors = listOf(
-        Color.Black, Color(0xFFF44336), Color(0xFF2196F3), Color(0xFF4CAF50),
-        Color(0xFFFFEB3B), Color(0xFFFF9800), Color(0xFF9C27B0), Color(0xFF795548)
-    )
+private fun ToolbarSeparator(isHorizontal: Boolean) {
+    if (isHorizontal) VerticalDivider(modifier = Modifier.height(20.dp).width(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    else HorizontalDivider(modifier = Modifier.width(20.dp).height(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+}
 
-    Surface(
-        modifier = Modifier.width(240.dp).shadow(4.dp, RoundedCornerShape(16.dp)),
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp)
-    ) {
+@Composable
+fun ColorPopup(selectedColor: Color, onColorChange: (Color) -> Unit, onOpenPicker: () -> Unit) {
+    val presetColors = listOf(Color.Black, Color(0xFFF44336), Color(0xFF2196F3), Color(0xFF4CAF50), Color(0xFFFFEB3B), Color(0xFFFF9800), Color(0xFF9C27B0), Color(0xFF795548))
+    Surface(modifier = Modifier.width(240.dp).shadow(4.dp, RoundedCornerShape(16.dp)), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp)) {
         Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                "Colors",
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.padding(start = 4.dp, bottom = 8.dp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                presetColors.take(4).forEach { color ->
-                    ColorCircle(color = color, isSelected = color == selectedColor, onClick = { onColorChange(color) })
-                }
-            }
+            Text("Colors", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { presetColors.take(4).forEach { color -> ColorCircle(color = color, isSelected = color == selectedColor, onClick = { onColorChange(color) }) } }
             Spacer(Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                presetColors.drop(4).forEach { color ->
-                    ColorCircle(color = color, isSelected = color == selectedColor, onClick = { onColorChange(color) })
-                }
-            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { presetColors.drop(4).forEach { color -> ColorCircle(color = color, isSelected = color == selectedColor, onClick = { onColorChange(color) }) } }
             Spacer(Modifier.height(12.dp))
-            OutlinedButton(
-                onClick = onOpenPicker,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                contentPadding = PaddingValues(0.dp)
-            ) {
-                Icon(Icons.Rounded.Palette, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Custom Picker")
-            }
+            OutlinedButton(onClick = onOpenPicker, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(0.dp)) { Icon(Icons.Rounded.Palette, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Custom Picker") }
         }
     }
 }
 
 @Composable
 fun ColorCircle(color: Color, isSelected: Boolean, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(40.dp)
-            .clip(CircleShape)
-            .background(color)
-            .border(
-                width = if (isSelected) 3.dp else 1.dp,
-                color = if (isSelected) MaterialTheme.colorScheme.primary else Color.LightGray.copy(alpha = 0.5f),
-                shape = CircleShape
-            )
-            .clickable { onClick() }
-    )
+    Box(modifier = Modifier.size(34.dp).clip(CircleShape).background(color).border(width = if (isSelected) 3.dp else 1.dp, color = if (isSelected) MaterialTheme.colorScheme.primary else Color.LightGray.copy(alpha = 0.5f), shape = CircleShape).clickable { onClick() })
 }
-
 
 @Composable
 fun ThicknessPopup(thickness: Float, onThicknessChange: (Float) -> Unit, color: Color) {
     Surface(modifier = Modifier.width(200.dp).shadow(4.dp, RoundedCornerShape(16.dp)), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp)) {
         Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(modifier = Modifier.size(100.dp, 40.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
-                Box(modifier = Modifier.height((thickness / 4f).dp).fillMaxWidth(0.8f).background(color, CircleShape))
-            }
+            Box(modifier = Modifier.size(100.dp, 40.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { Box(modifier = Modifier.height((thickness / 4f).dp).fillMaxWidth(0.8f).background(color, CircleShape)) }
             Spacer(Modifier.height(12.dp))
             Slider(value = thickness, onValueChange = onThicknessChange, valueRange = 1f..100f)
         }
@@ -999,115 +1076,40 @@ fun ThicknessPopup(thickness: Float, onThicknessChange: (Float) -> Unit, color: 
 }
 
 @Composable
-private fun ToolbarItems(
-    currentTool: DrawingTool,
-    onToolChange: (DrawingTool) -> Unit,
-    selectedPenColor: Color,
-    showColorPopup: Boolean,
-    onToggleColorPopup: (Boolean) -> Unit
-) {
-    ToolbarItem(DrawingTool.PEN, rememberVectorPainter(Icons.Rounded.Edit), currentTool == DrawingTool.PEN) { onToolChange(DrawingTool.PEN) }
-    
-    // Color Button
-    IconButton(
-        onClick = { onToggleColorPopup(!showColorPopup) },
-        modifier = Modifier
-            .size(40.dp)
-            .clip(CircleShape)
-            .background(if (showColorPopup) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(24.dp)
-                .clip(CircleShape)
-                .background(selectedPenColor)
-                .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f), CircleShape)
-        )
-    }
-
-    ToolbarItem(DrawingTool.ERASER, painterResource(R.drawable.ic_ink_eraser), currentTool == DrawingTool.ERASER) { onToolChange(DrawingTool.ERASER) }
-    ToolbarItem(DrawingTool.LASSO, rememberVectorPainter(Icons.Rounded.Gesture), currentTool == DrawingTool.LASSO) { onToolChange(DrawingTool.LASSO) }
-    ToolbarItem(DrawingTool.HAND, rememberVectorPainter(Icons.Rounded.PanTool), currentTool == DrawingTool.HAND) { onToolChange(DrawingTool.HAND) }
-}
-
-@Composable
 fun ToolbarItem(tool: DrawingTool, painter: Painter, isSelected: Boolean, onClick: () -> Unit) {
-    IconButton(onClick = onClick, colors = if (isSelected) IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer) else IconButtonDefaults.iconButtonColors()) { Icon(painter, tool.name) }
+    IconButton(onClick = onClick, modifier = Modifier.size(34.dp), colors = if (isSelected) IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer) else IconButtonDefaults.iconButtonColors()) { Icon(painter, tool.name, modifier = Modifier.size(20.dp)) }
 }
 
-private fun exportToPng(stream: OutputStream, strokes: List<com.ozon.notes.Stroke>, size: androidx.compose.ui.unit.IntSize) {
-    val bounds = if (strokes.isNotEmpty()) getBoundsLocal(strokes) else Rect(0f, 0f, size.width.toFloat().coerceAtLeast(1f), size.height.toFloat().coerceAtLeast(1f))
-    val padding = 40f
-    val exportWidth = (bounds.width + padding * 2).toInt().coerceAtLeast(1)
-    val exportHeight = (bounds.height + padding * 2).toInt().coerceAtLeast(1)
 
+private fun exportToPng(stream: OutputStream, strokes: List<com.ozon.notes.Stroke>, images: List<com.ozon.notes.DrawingImage>, size: androidx.compose.ui.unit.IntSize) {
+    val bounds = if (strokes.isNotEmpty() || images.isNotEmpty()) getBoundsLocal(strokes, images) else Rect(0f, 0f, size.width.toFloat().coerceAtLeast(1f), size.height.toFloat().coerceAtLeast(1f))
+    val padding = 40f; val exportWidth = (bounds.width + padding * 2).toInt().coerceAtLeast(1); val exportHeight = (bounds.height + padding * 2).toInt().coerceAtLeast(1)
     val bitmap = Bitmap.createBitmap(exportWidth, exportHeight, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(bitmap)
-    canvas.drawColor(android.graphics.Color.WHITE)
-    canvas.translate(-bounds.left + padding, -bounds.top + padding)
-
+    val canvas = Canvas(bitmap); canvas.drawColor(android.graphics.Color.WHITE); canvas.translate(-bounds.left + padding, -bounds.top + padding)
     val paint = Paint().apply { isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; style = Paint.Style.STROKE }
-    strokes.forEach { stroke ->
-        paint.color = stroke.colorArgb; paint.strokeWidth = stroke.width
-        val path = android.graphics.Path()
-        stroke.points.forEachIndexed { index, point -> if (index == 0) path.moveTo(point.x, point.y) else path.lineTo(point.x, point.y) }
-        canvas.drawPath(path, paint)
-    }
+    strokes.forEach { stroke -> paint.color = stroke.colorArgb; paint.strokeWidth = stroke.width; val path = android.graphics.Path(); stroke.points.forEachIndexed { index, point -> if (index == 0) path.moveTo(point.x, point.y) else path.lineTo(point.x, point.y) }; canvas.drawPath(path, paint) }
     bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
 }
 
-private fun exportToPdf(stream: OutputStream, strokes: List<com.ozon.notes.Stroke>, size: androidx.compose.ui.unit.IntSize, vector: Boolean) {
-    val bounds = if (strokes.isNotEmpty()) getBoundsLocal(strokes) else Rect(0f, 0f, size.width.toFloat().coerceAtLeast(1f), size.height.toFloat().coerceAtLeast(1f))
-    val padding = 40f
-    val exportWidth = (bounds.width + padding * 2).toInt().coerceAtLeast(1)
-    val exportHeight = (bounds.height + padding * 2).toInt().coerceAtLeast(1)
-
-    val pdfDocument = PdfDocument()
-    val pageInfo = PdfDocument.PageInfo.Builder(exportWidth, exportHeight, 1).create()
-    val page = pdfDocument.startPage(pageInfo)
-    val canvas = page.canvas
-    val paint = Paint().apply { isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; style = Paint.Style.STROKE }
-    
-    val translateX = -bounds.left + padding
-    val translateY = -bounds.top + padding
-
-    if (vector) {
-        canvas.save()
-        canvas.translate(translateX, translateY)
-        strokes.forEach { stroke ->
-            paint.color = stroke.colorArgb; paint.strokeWidth = stroke.width
-            val path = android.graphics.Path()
-            stroke.points.forEachIndexed { index, point -> if (index == 0) path.moveTo(point.x, point.y) else path.lineTo(point.x, point.y) }
-            canvas.drawPath(path, paint)
-        }
-        canvas.restore()
-    } else {
-        val bitmap = Bitmap.createBitmap(exportWidth, exportHeight, Bitmap.Config.ARGB_8888)
-        val bitmapCanvas = Canvas(bitmap)
-        bitmapCanvas.drawColor(android.graphics.Color.WHITE)
-        bitmapCanvas.translate(translateX, translateY)
-        strokes.forEach { stroke ->
-            paint.color = stroke.colorArgb; paint.strokeWidth = stroke.width
-            val path = android.graphics.Path()
-            stroke.points.forEachIndexed { index, point -> if (index == 0) path.moveTo(point.x, point.y) else path.lineTo(point.x, point.y) }
-            bitmapCanvas.drawPath(path, paint)
-        }
+private fun exportToPdf(stream: OutputStream, strokes: List<com.ozon.notes.Stroke>, images: List<com.ozon.notes.DrawingImage>, size: androidx.compose.ui.unit.IntSize, vector: Boolean) {
+    val bounds = if (strokes.isNotEmpty() || images.isNotEmpty()) getBoundsLocal(strokes, images) else Rect(0f, 0f, size.width.toFloat().coerceAtLeast(1f), size.height.toFloat().coerceAtLeast(1f))
+    val padding = 40f; val exportWidth = (bounds.width + padding * 2).toInt().coerceAtLeast(1); val exportHeight = (bounds.height + padding * 2).toInt().coerceAtLeast(1)
+    val pdfDocument = PdfDocument(); val pageInfo = PdfDocument.PageInfo.Builder(exportWidth, exportHeight, 1).create(); val page = pdfDocument.startPage(pageInfo)
+    val canvas = page.canvas; val paint = Paint().apply { isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; style = Paint.Style.STROKE }
+    val translateX = -bounds.left + padding; val translateY = -bounds.top + padding
+    if (vector) { canvas.save(); canvas.translate(translateX, translateY); strokes.forEach { stroke -> paint.color = stroke.colorArgb; paint.strokeWidth = stroke.width; val path = android.graphics.Path(); stroke.points.forEachIndexed { index, point -> if (index == 0) path.moveTo(point.x, point.y) else path.lineTo(point.x, point.y) }; canvas.drawPath(path, paint) }; canvas.restore() }
+    else {
+        val bitmap = Bitmap.createBitmap(exportWidth, exportHeight, Bitmap.Config.ARGB_8888); val bitmapCanvas = Canvas(bitmap); bitmapCanvas.drawColor(android.graphics.Color.WHITE); bitmapCanvas.translate(translateX, translateY)
+        strokes.forEach { stroke -> paint.color = stroke.colorArgb; paint.strokeWidth = stroke.width; val path = android.graphics.Path(); stroke.points.forEachIndexed { index, point -> if (index == 0) path.moveTo(point.x, point.y) else path.lineTo(point.x, point.y) }; bitmapCanvas.drawPath(path, paint) }
         canvas.drawBitmap(bitmap, 0f, 0f, null)
     }
-    pdfDocument.finishPage(page)
-    pdfDocument.writeTo(stream)
-    pdfDocument.close()
+    pdfDocument.finishPage(page); pdfDocument.writeTo(stream); pdfDocument.close()
 }
 
-private fun getBoundsLocal(strokes: List<com.ozon.notes.Stroke>): Rect {
-    if (strokes.isEmpty()) return Rect.Zero
+private fun getBoundsLocal(strokes: List<com.ozon.notes.Stroke>, images: List<com.ozon.notes.DrawingImage>): Rect {
+    if (strokes.isEmpty() && images.isEmpty()) return Rect.Zero
     var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
-    strokes.forEach { s ->
-        val halfWidth = s.width / 2f
-        s.points.forEach { p ->
-            minX = minOf(minX, p.x - halfWidth); minY = minOf(minY, p.y - halfWidth)
-            maxX = maxOf(maxX, p.x + halfWidth); maxY = maxOf(maxY, p.y + halfWidth)
-        }
-    }
+    strokes.forEach { s -> val halfWidth = s.width / 2f; s.points.forEach { p -> minX = minOf(minX, p.x - halfWidth); minY = minOf(minY, p.y - halfWidth); maxX = maxOf(maxX, p.x + halfWidth); maxY = maxOf(maxY, p.y + halfWidth) } }
+    images.forEach { img -> minX = minOf(minX, img.offset.x); minY = minOf(minY, img.offset.y); maxX = maxOf(maxX, img.offset.x + img.scale.x); maxY = maxOf(maxY, img.offset.y + img.scale.y) }
     return Rect(minX, minY, maxX, maxY)
 }
