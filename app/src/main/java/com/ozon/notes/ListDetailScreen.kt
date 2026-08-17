@@ -25,6 +25,9 @@ import androidx.compose.material.icons.rounded.FilterAlt
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Notes
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontStyle
@@ -725,241 +728,344 @@ fun ListDetailScreen(
     }
 
     if (previewEntry != null) {
-        val entry = previewEntry!!
-        val parentEntry = if (!entry.parentId.isNullOrBlank()) {
-            entries.find { it.id == entry.parentId }
-        } else null
-
-        Dialog(
-            onDismissRequest = { previewEntry = null },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            Surface(
-                modifier = Modifier
-                    .width(if (isTabletUi) 640.dp else 400.dp)
-                    .wrapContentHeight()
-                    .padding(16.dp),
-                shape = RoundedCornerShape(if (isTabletUi) 32.dp else 48.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                tonalElevation = 8.dp
+        previewEntry?.let { entry ->
+            val parentEntry = entry.parentId?.let { pId -> entries.find { it.id == pId } }
+            val subEntries = entries.filter { it.parentId == entry.id }
+            
+            Dialog(
+                onDismissRequest = { previewEntry = null },
+                properties = DialogProperties(
+                    usePlatformDefaultWidth = false,
+                    decorFitsSystemWindows = false
+                )
             ) {
-                if (isTabletUi) {
-                    // Tablet Design: Horizontal Row
-                    Row(
-                        modifier = Modifier
-                            .padding(24.dp)
-                            .fillMaxWidth()
-                            .height(IntrinsicSize.Min),
-                        horizontalArrangement = Arrangement.spacedBy(24.dp)
-                    ) {
-                        // Left: Artwork Placeholder (Portrait)
-                        Box(
+                Surface(
+                    modifier = Modifier
+                        .width(if (isTabletUi) 640.dp else 400.dp)
+                        .then(
+                            if (isTabletUi) Modifier.height(456.dp) 
+                            else Modifier.heightIn(max = 800.dp)
+                        )
+                        .padding(horizontal = if (isTabletUi) 0.dp else 16.dp)
+                        .padding(vertical = if (isTabletUi) 24.dp else 32.dp),
+                    shape = RoundedCornerShape(if (isTabletUi) 32.dp else 48.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    tonalElevation = 8.dp
+                ) {
+                    val containerColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                    
+                    if (isTabletUi) {
+                        // Tablet Design: Side artwork + Persistent content on the right
+                        Row(
                             modifier = Modifier
-                                .width(240.dp)
-                                .aspectRatio(0.85f)
-                                .clip(RoundedCornerShape(24.dp))
-                                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-                            contentAlignment = Alignment.Center
+                                .fillMaxSize(),
+                            horizontalArrangement = Arrangement.spacedBy(0.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Movie,
-                                contentDescription = null,
-                                modifier = Modifier.size(80.dp),
-                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                            )
-                        }
-
-                        // Right: Text Content and Buttons
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight(),
-                            verticalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column {
-                                if (parentEntry != null) {
-                                    Text(
-                                        text = parentEntry.title,
-                                        style = MaterialTheme.typography.titleSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                                Text(
-                                    text = entry.title,
-                                    style = MaterialTheme.typography.headlineMedium,
-                                    color = MaterialTheme.colorScheme.primary
+                            // Left: Artwork (Poster ratio, padded)
+                            Box(
+                                modifier = Modifier
+                                    .padding(24.dp)
+                                    .width(240.dp)
+                                    .aspectRatio(2f / 3f)
+                                    .clip(RoundedCornerShape(24.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Movie,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(80.dp),
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
                                 )
-                                if (currentList.type == ListType.RATING && entry.tagIds.isNotEmpty()) {
-                                    val tagNames = allTags.filter { it.id in entry.tagIds }.map { it.name }
-                                    FlowRow(
-                                        modifier = Modifier.padding(top = 8.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        tagNames.forEach { name ->
-                                            Surface(
-                                                shape = CircleShape,
-                                                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                            }
+
+                            // Right: Persistent content box
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                            ) {
+                                // Right Side Scrollable Content
+                                val scrollState = rememberScrollState()
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .verticalScroll(scrollState)
+                                        .padding(start = 0.dp, top = 24.dp, end = 24.dp, bottom = 100.dp),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    Column {
+                                        if (parentEntry != null) {
+                                            Text(
+                                                text = parentEntry.title,
+                                                style = MaterialTheme.typography.titleSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        Text(
+                                            text = entry.title,
+                                            style = MaterialTheme.typography.headlineMedium,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        val tagNames = allTags.filter { it.id in entry.tagIds }.map { it.name }
+                                        if (tagNames.isNotEmpty()) {
+                                            FlowRow(
+                                                modifier = Modifier.padding(top = 8.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
                                             ) {
-                                                Text(
-                                                    text = name,
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                tagNames.forEach { name ->
+                                                    Surface(
+                                                        shape = CircleShape,
+                                                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                                                    ) {
+                                                        Text(
+                                                            text = name,
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if (subEntries.isNotEmpty()) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            subEntries.forEachIndexed { index, sub ->
+                                                val subShape = when {
+                                                    subEntries.size == 1 -> RoundedCornerShape(24.dp)
+                                                    index == 0 -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
+                                                    index == subEntries.size - 1 -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
+                                                    else -> RoundedCornerShape(4.dp)
+                                                }
+                                                PreviewSubEntryItem(
+                                                    entry = sub,
+                                                    allTags = allTags,
+                                                    shape = subShape
                                                 )
                                             }
                                         }
                                     }
                                 }
-                            }
 
-                            // Rating and Close Button at the bottom
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.Bottom
-                            ) {
-                                if (currentList.type == ListType.RATING) {
-                                    Row(verticalAlignment = Alignment.Bottom) {
-                                        val ratingText = if (entry.rating % 1f == 0f) entry.rating.toInt().toString() else entry.rating.toString()
-                                        Text(
-                                            text = ratingText,
-                                            style = MaterialTheme.typography.displayMedium,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.primary
+                                // Right Side Persistent Bottom Bar with Gradient
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .fillMaxWidth()
+                                        .height(120.dp)
+                                        .background(
+                                            Brush.verticalGradient(
+                                                0.4f to Color.Transparent,
+                                                0.8f to containerColor.copy(alpha = 0.95f),
+                                                1.0f to containerColor
+                                            )
                                         )
-                                        Text(
-                                            text = "/10",
-                                            style = MaterialTheme.typography.headlineSmall,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                            modifier = Modifier.padding(bottom = 6.dp)
-                                        )
-                                    }
-                                } else {
-                                    Spacer(Modifier.weight(1f))
-                                }
-                                
-                                TextButton(
-                                    onClick = { previewEntry = null },
-                                    contentPadding = PaddingValues(horizontal = 12.dp)
+                                        .padding(start = 0.dp, end = 24.dp, bottom = 24.dp),
+                                    contentAlignment = Alignment.BottomCenter
                                 ) {
-                                    Text(
-                                        "Close",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // Mobile Design: Original Vertical Column
-                    Column(
-                        modifier = Modifier
-                            .padding(24.dp)
-                            .fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        // Artwork Placeholder
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(0.75f)
-                                .clip(RoundedCornerShape(24.dp))
-                                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Movie,
-                                contentDescription = null,
-                                modifier = Modifier.size(80.dp),
-                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        // Text Content
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            if (parentEntry != null) {
-                                Text(
-                                    text = parentEntry.title,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            Text(
-                                text = entry.title,
-                                style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            if (currentList.type == ListType.RATING && entry.tagIds.isNotEmpty()) {
-                                val tagNames = allTags.filter { it.id in entry.tagIds }.map { it.name }
-                                FlowRow(
-                                    modifier = Modifier.padding(top = 8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    tagNames.forEach { name ->
-                                        Surface(
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        if (currentList.type == ListType.RATING) {
+                                            Row(verticalAlignment = Alignment.Bottom) {
+                                                val ratingText = if (entry.rating % 1f == 0f) entry.rating.toInt().toString() else entry.rating.toString()
+                                                Text(
+                                                    text = ratingText,
+                                                    style = MaterialTheme.typography.displayMedium,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                                Text(
+                                                    text = "/10",
+                                                    style = MaterialTheme.typography.headlineSmall,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                    modifier = Modifier.padding(bottom = 6.dp)
+                                                )
+                                            }
+                                        } else {
+                                            Spacer(Modifier.weight(1f))
+                                        }
+                                        
+                                        Button(
+                                            onClick = { previewEntry = null },
                                             shape = CircleShape,
-                                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = MaterialTheme.colorScheme.primary,
+                                                contentColor = MaterialTheme.colorScheme.onPrimary
+                                            ),
+                                            modifier = Modifier.height(48.dp),
+                                            contentPadding = PaddingValues(horizontal = 24.dp)
                                         ) {
                                             Text(
-                                                text = name,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                "Close",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                fontWeight = FontWeight.SemiBold
                                             )
                                         }
                                     }
                                 }
                             }
                         }
-
-                        // Rating and Close Button
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.Bottom
-                        ) {
-                            if (currentList.type == ListType.RATING) {
-                                Row(verticalAlignment = Alignment.Bottom) {
-                                    val ratingText = if (entry.rating % 1f == 0f) entry.rating.toInt().toString() else entry.rating.toString()
-                                    Text(
-                                        text = ratingText,
-                                        style = MaterialTheme.typography.displayMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                    Text(
-                                        text = "/10",
-                                        style = MaterialTheme.typography.headlineSmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                        modifier = Modifier.padding(bottom = 6.dp)
+                    } else {
+                        // Mobile Design (Persistent Edge-to-Edge with drawing under fix)
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            val scrollState = rememberScrollState()
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .verticalScroll(scrollState)
+                            ) {
+                                // Artwork (Poster ratio, padded)
+                                Box(
+                                    modifier = Modifier
+                                        .padding(24.dp)
+                                        .fillMaxWidth()
+                                        .aspectRatio(2f / 3f)
+                                        .clip(RoundedCornerShape(24.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Movie,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(100.dp),
+                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
                                     )
                                 }
-                            } else {
-                                Spacer(Modifier.weight(1f))
+
+                                Column(
+                                    modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    Column {
+                                        if (parentEntry != null) {
+                                            Text(
+                                                text = parentEntry.title,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                        Text(
+                                            text = entry.title,
+                                            style = MaterialTheme.typography.headlineLarge,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        val tagNames = allTags.filter { it.id in entry.tagIds }.map { it.name }
+                                        if (tagNames.isNotEmpty()) {
+                                            FlowRow(
+                                                modifier = Modifier.padding(top = 8.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                tagNames.forEach { name ->
+                                                    Surface(
+                                                        shape = CircleShape,
+                                                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                                                    ) {
+                                                        Text(
+                                                            text = name,
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if (subEntries.isNotEmpty()) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            subEntries.forEachIndexed { index, sub ->
+                                                val subShape = when {
+                                                    subEntries.size == 1 -> RoundedCornerShape(24.dp)
+                                                    index == 0 -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
+                                                    index == subEntries.size - 1 -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
+                                                    else -> RoundedCornerShape(4.dp)
+                                                }
+                                                PreviewSubEntryItem(
+                                                    entry = sub,
+                                                    allTags = allTags,
+                                                    shape = subShape
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                // Essential Spacer to allow content to scroll past persistent bar
+                                Spacer(Modifier.height(140.dp))
                             }
-                            
-                            TextButton(
-                                onClick = { previewEntry = null },
-                                contentPadding = PaddingValues(0.dp)
+
+                            // Persistent Bottom Bar with Gradient (Overlaid)
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .height(180.dp) 
+                                    .background(
+                                        Brush.verticalGradient(
+                                            0.4f to Color.Transparent,
+                                            0.8f to containerColor.copy(alpha = 0.95f),
+                                            1.0f to containerColor 
+                                        )
+                                    )
+                                    .padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
+                                contentAlignment = Alignment.BottomCenter
                             ) {
-                                Text(
-                                    "Close",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (currentList.type == ListType.RATING) {
+                                        Row(verticalAlignment = Alignment.Bottom) {
+                                            val ratingText = if (entry.rating % 1f == 0f) entry.rating.toInt().toString() else entry.rating.toString()
+                                            Text(
+                                                text = ratingText,
+                                                style = MaterialTheme.typography.displayMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Text(
+                                                text = "/10",
+                                                style = MaterialTheme.typography.headlineSmall,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                modifier = Modifier.padding(bottom = 6.dp)
+                                            )
+                                        }
+                                    }
+                                    
+                                    Button(
+                                        onClick = { previewEntry = null },
+                                        shape = CircleShape,
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = MaterialTheme.colorScheme.primary,
+                                            contentColor = MaterialTheme.colorScheme.onPrimary
+                                        ),
+                                        modifier = Modifier.height(56.dp),
+                                        contentPadding = PaddingValues(horizontal = 32.dp)
+                                    ) {
+                                        Text(
+                                            "Close",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -1780,6 +1886,74 @@ fun InlineAddEntryItem(
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f)
                     ),
                     border = null
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PreviewSubEntryItem(
+    entry: ListEntry,
+    allTags: List<Tag>,
+    shape: Shape
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = entry.title,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    
+                    val tagNames = allTags.filter { it.id in entry.tagIds }.map { it.name }
+                    if (tagNames.isNotEmpty()) {
+                        FlowRow(
+                            modifier = Modifier.padding(top = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            tagNames.forEach { name ->
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
+                                ) {
+                                    Text(
+                                        text = name,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                val ratingText = if (entry.rating % 1f == 0f) entry.rating.toInt().toString() else entry.rating.toString()
+                Text(
+                    text = ratingText,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                    modifier = Modifier.padding(start = 12.dp)
                 )
             }
         }
