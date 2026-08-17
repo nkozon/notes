@@ -44,23 +44,25 @@ fun CircleIconButton(
     icon: ImageVector,
     contentDescription: String?,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     shape: Shape = CircleShape,
     containerColor: Color = MaterialTheme.colorScheme.secondaryContainer,
-    contentColor: Color = MaterialTheme.colorScheme.onSecondaryContainer
+    contentColor: Color = MaterialTheme.colorScheme.onSecondaryContainer,
+    iconSize: androidx.compose.ui.unit.Dp = 20.dp
 ) {
     Box(
         modifier = modifier
             .size(38.dp)
             .clip(shape)
-            .background(containerColor)
-            .clickable { onClick() },
+            .background(if (enabled) containerColor else containerColor.copy(alpha = 0.3f))
+            .clickable(enabled = enabled) { onClick() },
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = icon, 
             contentDescription = contentDescription,
-            modifier = Modifier.size(20.dp),
-            tint = contentColor
+            modifier = Modifier.size(iconSize),
+            tint = if (enabled) contentColor else contentColor.copy(alpha = 0.3f)
         )
     }
 }
