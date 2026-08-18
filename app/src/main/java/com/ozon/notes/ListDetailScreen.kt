@@ -99,7 +99,7 @@ fun ListDetailScreen(
     val lowScoreEnabled by settingsViewModel.lowScoreEnabled.collectAsStateWithLifecycle()
     val lowScoreThreshold by settingsViewModel.lowScoreThreshold.collectAsStateWithLifecycle()
 
-    val currentList = list ?: return
+    val currentList = list
     val searchQuery by checklistViewModel.searchQuery.collectAsStateWithLifecycle()
 
     val focusManager = LocalFocusManager.current
@@ -119,11 +119,6 @@ fun ListDetailScreen(
     var lastAddedId by remember { mutableStateOf<String?>(null) }
     var expandedEntries by remember { mutableStateOf(setOf<String>()) }
 
-    LaunchedEffect(isInlineAdding) {
-        if (isInlineAdding) {
-            listState.animateScrollToItem(0)
-        }
-    }
     var isCompletedCollapsed by remember { mutableStateOf(true) }
     var isSearchActive by remember { mutableStateOf(false) }
     var showRenameListDialog by remember { mutableStateOf(false) }
@@ -142,14 +137,15 @@ fun ListDetailScreen(
         checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
     }
 
-    DisposableEffect(Unit) {
-        onDispose {
-            checklistViewModel.onEvent(NoteEvent.SetCurrentList(null))
-        }
-    }
-
     val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val headerHeight = 64.dp
+
+    if (currentList == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
 
     Scaffold(
         containerColor = Color.Transparent,

@@ -357,12 +357,12 @@ fun ListCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clip(if (isSelected) CircleShape else shape)
+            .clip(shape)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
             ),
-        shape = if (isSelected) CircleShape else shape,
+        shape = shape,
         colors = CardDefaults.cardColors(
             containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerLow
         )

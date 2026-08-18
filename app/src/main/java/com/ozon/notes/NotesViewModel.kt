@@ -8,6 +8,7 @@ import com.ozon.notes.domain.GetFilteredNotesUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 /**
  * ViewModel responsible for the main dashboard state.
@@ -83,6 +84,26 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
 
     fun setPendingDrawingConfig(config: DrawingData?) {
         _pendingDrawingConfig = config
+    }
+
+    fun createNewNote(): String {
+        val id = UUID.randomUUID().toString()
+        val newNote = Note(id = id, title = "", content = "", type = NoteType.TEXT)
+        viewModelScope.launch { repository.saveNote(newNote) }
+        return id
+    }
+
+    fun createNewDrawing(config: DrawingData? = null): String {
+        val id = UUID.randomUUID().toString()
+        val newNote = Note(
+            id = id, 
+            title = "", 
+            content = "Drawing Note", 
+            type = NoteType.DRAWING,
+            drawingData = config ?: DrawingData(canvasType = CanvasType.INFINITE)
+        )
+        viewModelScope.launch { repository.saveNote(newNote) }
+        return id
     }
 
     fun onEvent(event: NoteEvent) {

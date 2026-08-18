@@ -1,7 +1,6 @@
 package com.ozon.notes
 
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -45,6 +44,37 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
+import androidx.compose.ui.graphics.vector.ImageVector
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TooltipIconButton(
+    onClick: () -> Unit,
+    icon: ImageVector,
+    tooltip: String
+) {
+    TooltipBox(
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(),
+        tooltip = { PlainTooltip { Text(tooltip) } },
+        state = rememberTooltipState()
+    ) {
+        Surface(
+            onClick = onClick,
+            shape = RoundedCornerShape(percent = 50),
+            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+            modifier = Modifier.size(width = 48.dp, height = 32.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = tooltip,
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,8 +82,8 @@ fun NoteListScreen(
     notesViewModel: NotesViewModel,
     settingsViewModel: SettingsViewModel,
     activeRoute: DetailRoute? = null,
-    onAddClick: () -> Unit,
-    onAddDrawingClick: () -> Unit,
+    onAddClick: (String?) -> Unit,
+    onAddDrawingClick: (String?) -> Unit,
     onNoteClick: (String, NoteType) -> Unit,
     onListClick: (String) -> Unit,
     onSettingsClick: () -> Unit
@@ -106,6 +136,7 @@ fun NoteListScreen(
     val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val headerHeight = 64.dp
 
+    @Suppress("UnusedMaterial3ScaffoldPaddingParameter")
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -215,7 +246,7 @@ fun NoteListScreen(
                 }
             }
         }
-    ) { padding ->
+    ) { _ ->
         Box(
             modifier = Modifier.fillMaxSize()
         ) {
@@ -236,26 +267,54 @@ fun NoteListScreen(
             ) {
                 // NOTES SECTION
                 item(span = StaggeredGridItemSpan.FullLine) {
-                    SectionHeader(
-                        title = "Notes",
-                        onAddClick = { showAddNoteChoiceDialog = true },
-                        modifier = Modifier.padding(bottom = 4.dp)
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .padding(top = 16.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Notes",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TooltipIconButton(
+                                onClick = { onAddClick(notesViewModel.createNewNote()) },
+                                icon = Icons.Rounded.Description,
+                                tooltip = "New Text Note"
+                            )
+                            TooltipIconButton(
+                                onClick = { showAddNoteChoiceDialog = true },
+                                icon = Icons.Rounded.Brush,
+                                tooltip = "New Drawing"
+                            )
+                            TooltipIconButton(
+                                onClick = { pdfPickerLauncher.launch("application/pdf") },
+                                icon = Icons.Rounded.PictureAsPdf,
+                                tooltip = "Import PDF"
+                            )
+                        }
+                    }
                 }
 
                 items(notes.size, key = { i -> "note_${notes[i].id}" }) { index ->
                     val note = notes[index]
+                    val isSelected = (activeRoute is DetailRoute.Note && activeRoute.id == note.id) ||
+                                     (activeRoute is DetailRoute.Drawing && activeRoute.id == note.id)
                     
                     val isFirst = index == 0 || notes.size == 1
                     val isLast = index == notes.size - 1 || notes.size == 1
                     
-                    val topRadius = if (isFirst) 28.dp else 4.dp
-                    val bottomRadius = if (isLast) 28.dp else 4.dp
+                    val targetTopRadius = if (isSelected) 32.dp else if (isFirst) 28.dp else 4.dp
+                    val targetBottomRadius = if (isSelected) 32.dp else if (isLast) 28.dp else 4.dp
 
-                    val topStartRadius by animateDpAsState(targetValue = topRadius, label = "topStart")
-                    val topEndRadius by animateDpAsState(targetValue = topRadius, label = "topEnd")
-                    val bottomStartRadius by animateDpAsState(targetValue = bottomRadius, label = "bottomStart")
-                    val bottomEndRadius by animateDpAsState(targetValue = bottomRadius, label = "bottomEnd")
+                    val topStartRadius by animateDpAsState(targetValue = targetTopRadius, label = "topStart")
+                    val topEndRadius by animateDpAsState(targetValue = targetTopRadius, label = "topEnd")
+                    val bottomStartRadius by animateDpAsState(targetValue = targetBottomRadius, label = "bottomStart")
+                    val bottomEndRadius by animateDpAsState(targetValue = targetBottomRadius, label = "bottomEnd")
                     
                     val shape = remember(topStartRadius, topEndRadius, bottomEndRadius, bottomStartRadius) {
                         RoundedCornerShape(topStartRadius, topEndRadius, bottomEndRadius, bottomStartRadius)
@@ -272,20 +331,42 @@ fun NoteListScreen(
                             note = note,
                             onClick = { onNoteClick(note.id, note.type) },
                             shape = shape,
-                            isSelected = (activeRoute is DetailRoute.Note && activeRoute.id == note.id) ||
-                                         (activeRoute is DetailRoute.Drawing && activeRoute.id == note.id)
+                            isSelected = isSelected
                         )
                     }
                 }
 
                 // LISTS SECTION
                 item(span = StaggeredGridItemSpan.FullLine) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    SectionHeader(
-                        title = "Lists",
-                        onAddClick = { showCreateListDialog = true },
-                        modifier = Modifier.padding(bottom = 4.dp)
-                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .padding(top = 24.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Lists",
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Surface(
+                            onClick = { showCreateListDialog = true },
+                            shape = RoundedCornerShape(percent = 50),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.size(width = 48.dp, height = 32.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Add,
+                                    contentDescription = "Add List",
+                                    modifier = Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+                    }
                 }
 
                 items(
@@ -295,17 +376,18 @@ fun NoteListScreen(
                 ) { index ->
                     val listWithCounts = listsWithCounts[index]
                     val list = listWithCounts.list
+                    val isSelected = activeRoute is DetailRoute.List && activeRoute.id == list.id
                     
                     val isFirst = index == 0 || listsWithCounts.size == 1
                     val isLast = index == listsWithCounts.size - 1 || listsWithCounts.size == 1
                     
-                    val topRadius = if (isFirst) 28.dp else 4.dp
-                    val bottomRadius = if (isLast) 28.dp else 4.dp
+                    val targetTopRadius = if (isSelected) 32.dp else if (isFirst) 28.dp else 4.dp
+                    val targetBottomRadius = if (isSelected) 32.dp else if (isLast) 28.dp else 4.dp
 
-                    val topStartRadius by animateDpAsState(targetValue = topRadius, label = "listTopStart")
-                    val topEndRadius by animateDpAsState(targetValue = topRadius, label = "listTopEnd")
-                    val bottomStartRadius by animateDpAsState(targetValue = bottomRadius, label = "listBottomStart")
-                    val bottomEndRadius by animateDpAsState(targetValue = bottomRadius, label = "listBottomEnd")
+                    val topStartRadius by animateDpAsState(targetValue = targetTopRadius, label = "listTopStart")
+                    val topEndRadius by animateDpAsState(targetValue = targetTopRadius, label = "listTopEnd")
+                    val bottomStartRadius by animateDpAsState(targetValue = targetBottomRadius, label = "listBottomStart")
+                    val bottomEndRadius by animateDpAsState(targetValue = targetBottomRadius, label = "listBottomEnd")
                     
                     val shape = remember(topStartRadius, topEndRadius, bottomEndRadius, bottomStartRadius) {
                         RoundedCornerShape(topStartRadius, topEndRadius, bottomEndRadius, bottomStartRadius)
@@ -327,7 +409,7 @@ fun NoteListScreen(
                             onClick = { onListClick(list.id) },
                             onLongClick = { listToRename = list },
                             shape = shape,
-                            isSelected = activeRoute is DetailRoute.List && activeRoute.id == list.id
+                            isSelected = isSelected
                         )
                     }
                 }
@@ -389,7 +471,7 @@ fun NoteListScreen(
                             onClick = {
                                 showDrawingSubDialog = false
                                 showAddNoteChoiceDialog = false
-                                onAddDrawingClick() // Default is Infinite
+                                onAddDrawingClick(notesViewModel.createNewDrawing()) // Default is Infinite
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -406,13 +488,11 @@ fun NoteListScreen(
                             onClick = {
                                 showDrawingSubDialog = false
                                 showAddNoteChoiceDialog = false
-                                notesViewModel.setPendingDrawingConfig(
-                                    DrawingData(
-                                        canvasType = CanvasType.PAGED,
-                                        pageLayout = PageLayout(width = 842f, height = 1191f) // A4 size
-                                    )
+                                val config = DrawingData(
+                                    canvasType = CanvasType.PAGED,
+                                    pageLayout = PageLayout(width = 842f, height = 1191f) // A4 size
                                 )
-                                onAddDrawingClick() 
+                                onAddDrawingClick(notesViewModel.createNewDrawing(config))
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -429,13 +509,11 @@ fun NoteListScreen(
                             onClick = {
                                 showDrawingSubDialog = false
                                 showAddNoteChoiceDialog = false
-                                notesViewModel.setPendingDrawingConfig(
-                                    DrawingData(
-                                        canvasType = CanvasType.PAGED,
-                                        pageLayout = PageLayout(width = 1600f, height = 900f) // 16:9 Slides
-                                    )
+                                val config = DrawingData(
+                                    canvasType = CanvasType.PAGED,
+                                    pageLayout = PageLayout(width = 1600f, height = 900f) // 16:9 Slides
                                 )
-                                onAddDrawingClick() 
+                                onAddDrawingClick(notesViewModel.createNewDrawing(config))
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -464,7 +542,7 @@ fun NoteListScreen(
                         TextButton(
                             onClick = {
                                 showAddNoteChoiceDialog = false
-                                onAddClick()
+                                onAddClick(notesViewModel.createNewNote())
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -518,14 +596,12 @@ fun NoteListScreen(
             },
             onConfirm = { margins ->
                 showMarginDialog = false
-                notesViewModel.setPendingDrawingConfig(
-                    DrawingData(
-                        canvasType = CanvasType.PDF,
-                        backgroundPdfPath = selectedPdfUri.toString(), // Temp URI string
-                        pageLayout = margins
-                    )
+                val config = DrawingData(
+                    canvasType = CanvasType.PDF,
+                    backgroundPdfPath = selectedPdfUri.toString(), // Temp URI string
+                    pageLayout = margins
                 )
-                onAddDrawingClick() 
+                onAddDrawingClick(notesViewModel.createNewDrawing(config))
                 selectedPdfUri = null
             }
         )
@@ -803,7 +879,7 @@ fun NoteCard(
     Card(
         modifier = Modifier
             .fillMaxWidth(),
-        shape = if (isSelected) CircleShape else shape,
+        shape = shape,
         colors = CardDefaults.cardColors(containerColor = cardColor),
         border = null,
         onClick = onClick

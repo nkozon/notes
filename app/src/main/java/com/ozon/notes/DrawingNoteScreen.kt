@@ -412,6 +412,8 @@ fun DrawingNoteScreen(
                     canvasOffset = Offset(note.drawingData.viewportX, note.drawingData.viewportY)
                     canvasScale = note.drawingData.viewportScale
                     viewportLoaded = true
+                } else {
+                    viewportLoaded = false 
                 }
             }
         } else {
@@ -451,6 +453,9 @@ fun DrawingNoteScreen(
                                 pageSizes = sizes
                             )
                             pageCount = count
+                            
+                            // Important: update the note in DB with the new PDF info immediately
+                            saveDrawing() 
                         } catch (e: Exception) {
                             withContext(Dispatchers.Main) {
                                 Toast.makeText(context, "Failed to import PDF: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -952,7 +957,7 @@ fun DrawingNoteScreen(
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     if (canvasType != CanvasType.INFINITE) {
-                        drawRect(color = if (isDarkTheme) Color(0xFF1C1B1F) else Color(0xFFF0F0F0))
+                        drawRect(color = Color(0xFFF9F9F9))
                     }
 
                     val viewport = Rect(

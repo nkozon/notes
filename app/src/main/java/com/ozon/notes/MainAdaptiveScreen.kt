@@ -1,6 +1,8 @@
 package com.ozon.notes
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -73,8 +75,8 @@ fun MainAdaptiveScreen(
                     NoteListScreen(
                         notesViewModel = notesViewModel,
                         settingsViewModel = settingsViewModel,
-                        onAddClick = { navController.navigate("addEdit") },
-                        onAddDrawingClick = { navController.navigate("drawing") },
+                        onAddClick = { id -> navController.navigate("addEdit/$id") },
+                        onAddDrawingClick = { id -> navController.navigate("drawing/$id") },
                         onNoteClick = { noteId, type -> 
                             if (type == NoteType.DRAWING) navController.navigate("drawing/$noteId")
                             else navController.navigate("addEdit/$noteId")
@@ -183,6 +185,12 @@ fun MainAdaptiveScreen(
             var totalWidth by remember { mutableFloatStateOf(0f) }
             val density = LocalDensity.current
 
+            val animatedSplitFraction by animateFloatAsState(
+                targetValue = if (isSidePanelVisible) splitFraction else 0f,
+                label = "SplitFractionAnimation",
+                animationSpec = tween(400)
+            )
+
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -190,58 +198,72 @@ fun MainAdaptiveScreen(
             ) {
                 Row(modifier = Modifier.fillMaxSize()) {
                     // List Pane
-                    if (isSidePanelVisible) {
+                    if (animatedSplitFraction > 0.001f) {
                         Box(
                             modifier = Modifier
                                 .fillMaxHeight()
-                                .weight(splitFraction)
+                                .weight(animatedSplitFraction)
                         ) {
-                            NoteListScreen(
-                                notesViewModel = notesViewModel,
-                                settingsViewModel = settingsViewModel,
-                                activeRoute = currentDetailRoute,
-                                onAddClick = { currentDetailRoute = DetailRoute.Note(null) },
-                                onAddDrawingClick = { currentDetailRoute = DetailRoute.Drawing(null) },
-                                onNoteClick = { noteId, type -> 
-                                    currentDetailRoute = if (type == NoteType.DRAWING) DetailRoute.Drawing(noteId) else DetailRoute.Note(noteId) 
-                                },
-                                onListClick = { listId -> currentDetailRoute = DetailRoute.List(listId) },
-                                onSettingsClick = { currentDetailRoute = DetailRoute.Settings }
-                            )
+                            val sidePanelWidthDp = with(density) { (totalWidth * splitFraction).toDp() }
+                            
+                            Box(
+                                modifier = Modifier
+                                    .requiredWidth(sidePanelWidthDp)
+                                    .fillMaxHeight()
+                            ) {
+                                NoteListScreen(
+                                    notesViewModel = notesViewModel,
+                                    settingsViewModel = settingsViewModel,
+                                    activeRoute = currentDetailRoute,
+                                    onAddClick = { id -> currentDetailRoute = DetailRoute.Note(id) },
+                                    onAddDrawingClick = { id -> currentDetailRoute = DetailRoute.Drawing(id) },
+                                    onNoteClick = { noteId, type -> 
+                                        currentDetailRoute = if (type == NoteType.DRAWING) DetailRoute.Drawing(noteId) else DetailRoute.Note(noteId) 
+                                    },
+                                    onListClick = { listId -> currentDetailRoute = DetailRoute.List(listId) },
+                                    onSettingsClick = { currentDetailRoute = DetailRoute.Settings }
+                                )
+                            }
                         }
 
                         // Vertical Resizable Handle
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .width(24.dp)
-                                .pointerInput(totalWidth) {
-                                    detectDragGestures { change, dragAmount ->
-                                        change.consume()
-                                        if (totalWidth > 0) {
-                                            val deltaFraction = dragAmount.x / totalWidth
-                                            val newFraction = (splitFraction + deltaFraction).coerceIn(0.2f, 0.8f)
-                                            
-                                            // Check minimum width constraints
-                                            val masterWidth = with(density) { (totalWidth * newFraction).toDp() }
-                                            val detailWidth = with(density) { (totalWidth * (1f - newFraction)).toDp() }
-                                            
-                                            if (masterWidth >= minMasterWidth && detailWidth >= minDetailWidth) {
-                                                notesViewModel.onEvent(NoteEvent.UpdateSplitFraction(newFraction))
+                        AnimatedVisibility(
+                            visible = isSidePanelVisible,
+                            enter = fadeIn(),
+                            exit = fadeOut()
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .width(24.dp)
+                                    .pointerInput(totalWidth) {
+                                        detectDragGestures { change, dragAmount ->
+                                            change.consume()
+                                            if (totalWidth > 0) {
+                                                val deltaFraction = dragAmount.x / totalWidth
+                                                val newFraction = (splitFraction + deltaFraction).coerceIn(0.2f, 0.8f)
+                                                
+                                                // Check minimum width constraints
+                                                val masterWidth = with(density) { (totalWidth * newFraction).toDp() }
+                                                val detailWidth = with(density) { (totalWidth * (1f - newFraction)).toDp() }
+                                                
+                                                if (masterWidth >= minMasterWidth && detailWidth >= minDetailWidth) {
+                                                    notesViewModel.onEvent(NoteEvent.UpdateSplitFraction(newFraction))
+                                                }
                                             }
                                         }
-                                    }
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            // Vertical Pill Handle
-                            Surface(
-                                modifier = Modifier
-                                    .width(4.dp)
-                                    .height(48.dp)
-                                    .clip(CircleShape),
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                            ) {}
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                // Vertical Pill Handle
+                                Surface(
+                                    modifier = Modifier
+                                        .width(4.dp)
+                                        .height(48.dp)
+                                        .clip(CircleShape),
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                ) {}
+                            }
                         }
                     }
 
@@ -249,10 +271,18 @@ fun MainAdaptiveScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxHeight()
-                            .weight(if (isSidePanelVisible) 1f - splitFraction else 1f)
+                            .weight(1f - animatedSplitFraction)
                     ) {
-                        key(currentDetailRoute) {
-                            when (val route = currentDetailRoute) {
+                        AnimatedContent(
+                            targetState = currentDetailRoute,
+                            transitionSpec = {
+                                fadeIn(animationSpec = tween(300)) + 
+                                slideInHorizontally(animationSpec = tween(300)) { it / 8 } togetherWith
+                                fadeOut(animationSpec = tween(300))
+                            },
+                            label = "DetailPaneTransition"
+                        ) { targetRoute ->
+                            when (val route = targetRoute) {
                                 is DetailRoute.Note -> {
                                     AddNoteScreen(
                                         noteId = route.id,
