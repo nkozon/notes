@@ -52,7 +52,8 @@ fun NoteListEntity.toDomain(): NoteList {
         title = title,
         type = try { ListType.valueOf(type) } catch (e: Exception) { ListType.CHECKLIST },
         timestamp = timestamp,
-        isPinned = isPinned
+        isPinned = isPinned,
+        sortOrder = try { ListSortOrder.valueOf(sortOrder) } catch (e: Exception) { ListSortOrder.ALPHABETICAL }
     )
 }
 
@@ -62,7 +63,8 @@ fun NoteList.toEntity(): NoteListEntity {
         title = title,
         type = type.name,
         timestamp = timestamp,
-        isPinned = isPinned
+        isPinned = isPinned,
+        sortOrder = sortOrder.name
     )
 }
 

@@ -24,7 +24,8 @@ data class NoteListEntity(
     val title: String,
     val type: String, // "CHECKLIST" or "RATING"
     val timestamp: Long,
-    val isPinned: Boolean = false
+    val isPinned: Boolean = false,
+    val sortOrder: String = "ALPHABETICAL"
 )
 
 @Entity(
@@ -149,6 +150,9 @@ interface ListDao {
     @Query("UPDATE note_lists SET isPinned = NOT isPinned WHERE id = :listId")
     suspend fun togglePin(listId: String)
 
+    @Query("UPDATE note_lists SET sortOrder = :sortOrder WHERE id = :listId")
+    suspend fun updateSortOrder(listId: String, sortOrder: String)
+
     @Query("DELETE FROM note_lists WHERE id = :listId")
     suspend fun deleteList(listId: String)
 
@@ -227,7 +231,7 @@ interface EntryTagCrossRefDao {
 
 @Database(
     entities = [NoteEntity::class, NoteListEntity::class, ListEntryEntity::class, TagEntity::class, EntryTagCrossRef::class],
-    version = 15, 
+    version = 16, 
     exportSchema = false
 )
 abstract class NoteDatabase : RoomDatabase() {
@@ -237,6 +241,11 @@ abstract class NoteDatabase : RoomDatabase() {
     abstract fun entryTagCrossRefDao(): EntryTagCrossRefDao
 
     companion object {
+        val MIGRATION_15_16 = object : androidx.room.migration.Migration(15, 16) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE note_lists ADD COLUMN sortOrder TEXT NOT NULL DEFAULT 'ALPHABETICAL'")
+            }
+        }
         val MIGRATION_14_15 = object : androidx.room.migration.Migration(14, 15) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE notes ADD COLUMN previewText TEXT")

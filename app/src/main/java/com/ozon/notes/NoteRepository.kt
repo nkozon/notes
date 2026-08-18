@@ -24,6 +24,8 @@ interface NoteRepository {
     suspend fun saveList(list: NoteList)
     suspend fun togglePinList(listId: String)
     suspend fun deleteList(listId: String)
+    fun getListSortOrder(listId: String): Flow<ListSortOrder>
+    suspend fun setListSortOrder(listId: String, sortOrder: ListSortOrder)
     fun getAllEntries(): Flow<List<ListEntry>>
     fun getEntriesForList(listId: String): Flow<List<ListEntry>>
     suspend fun saveEntry(entry: ListEntry)
@@ -146,7 +148,8 @@ object AppContainer {
             NoteDatabase.MIGRATION_11_12,
             NoteDatabase.MIGRATION_12_13,
             NoteDatabase.MIGRATION_13_14,
-            NoteDatabase.MIGRATION_14_15
+            NoteDatabase.MIGRATION_14_15,
+            NoteDatabase.MIGRATION_15_16
         )
             .fallbackToDestructiveMigration()
             .build().also { database = it }

@@ -168,6 +168,19 @@ class RoomNoteRepository(
         setHasPendingChanges(true)
     }
 
+    override fun getListSortOrder(listId: String): Flow<ListSortOrder> {
+        return database.listDao().getAllLists().map { lists ->
+            lists.find { it.id == listId }?.let {
+                try { ListSortOrder.valueOf(it.sortOrder) } catch (e: Exception) { ListSortOrder.ALPHABETICAL }
+            } ?: ListSortOrder.ALPHABETICAL
+        }
+    }
+
+    override suspend fun setListSortOrder(listId: String, sortOrder: ListSortOrder) {
+        database.listDao().updateSortOrder(listId, sortOrder.name)
+        setHasPendingChanges(true)
+    }
+
     override fun getAllEntries(): Flow<List<ListEntry>> {
         return combine(
             database.listDao().getAllEntries(),

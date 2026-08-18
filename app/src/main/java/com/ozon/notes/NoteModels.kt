@@ -111,7 +111,8 @@ data class NoteList(
     val title: String,
     val type: ListType,
     val timestamp: Long = System.currentTimeMillis(),
-    val isPinned: Boolean = false
+    val isPinned: Boolean = false,
+    val sortOrder: ListSortOrder = ListSortOrder.ALPHABETICAL
 )
 
 data class NoteListWithCounts(

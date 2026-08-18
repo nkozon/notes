@@ -28,8 +28,11 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
         else repository.getAllLists().map { lists -> lists.find { it.id == id } }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    private val _listSortOrder = MutableStateFlow(ListSortOrder.ALPHABETICAL)
-    val listSortOrder = _listSortOrder.asStateFlow()
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val listSortOrder: StateFlow<ListSortOrder> = _currentListId.flatMapLatest { id ->
+        if (id == null) flowOf(ListSortOrder.ALPHABETICAL)
+        else repository.getListSortOrder(id)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ListSortOrder.ALPHABETICAL)
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery = _searchQuery.asStateFlow()
@@ -51,7 +54,7 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val entriesState: StateFlow<List<ListEntry>> = combine(
         _currentListId,
-        _listSortOrder,
+        listSortOrder,
         _searchQuery,
         _selectedFilterTagIds,
         _tagFilterMode,
@@ -102,7 +105,13 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
     fun onEvent(event: NoteEvent) {
         when (event) {
             is NoteEvent.SetCurrentList -> _currentListId.value = event.listId
-            is NoteEvent.UpdateListSortOrder -> _listSortOrder.value = event.sortOrder
+            is NoteEvent.UpdateListSortOrder -> {
+                _currentListId.value?.let { listId ->
+                    viewModelScope.launch {
+                        repository.setListSortOrder(listId, event.sortOrder)
+                    }
+                }
+            }
             is NoteEvent.UpdateSearchQuery -> _searchQuery.value = event.query
             is NoteEvent.ToggleFilterTag -> {
                 _selectedFilterTagIds.update { current ->
