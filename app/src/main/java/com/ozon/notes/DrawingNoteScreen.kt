@@ -10,6 +10,7 @@ import android.os.ParcelFileDescriptor
 import android.view.MotionEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -235,42 +236,54 @@ fun DrawingNoteScreen(
             }
 
             // Remove non-visible bitmaps to save memory
-            pdfPageBitmaps.keys.filter { it !in visibleIndices }.forEach { 
-                pdfPageBitmaps[it]?.recycle()
-                pdfPageBitmaps.remove(it) 
-                pdfPageScales.remove(it)
+            val keysToRemove = pdfPageBitmaps.keys.filter { it !in visibleIndices }
+            if (keysToRemove.isNotEmpty()) {
+                withContext(Dispatchers.Main) {
+                    keysToRemove.forEach { 
+                        pdfPageBitmaps[it]?.recycle()
+                        pdfPageBitmaps.remove(it) 
+                        pdfPageScales.remove(it)
+                    }
+                }
             }
 
-            // Render visible pages with high quality
+            // Render visible pages
             visibleIndices.forEach { i ->
-                val targetQuality = (canvasScale * 1.5f).coerceIn(2f, 8f)
+                kotlinx.coroutines.yield() // prevent blocking other coroutines during heavy rendering loop
+                
+                // Allow lower quality when zoomed out to prevent OOM
+                val targetQuality = (canvasScale * 1.5f).coerceIn(0.2f, 4f)
                 val currentQuality = pdfPageScales[i] ?: 0f
                 
-                // Re-render if missing or if quality has improved significantly (more than 20% zoom change)
-                if (!pdfPageBitmaps.containsKey(i) || targetQuality > currentQuality * 1.2f) {
+                // Re-render if missing, if quality has improved significantly, or if we need to downscale drastically to save memory
+                val needsHigherQuality = targetQuality > currentQuality * 1.3f
+                val needsLowerQuality = currentQuality > targetQuality * 2.5f // Free memory if heavily zoomed out
+                
+                if (!pdfPageBitmaps.containsKey(i) || needsHigherQuality || needsLowerQuality) {
                     try {
                         val page = renderer.openPage(i)
                         
-                        // Point 4 Fix: Aggressively cap quality for massive physical pages
-                        // 1. Calculate a scale that keeps the longest dimension under 4096 pixels
+                        // Safety limit calculation
                         val maxDim = 4096f
                         val safetyScale = minOf(maxDim / page.width, maxDim / page.height).coerceAtMost(1.0f)
-                        
-                        // 2. Adjust target quality to respect this safety limit
-                        val finalQuality = (targetQuality * safetyScale).coerceAtLeast(1.0f)
+                        val finalQuality = (targetQuality * safetyScale).coerceAtLeast(0.1f)
                         
                         val bw = (page.width * finalQuality).toInt()
                         val bh = (page.height * finalQuality).toInt()
                         
-                        if (bw > 0 && bh > 0 && bw * bh < 5000 * 5000) {
+                        if (bw > 0 && bh > 0 && bw * bh < 8000 * 8000) {
                             val bitmap = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
+                            // PdfRenderer requires a white background because it renders transparent by default
+                            bitmap.eraseColor(android.graphics.Color.WHITE)
                             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                             
-                            // Swap bitmaps
-                            val old = pdfPageBitmaps[i]
-                            pdfPageBitmaps[i] = bitmap
-                            pdfPageScales[i] = finalQuality
-                            old?.recycle()
+                            withContext(Dispatchers.Main) {
+                                // Swap bitmaps
+                                val old = pdfPageBitmaps[i]
+                                pdfPageBitmaps[i] = bitmap
+                                pdfPageScales[i] = finalQuality
+                                old?.recycle()
+                            }
                         }
                         page.close()
                     } catch (e: Exception) {
@@ -286,21 +299,28 @@ fun DrawingNoteScreen(
     val updatedCanvasScale by rememberUpdatedState(canvasScale)
     val updatedForceStylus by rememberUpdatedState(forceStylusOnly)
 
-    // Optimization: Pre-calculate bounds and paths
-    val strokeBoundsMap = remember(strokes) {
-        strokes.associate { stroke ->
-            var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
-            val hw = stroke.width / 2f
-            stroke.points.forEach { p ->
-                minX = minOf(minX, p.x - hw); minY = minOf(minY, p.y - hw)
-                maxX = maxOf(maxX, p.x + hw); maxY = maxOf(maxY, p.y + hw)
+    var strokeBoundsMap by remember { mutableStateOf<Map<String, Rect>>(emptyMap()) }
+    
+    LaunchedEffect(strokes) {
+        withContext(Dispatchers.Default) {
+            val currentMap = strokeBoundsMap
+            val newMap = strokes.associate { stroke ->
+                stroke.id to (currentMap[stroke.id] ?: run {
+                    var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+                    val hw = stroke.width / 2f
+                    stroke.points.forEach { p ->
+                        minX = minOf(minX, p.x - hw); minY = minOf(minY, p.y - hw)
+                        maxX = maxOf(maxX, p.x + hw); maxY = maxOf(maxY, p.y + hw)
+                    }
+                    Rect(minX, minOf(minY, maxY), maxX, maxY) // Sanity check
+                })
             }
-            stroke.id to Rect(minX, minY, maxX, maxY)
+            strokeBoundsMap = newMap
         }
     }
 
-    val pathCache = remember { mutableStateMapOf<String, Path>() }
-    val simplifiedPathCache = remember { mutableStateMapOf<String, Path>() }
+    val pathCache = remember { java.util.concurrent.ConcurrentHashMap<String, Path>() }
+    val simplifiedPathCache = remember { java.util.concurrent.ConcurrentHashMap<String, Path>() }
 
     fun getOrBuildPath(stroke: com.ozon.notes.Stroke, scale: Float): Path {
         val isZoomedOut = scale < 0.5f
@@ -500,14 +520,30 @@ fun DrawingNoteScreen(
         }
     }
 
+    val coroutineScope = rememberCoroutineScope()
     val pngLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png")) { uri ->
-        uri?.let { context.contentResolver.openOutputStream(it)?.use { stream -> exportToPng(stream, strokes, images, canvasSize, canvasType, pageLayout, pdfInfo, pageCount) } }
+        uri?.let {
+            coroutineScope.launch(Dispatchers.IO) {
+                context.contentResolver.openOutputStream(it)?.use { stream -> exportToPng(stream, strokes, images, canvasSize, canvasType, pageLayout, pdfInfo, pageCount) }
+                withContext(Dispatchers.Main) { Toast.makeText(context, "Exported as PNG", Toast.LENGTH_SHORT).show() }
+            }
+        }
     }
     val pdfBitmapLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
-        uri?.let { context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, strokes, images, canvasSize, vector = false, canvasType, pageLayout, pdfInfo, pageCount) } }
+        uri?.let {
+            coroutineScope.launch(Dispatchers.IO) {
+                context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, strokes, images, canvasSize, vector = false, canvasType, pageLayout, pdfInfo, pageCount) }
+                withContext(Dispatchers.Main) { Toast.makeText(context, "Exported as Bitmap PDF", Toast.LENGTH_SHORT).show() }
+            }
+        }
     }
     val pdfVectorLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
-        uri?.let { context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, strokes, images, canvasSize, vector = true, canvasType, pageLayout, pdfInfo, pageCount) } }
+        uri?.let {
+            coroutineScope.launch(Dispatchers.IO) {
+                context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, strokes, images, canvasSize, vector = true, canvasType, pageLayout, pdfInfo, pageCount) }
+                withContext(Dispatchers.Main) { Toast.makeText(context, "Exported as Vector PDF", Toast.LENGTH_SHORT).show() }
+            }
+        }
     }
 
     fun saveImageLocally(uri: android.net.Uri): String? {
@@ -921,13 +957,34 @@ fun DrawingNoteScreen(
                                                 currentPathPoints.add(currentPt)
 
                                                 if (dragMode == DragMode.DRAW && currentWorkingTool == DrawingTool.ERASER) {
-                                                    val radiusSq = (eraserThickness / 2f) * (eraserThickness / 2f)
+                                                    val radius = eraserThickness / 2f
+                                                    val radiusSq = radius * radius
+                                                    
+                                                    var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
+                                                    var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+                                                    addedPoints.forEach { p ->
+                                                        if (p.x < minX) minX = p.x
+                                                        if (p.x > maxX) maxX = p.x
+                                                        if (p.y < minY) minY = p.y
+                                                        if (p.y > maxY) maxY = p.y
+                                                    }
+                                                    val eraseRect = Rect(minX - radius, minY - radius, maxX + radius, maxY + radius)
+
                                                     strokes = strokes.filterNot { stroke ->
-                                                        stroke.tool != DrawingTool.ERASER && stroke.points.any { sp ->
-                                                            addedPoints.any { ep ->
-                                                                val dx = sp.x - ep.x
-                                                                val dy = sp.y - ep.y
-                                                                dx * dx + dy * dy < radiusSq
+                                                        if (stroke.tool == DrawingTool.ERASER) {
+                                                            false
+                                                        } else {
+                                                            val bounds = strokeBoundsMap[stroke.id]
+                                                            if (bounds != null && !bounds.overlaps(eraseRect)) {
+                                                                false
+                                                            } else {
+                                                                stroke.points.any { sp ->
+                                                                    addedPoints.any { ep ->
+                                                                        val dx = sp.x - ep.x
+                                                                        val dy = sp.y - ep.y
+                                                                        dx * dx + dy * dy < radiusSq
+                                                                    }
+                                                                }
                                                             }
                                                         }
                                                     }

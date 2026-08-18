@@ -141,11 +141,14 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
                         val pfd = android.os.ParcelFileDescriptor.open(File(localPath), android.os.ParcelFileDescriptor.MODE_READ_ONLY)
                         val renderer = android.graphics.pdf.PdfRenderer(pfd)
                         val count = renderer.pageCount
-                        val sizes = (0 until count).map { i ->
-                            val page = renderer.openPage(i)
-                            val size = PdfPageSize(page.width.toFloat(), page.height.toFloat())
-                            page.close()
-                            size
+                        val sizes = if (count > 0) {
+                            val firstPage = renderer.openPage(0)
+                            val firstSize = PdfPageSize(firstPage.width.toFloat(), firstPage.height.toFloat())
+                            firstPage.close()
+                            // Optimization: Assume all pages have the same size as the first page for fast importing
+                            List(count) { firstSize }
+                        } else {
+                            emptyList()
                         }
                         renderer.close()
                         pfd.close()
