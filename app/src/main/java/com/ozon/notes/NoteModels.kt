@@ -66,7 +66,11 @@ data class DrawingData(
     val backgroundPdfPath: String? = null,
     val canvasType: CanvasType = CanvasType.INFINITE,
     val pageLayout: PageLayout = PageLayout(),
-    val pdfInfo: PdfInfo? = null
+    val pdfInfo: PdfInfo? = null,
+    val pageCount: Int = 1,
+    val viewportX: Float = 0f,
+    val viewportY: Float = 0f,
+    val viewportScale: Float = 1f
 )
 
 @Serializable

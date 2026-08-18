@@ -98,6 +98,9 @@ fun DrawingNoteScreen(
     var canvasType by remember { mutableStateOf(CanvasType.INFINITE) }
     var pageLayout by remember { mutableStateOf(PageLayout()) }
     var pdfInfo by remember { mutableStateOf<PdfInfo?>(null) }
+    var pageCount by remember { mutableIntStateOf(1) }
+    var viewportLoaded by remember { mutableStateOf(false) }
+    var wasSaved by remember { mutableStateOf(false) }
 
     var currentTool by remember { mutableStateOf(DrawingTool.PEN) }
     var activeDrawingTool by remember { mutableStateOf<DrawingTool?>(null) }
@@ -192,15 +195,6 @@ fun DrawingNoteScreen(
                     Toast.makeText(context, "Error opening PDF: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            pdfRenderer?.close()
-            pdfRenderer = null
-            pdfPageBitmaps.values.forEach { it.recycle() }
-            pdfPageBitmaps.clear()
         }
     }
     
@@ -362,6 +356,7 @@ fun DrawingNoteScreen(
     }
 
     fun saveDrawing() {
+        wasSaved = true
         val id = noteId ?: UUID.randomUUID().toString()
         val finalTitle = title.ifBlank { "Drawing" }
         notesViewModel.onEvent(NoteEvent.SaveNote(
@@ -375,10 +370,24 @@ fun DrawingNoteScreen(
                     images = images,
                     canvasType = canvasType,
                     pageLayout = pageLayout,
-                    pdfInfo = pdfInfo
+                    pdfInfo = pdfInfo,
+                    pageCount = pageCount,
+                    viewportX = canvasOffset.x,
+                    viewportY = canvasOffset.y,
+                    viewportScale = canvasScale
                 )
             )
         ))
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            if (!wasSaved) saveDrawing()
+            pdfRenderer?.close()
+            pdfRenderer = null
+            pdfPageBitmaps.values.forEach { it.recycle() }
+            pdfPageBitmaps.clear()
+        }
     }
 
     androidx.activity.compose.BackHandler {
@@ -397,12 +406,20 @@ fun DrawingNoteScreen(
                 canvasType = note.drawingData?.canvasType ?: CanvasType.INFINITE
                 pageLayout = note.drawingData?.pageLayout ?: PageLayout()
                 pdfInfo = note.drawingData?.pdfInfo
+                pageCount = note.drawingData?.pageCount ?: 1
+                
+                if (note.drawingData?.viewportScale != null && note.drawingData.viewportScale > 0) {
+                    canvasOffset = Offset(note.drawingData.viewportX, note.drawingData.viewportY)
+                    canvasScale = note.drawingData.viewportScale
+                    viewportLoaded = true
+                }
             }
         } else {
             val pending = notesViewModel.pendingDrawingConfig
             if (pending != null) {
                 canvasType = pending.canvasType
                 pageLayout = pending.pageLayout
+                pageCount = pending.pageCount
                 
                 if (canvasType == CanvasType.PDF && pending.backgroundPdfPath != null) {
                     val uri = Uri.parse(pending.backgroundPdfPath)
@@ -433,6 +450,7 @@ fun DrawingNoteScreen(
                                 pageCount = count,
                                 pageSizes = sizes
                             )
+                            pageCount = count
                         } catch (e: Exception) {
                             withContext(Dispatchers.Main) {
                                 Toast.makeText(context, "Failed to import PDF: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -443,6 +461,27 @@ fun DrawingNoteScreen(
                 
                 notesViewModel.setPendingDrawingConfig(null)
             }
+        }
+    }
+
+    // Auto-center viewport on first load if not loaded from save
+    LaunchedEffect(canvasSize, viewportLoaded) {
+        if (!viewportLoaded && canvasSize.width > 0 && canvasSize.height > 0) {
+            val pageWidth = if (canvasType == CanvasType.PDF) (pdfInfo?.pageSizes?.firstOrNull()?.width ?: 800f) else pageLayout.width
+            val pageHeight = if (canvasType == CanvasType.PDF) (pdfInfo?.pageSizes?.firstOrNull()?.height ?: 1100f) else pageLayout.height
+            
+            if (pageWidth > 0 && pageHeight > 0) {
+                val fullWidth = if (canvasType == CanvasType.PDF) pageLayout.marginLeft + pageWidth + pageLayout.marginRight else pageWidth
+                val fullHeight = if (canvasType == CanvasType.PDF) pageLayout.marginTop + pageHeight + pageLayout.marginBottom else pageHeight
+                
+                val scale = (minOf(canvasSize.width / fullWidth, canvasSize.height / fullHeight) * 0.9f).coerceIn(0.1f, 5f)
+                canvasScale = scale
+                canvasOffset = Offset(
+                    (canvasSize.width - fullWidth * scale) / 2f,
+                    (canvasSize.height - fullHeight * scale) / 2f
+                )
+            }
+            viewportLoaded = true
         }
     }
 
@@ -603,6 +642,20 @@ fun DrawingNoteScreen(
                         modifier = Modifier.padding(end = 16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        if (canvasType != CanvasType.INFINITE) {
+                            CircleIconButton(
+                                onClick = { 
+                                    pageCount++
+                                    Toast.makeText(context, "Page ${pageCount} added", Toast.LENGTH_SHORT).show()
+                                },
+                                icon = Icons.Rounded.NoteAdd,
+                                contentDescription = "Add Page",
+                                containerColor = Color.Black.copy(alpha = 0.25f),
+                                contentColor = Color.Black
+                            )
+                            Spacer(Modifier.width(12.dp))
+                        }
+
                         var showMoreMenu by remember { mutableStateOf(false) }
                         Box {
                             CircleIconButton(
@@ -898,6 +951,10 @@ fun DrawingNoteScreen(
                     }
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
+                    if (canvasType != CanvasType.INFINITE) {
+                        drawRect(color = if (isDarkTheme) Color(0xFF1C1B1F) else Color(0xFFF0F0F0))
+                    }
+
                     val viewport = Rect(
                         left = (-canvasOffset.x / canvasScale) - 50f,
                         top = (-canvasOffset.y / canvasScale) - 50f,
@@ -957,7 +1014,7 @@ fun DrawingNoteScreen(
                             val pageWidth = pageLayout.width
                             val pageHeight = pageLayout.height
                             var currentY = 0f
-                            for (i in 0 until 50) { // Support 50 pages
+                            for (i in 0 until pageCount) {
                                 val pageRect = Rect(0f, currentY, pageWidth, currentY + pageHeight)
                                 if (viewport.overlaps(pageRect)) {
                                     drawRect(

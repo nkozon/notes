@@ -251,72 +251,74 @@ fun MainAdaptiveScreen(
                             .fillMaxHeight()
                             .weight(if (isSidePanelVisible) 1f - splitFraction else 1f)
                     ) {
-                        when (val route = currentDetailRoute) {
-                            is DetailRoute.Note -> {
-                                AddNoteScreen(
-                                    noteId = route.id,
-                                    viewModel = notesViewModel,
-                                    onNavigateUp = { currentDetailRoute = null }
-                                )
-                            }
-                            is DetailRoute.Drawing -> {
-                                DrawingNoteScreen(
-                                    noteId = route.id,
-                                    notesViewModel = notesViewModel,
-                                    settingsViewModel = settingsViewModel,
-                                    isSplitScreen = true,
-                                    onNavigateUp = { 
-                                        currentDetailRoute = null
-                                        notesViewModel.onEvent(NoteEvent.SetSidePanelVisible(true))
-                                    }
-                                )
-                            }
-                            is DetailRoute.List -> {
-                                ListDetailScreen(
-                                    listId = route.id,
-                                    checklistViewModel = checklistViewModel,
-                                    settingsViewModel = settingsViewModel,
-                                    isTabletUi = true,
-                                    onNavigateUp = { currentDetailRoute = null }
-                                )
-                            }
-                            is DetailRoute.Settings -> {
-                                SettingsScreen(
-                                    viewModel = settingsViewModel,
-                                    onNavigateToTheme = { currentDetailRoute = DetailRoute.Theme },
-                                    onNavigateToBackupRestore = { currentDetailRoute = DetailRoute.BackupRestore },
-                                    onNavigateToAbout = { currentDetailRoute = DetailRoute.About },
-                                    onNavigateUp = { currentDetailRoute = null }
-                                )
-                            }
-                            is DetailRoute.Theme -> {
-                                ThemeScreen(
-                                    viewModel = settingsViewModel,
-                                    onNavigateUp = { currentDetailRoute = DetailRoute.Settings }
-                                )
-                            }
-                            is DetailRoute.BackupRestore -> {
-                                BackupRestoreScreen(
-                                    viewModel = settingsViewModel,
-                                    onNavigateUp = { currentDetailRoute = DetailRoute.Settings }
-                                )
-                            }
-                            is DetailRoute.About -> {
-                                AboutScreen(
-                                    onNavigateUp = { currentDetailRoute = DetailRoute.Settings }
-                                )
-                            }
-                            null -> {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        "Select a note or a list",
-                                        style = MaterialTheme.typography.headlineSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                        fontWeight = FontWeight.Medium
+                        key(currentDetailRoute) {
+                            when (val route = currentDetailRoute) {
+                                is DetailRoute.Note -> {
+                                    AddNoteScreen(
+                                        noteId = route.id,
+                                        viewModel = notesViewModel,
+                                        onNavigateUp = { currentDetailRoute = null }
                                     )
+                                }
+                                is DetailRoute.Drawing -> {
+                                    DrawingNoteScreen(
+                                        noteId = route.id,
+                                        notesViewModel = notesViewModel,
+                                        settingsViewModel = settingsViewModel,
+                                        isSplitScreen = true,
+                                        onNavigateUp = { 
+                                            currentDetailRoute = null
+                                            notesViewModel.onEvent(NoteEvent.SetSidePanelVisible(true))
+                                        }
+                                    )
+                                }
+                                is DetailRoute.List -> {
+                                    ListDetailScreen(
+                                        listId = route.id,
+                                        checklistViewModel = checklistViewModel,
+                                        settingsViewModel = settingsViewModel,
+                                        isTabletUi = true,
+                                        onNavigateUp = { currentDetailRoute = null }
+                                    )
+                                }
+                                is DetailRoute.Settings -> {
+                                    SettingsScreen(
+                                        viewModel = settingsViewModel,
+                                        onNavigateToTheme = { currentDetailRoute = DetailRoute.Theme },
+                                        onNavigateToBackupRestore = { currentDetailRoute = DetailRoute.BackupRestore },
+                                        onNavigateToAbout = { currentDetailRoute = DetailRoute.About },
+                                        onNavigateUp = { currentDetailRoute = null }
+                                    )
+                                }
+                                is DetailRoute.Theme -> {
+                                    ThemeScreen(
+                                        viewModel = settingsViewModel,
+                                        onNavigateUp = { currentDetailRoute = DetailRoute.Settings }
+                                    )
+                                }
+                                is DetailRoute.BackupRestore -> {
+                                    BackupRestoreScreen(
+                                        viewModel = settingsViewModel,
+                                        onNavigateUp = { currentDetailRoute = DetailRoute.Settings }
+                                    )
+                                }
+                                is DetailRoute.About -> {
+                                    AboutScreen(
+                                        onNavigateUp = { currentDetailRoute = DetailRoute.Settings }
+                                    )
+                                }
+                                null -> {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            "Select a note or a list",
+                                            style = MaterialTheme.typography.headlineSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    }
                                 }
                             }
                         }
