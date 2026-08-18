@@ -140,6 +140,8 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
         val tags: List<Tag>
     )
 
+    suspend fun getEntryDescription(entryId: String): String? = repository.getEntryDescription(entryId)
+
     companion object {
         fun provideFactory(repository: NoteRepository): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {

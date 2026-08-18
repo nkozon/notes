@@ -78,10 +78,19 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
     private val _isSidePanelVisible = MutableStateFlow(true)
     val isSidePanelVisible = _isSidePanelVisible.asStateFlow()
 
+    private var _pendingDrawingConfig: DrawingData? = null
+    val pendingDrawingConfig: DrawingData? get() = _pendingDrawingConfig
+
+    fun setPendingDrawingConfig(config: DrawingData?) {
+        _pendingDrawingConfig = config
+    }
+
     fun onEvent(event: NoteEvent) {
         when (event) {
             is NoteEvent.UpdateSearchQuery -> _searchQuery.value = event.query
-            is NoteEvent.SaveNote -> viewModelScope.launch { repository.saveNote(event.note) }
+            is NoteEvent.SaveNote -> viewModelScope.launch { 
+                repository.saveNote(event.note) 
+            }
             is NoteEvent.TogglePinNote -> viewModelScope.launch { repository.togglePinNote(event.noteId) }
             is NoteEvent.DeleteNote -> viewModelScope.launch { repository.deleteNote(event.noteId) }
             is NoteEvent.SaveList -> viewModelScope.launch { repository.saveList(event.list) }
@@ -107,7 +116,7 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
         }
     }
 
-    fun getNoteById(id: String): Note? = notesState.value.find { it.id == id }
+    suspend fun getNoteById(id: String): Note? = repository.getNoteById(id)
     fun getListById(id: String): NoteList? = listsState.value.find { it.id == id }
 
     companion object {

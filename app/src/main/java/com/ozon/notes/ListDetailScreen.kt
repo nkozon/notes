@@ -652,6 +652,7 @@ fun ListDetailScreen(
     if (entryForDescription != null) {
         DescriptionDialog(
             entry = entryForDescription!!,
+            viewModel = checklistViewModel,
             onDismiss = { entryForDescription = null },
             onConfirm = { description ->
                 entryForDescription?.let {
@@ -1357,11 +1358,19 @@ fun ListEntryItem(
 @Composable
 fun DescriptionDialog(
     entry: ListEntry,
+    viewModel: ChecklistViewModel,
     onDismiss: () -> Unit,
     onConfirm: (String?) -> Unit
 ) {
     var description by remember { mutableStateOf(entry.description ?: "") }
     val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(entry.id) {
+        if (entry.description == null) {
+            val fullDesc = viewModel.getEntryDescription(entry.id)
+            if (fullDesc != null) description = fullDesc
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,

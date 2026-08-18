@@ -19,7 +19,8 @@ class GetFilteredNotesUseCase {
         return notes.filter { note ->
             if (query.isBlank()) true else {
                 note.title.contains(query, ignoreCase = true) ||
-                        note.content.contains(query, ignoreCase = true)
+                        note.content.contains(query, ignoreCase = true) ||
+                        note.previewText?.contains(query, ignoreCase = true) == true
             }
         }.sortedWith { a, b ->
             if (a.isPinned != b.isPinned) {

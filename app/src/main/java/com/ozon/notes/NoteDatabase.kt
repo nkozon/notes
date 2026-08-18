@@ -13,6 +13,7 @@ data class NoteEntity(
     val contentHtml: String? = null,
     val type: String = "TEXT", // "TEXT" or "DRAWING"
     val drawingData: String? = null, // JSON representation of DrawingData
+    val previewText: String? = null, // First few lines for the list view
     val timestamp: Long,
     val isPinned: Boolean = false
 )
@@ -109,6 +110,9 @@ interface NoteDao {
     @Query("SELECT * FROM notes")
     suspend fun getAllNotesList(): List<NoteEntity>
 
+    @Query("SELECT * FROM notes WHERE id = :noteId")
+    suspend fun getNoteById(noteId: String): NoteEntity?
+
     @Upsert
     suspend fun upsertNote(note: NoteEntity)
 
@@ -132,6 +136,9 @@ interface ListDao {
 
     @Query("SELECT * FROM note_lists")
     suspend fun getAllListsList(): List<NoteListEntity>
+
+    @Query("SELECT * FROM list_entries WHERE id = :entryId")
+    suspend fun getEntryById(entryId: String): ListEntryEntity?
 
     @Upsert
     suspend fun upsertList(list: NoteListEntity)
@@ -220,7 +227,7 @@ interface EntryTagCrossRefDao {
 
 @Database(
     entities = [NoteEntity::class, NoteListEntity::class, ListEntryEntity::class, TagEntity::class, EntryTagCrossRef::class],
-    version = 14, 
+    version = 15, 
     exportSchema = false
 )
 abstract class NoteDatabase : RoomDatabase() {
@@ -230,6 +237,11 @@ abstract class NoteDatabase : RoomDatabase() {
     abstract fun entryTagCrossRefDao(): EntryTagCrossRefDao
 
     companion object {
+        val MIGRATION_14_15 = object : androidx.room.migration.Migration(14, 15) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE notes ADD COLUMN previewText TEXT")
+            }
+        }
         val MIGRATION_13_14 = object : androidx.room.migration.Migration(13, 14) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 // 1. Create the new notes table without colorArgb

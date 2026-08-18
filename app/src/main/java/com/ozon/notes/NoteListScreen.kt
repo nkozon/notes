@@ -42,6 +42,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,6 +64,19 @@ fun NoteListScreen(
     
     val listsWithCounts by notesViewModel.listsWithCountsState.collectAsStateWithLifecycle()
     val showEntryCount by settingsViewModel.showEntryCountState.collectAsStateWithLifecycle()
+
+    var selectedPdfUri by remember { mutableStateOf<Uri?>(null) }
+    var showMarginDialog by remember { mutableStateOf(false) }
+
+    val pdfPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+        onResult = { uri ->
+            if (uri != null) {
+                selectedPdfUri = uri
+                showMarginDialog = true
+            }
+        }
+    )
 
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -361,34 +377,216 @@ fun NoteListScreen(
     )
 
     if (showAddNoteChoiceDialog) {
-        AlertDialog(
-            onDismissRequest = { showAddNoteChoiceDialog = false },
-            title = { Text("New Note") },
-            text = { Text("What kind of note would you like to create?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    showAddNoteChoiceDialog = false
-                    onAddClick()
-                }) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Description, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Text Note")
+        var showDrawingSubDialog by remember { mutableStateOf(false) }
+
+        if (showDrawingSubDialog) {
+            AlertDialog(
+                onDismissRequest = { showDrawingSubDialog = false },
+                title = { Text("Drawing Type") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(
+                            onClick = {
+                                showDrawingSubDialog = false
+                                showAddNoteChoiceDialog = false
+                                onAddDrawingClick() // Default is Infinite
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Icon(Icons.Rounded.AllInclusive, contentDescription = null)
+                                Spacer(Modifier.width(12.dp))
+                                Column {
+                                    Text("Infinite Canvas", style = MaterialTheme.typography.titleMedium)
+                                    Text("Free-form space for sketching", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                        TextButton(
+                            onClick = {
+                                showDrawingSubDialog = false
+                                showAddNoteChoiceDialog = false
+                                notesViewModel.setPendingDrawingConfig(
+                                    DrawingData(
+                                        canvasType = CanvasType.PAGED,
+                                        pageLayout = PageLayout(width = 842f, height = 1191f) // A4 size
+                                    )
+                                )
+                                onAddDrawingClick() 
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Icon(Icons.Rounded.Description, contentDescription = null)
+                                Spacer(Modifier.width(12.dp))
+                                Column {
+                                    Text("Paged Canvas (A4)", style = MaterialTheme.typography.titleMedium)
+                                    Text("Fixed size pages for structured notes", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                        TextButton(
+                            onClick = {
+                                showDrawingSubDialog = false
+                                showAddNoteChoiceDialog = false
+                                notesViewModel.setPendingDrawingConfig(
+                                    DrawingData(
+                                        canvasType = CanvasType.PAGED,
+                                        pageLayout = PageLayout(width = 1600f, height = 900f) // 16:9 Slides
+                                    )
+                                )
+                                onAddDrawingClick() 
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Icon(Icons.Rounded.Rectangle, contentDescription = null)
+                                Spacer(Modifier.width(12.dp))
+                                Column {
+                                    Text("Paged Canvas (16:9)", style = MaterialTheme.typography.titleMedium)
+                                    Text("Slide format for presentations", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
                     }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { showDrawingSubDialog = false }) { Text("Back") }
                 }
+            )
+        } else {
+            AlertDialog(
+                onDismissRequest = { showAddNoteChoiceDialog = false },
+                title = { Text("New Note") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(
+                            onClick = {
+                                showAddNoteChoiceDialog = false
+                                onAddClick()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Icon(Icons.Rounded.Description, contentDescription = null)
+                                Spacer(Modifier.width(12.dp))
+                                Text("Text Note", style = MaterialTheme.typography.titleMedium)
+                            }
+                        }
+                        TextButton(
+                            onClick = {
+                                showDrawingSubDialog = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Icon(Icons.Rounded.Brush, contentDescription = null)
+                                Spacer(Modifier.width(12.dp))
+                                Text("Drawing Note", style = MaterialTheme.typography.titleMedium)
+                            }
+                        }
+                        TextButton(
+                            onClick = {
+                                showAddNoteChoiceDialog = false
+                                pdfPickerLauncher.launch("application/pdf")
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                Icon(Icons.Rounded.PictureAsPdf, contentDescription = null)
+                                Spacer(Modifier.width(12.dp))
+                                Text("Import PDF", style = MaterialTheme.typography.titleMedium)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { showAddNoteChoiceDialog = false }) { Text("Cancel") }
+                }
+            )
+        }
+    }
+
+    if (showMarginDialog && selectedPdfUri != null) {
+        MarginSettingsDialog(
+            uri = selectedPdfUri!!,
+            onDismiss = { 
+                showMarginDialog = false
+                selectedPdfUri = null
             },
-            dismissButton = {
-                TextButton(onClick = {
-                    showAddNoteChoiceDialog = false
-                    onAddDrawingClick()
-                }) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Brush, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Drawing Note")
-                    }
-                }
+            onConfirm = { margins ->
+                showMarginDialog = false
+                notesViewModel.setPendingDrawingConfig(
+                    DrawingData(
+                        canvasType = CanvasType.PDF,
+                        backgroundPdfPath = selectedPdfUri.toString(), // Temp URI string
+                        pageLayout = margins
+                    )
+                )
+                onAddDrawingClick() 
+                selectedPdfUri = null
             }
+        )
+    }
+}
+
+@Composable
+private fun MarginSettingsDialog(
+    uri: Uri,
+    onDismiss: () -> Unit,
+    onConfirm: (PageLayout) -> Unit
+) {
+    var marginTop by remember { mutableFloatStateOf(0f) }
+    var marginBottom by remember { mutableFloatStateOf(0f) }
+    var marginLeft by remember { mutableFloatStateOf(0f) }
+    var marginRight by remember { mutableFloatStateOf(0f) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("PDF Margin Settings") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text("Add extra space around each PDF page for your notes.")
+                
+                MarginSlider("Top", marginTop) { marginTop = it }
+                MarginSlider("Bottom", marginBottom) { marginBottom = it }
+                MarginSlider("Left", marginLeft) { marginLeft = it }
+                MarginSlider("Right", marginRight) { marginRight = it }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { 
+                onConfirm(PageLayout(
+                    marginTop = marginTop,
+                    marginBottom = marginBottom,
+                    marginLeft = marginLeft,
+                    marginRight = marginRight
+                ))
+            }) { Text("Import") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+private fun MarginSlider(label: String, value: Float, onValueChange: (Float) -> Unit) {
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(label, style = MaterialTheme.typography.labelMedium)
+            Text("${value.toInt()} units", style = MaterialTheme.typography.labelMedium)
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = 0f..1000f,
+            steps = 19
         )
     }
 }
@@ -656,17 +854,20 @@ fun NoteCard(
                         fontStyle = FontStyle.Italic,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
-                } else if (note.content.isNotBlank()) {
-                    val firstSentence = remember(note.content) {
-                        note.content.split(Regex("(?<=[.!?])\\s+")).firstOrNull() ?: note.content
+                } else {
+                    val displayContent = note.previewText?.takeIf { it.isNotBlank() } ?: note.content
+                    if (displayContent.isNotBlank()) {
+                        val firstSentence = remember(displayContent) {
+                            displayContent.split(Regex("(?<=[.!?])\\s+")).firstOrNull() ?: displayContent
+                        }
+                        Text(
+                            text = firstSentence,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                    Text(
-                        text = firstSentence,
-                        style = MaterialTheme.typography.bodySmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
             },
             trailingContent = if (isDrawing && note.drawingData?.strokes?.isNotEmpty() == true) {

@@ -20,6 +20,7 @@ fun NoteEntity.toDomain(): Note {
         title = title,
         content = content,
         contentHtml = contentHtml,
+        previewText = previewText,
         type = try { NoteType.valueOf(type) } catch (_: Exception) { NoteType.TEXT },
         drawingData = drawingData?.let {
             try { json.decodeFromString<DrawingData>(it) } catch (e: Exception) { null }
@@ -35,6 +36,7 @@ fun Note.toEntity(): NoteEntity {
         title = title,
         content = content,
         contentHtml = contentHtml,
+        previewText = previewText,
         type = type.name,
         drawingData = drawingData?.let { json.encodeToString(it) },
         timestamp = timestamp,

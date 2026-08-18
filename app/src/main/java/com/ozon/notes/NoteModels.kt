@@ -3,6 +3,33 @@ package com.ozon.notes
 import kotlinx.serialization.Serializable
 import java.util.UUID
 
+enum class CanvasType {
+    INFINITE, PAGED, PDF
+}
+
+@Serializable
+data class PageLayout(
+    val width: Float = 0f,
+    val height: Float = 0f,
+    val marginTop: Float = 0f,
+    val marginBottom: Float = 0f,
+    val marginLeft: Float = 0f,
+    val marginRight: Float = 0f,
+    val spacing: Float = 20f
+)
+
+@Serializable
+data class PdfPageSize(val width: Float, val height: Float)
+
+@Serializable
+data class PdfInfo(
+    val localPath: String,
+    val originalName: String,
+    val pageCount: Int,
+    val pageSizes: List<PdfPageSize> = emptyList(),
+    val base64Data: String? = null // Populated only during backup
+)
+
 enum class NoteType {
     TEXT, DRAWING
 }
@@ -24,6 +51,7 @@ data class Note(
     val title: String,
     val content: String,
     val contentHtml: String? = null,
+    val previewText: String? = null,
     val type: NoteType = NoteType.TEXT,
     val drawingData: DrawingData? = null,
     val timestamp: Long = System.currentTimeMillis(),
@@ -35,7 +63,10 @@ data class Note(
 data class DrawingData(
     val strokes: List<Stroke> = emptyList(),
     val images: List<DrawingImage> = emptyList(),
-    val backgroundPdfPath: String? = null
+    val backgroundPdfPath: String? = null,
+    val canvasType: CanvasType = CanvasType.INFINITE,
+    val pageLayout: PageLayout = PageLayout(),
+    val pdfInfo: PdfInfo? = null
 )
 
 @Serializable

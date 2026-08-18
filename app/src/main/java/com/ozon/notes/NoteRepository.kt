@@ -8,10 +8,16 @@ import android.content.Context
 
 interface NoteRepository {
     fun getAllNotes(): Flow<List<Note>>
+    suspend fun getNoteById(id: String): Note?
     suspend fun saveNote(note: Note)
     suspend fun togglePinNote(noteId: String)
     suspend fun deleteNote(noteId: String)
     suspend fun deleteNotes(noteIds: List<String>)
+
+    suspend fun getNoteContent(id: String): String?
+    suspend fun getNoteHtml(id: String): String?
+    suspend fun getDrawingData(id: String): DrawingData?
+    suspend fun getEntryDescription(entryId: String): String?
 
     // --- Lists ---
     fun getAllLists(): Flow<List<NoteList>>
@@ -139,7 +145,8 @@ object AppContainer {
             NoteDatabase.MIGRATION_10_11,
             NoteDatabase.MIGRATION_11_12,
             NoteDatabase.MIGRATION_12_13,
-            NoteDatabase.MIGRATION_13_14
+            NoteDatabase.MIGRATION_13_14,
+            NoteDatabase.MIGRATION_14_15
         )
             .fallbackToDestructiveMigration()
             .build().also { database = it }

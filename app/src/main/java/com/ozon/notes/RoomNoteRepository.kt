@@ -1,15 +1,42 @@
 package com.ozon.notes
 
 import android.content.Context
+import android.util.Base64
 import androidx.room.withTransaction
+import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import java.io.File
 
 class RoomNoteRepository(
     private val context: Context,
     private val database: NoteDatabase
 ) : NoteRepository {
+
+    private val json = Json { ignoreUnknownKeys = true }
+
+    private suspend fun saveFile(fileName: String, content: String) = withContext(Dispatchers.IO) {
+        context.openFileOutput(fileName, Context.MODE_PRIVATE).use {
+            it.write(content.toByteArray())
+        }
+    }
+
+    private suspend fun readFile(fileName: String): String? = withContext(Dispatchers.IO) {
+        try {
+            context.openFileInput(fileName).use {
+                it.readBytes().decodeToString()
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private suspend fun deleteFile(fileName: String) = withContext(Dispatchers.IO) {
+        context.deleteFile(fileName)
+    }
 
     // --- Notes ---
     override fun getAllNotes(): Flow<List<Note>> {
@@ -18,8 +45,52 @@ class RoomNoteRepository(
         }
     }
 
+    override suspend fun getNoteById(id: String): Note? {
+        val entity = database.noteDao().getNoteById(id) ?: return null
+        val domain = entity.toDomain()
+        
+        val content = readFile("${id}.content")
+        val html = readFile("${id}.html")
+        val drawingJson = readFile("${id}.drawing")
+        val drawingData = drawingJson?.let { 
+            try { json.decodeFromString<DrawingData>(it) } catch (e: Exception) { null }
+        }
+        
+        return domain.copy(
+            content = content ?: domain.content,
+            contentHtml = html ?: domain.contentHtml,
+            drawingData = drawingData ?: domain.drawingData
+        )
+    }
+
     override suspend fun saveNote(note: Note) {
-        database.noteDao().upsertNote(note.toEntity())
+        withContext(Dispatchers.IO) {
+            val content = note.content
+            val html = note.contentHtml
+            val drawingData = note.drawingData
+            
+            saveFile("${note.id}.content", content)
+            html?.let { saveFile("${note.id}.html", it) }
+            
+            val drawingDataJson = drawingData?.let { json.encodeToString(it) }
+            drawingDataJson?.let { saveFile("${note.id}.drawing", it) }
+            
+            val preview = if (note.type == NoteType.TEXT) {
+                content.take(300)
+            } else null
+
+            // Keep drawing data in DB only if it's small enough to avoid TransactionTooLargeException
+            val drawingDataForDb = if (drawingDataJson != null && drawingDataJson.length < 100_000) {
+                drawingDataJson
+            } else null
+
+            database.noteDao().upsertNote(note.toEntity().copy(
+                content = "",
+                contentHtml = null,
+                drawingData = drawingDataForDb,
+                previewText = preview
+            ))
+        }
         setHasPendingChanges(true)
     }
 
@@ -29,14 +100,51 @@ class RoomNoteRepository(
     }
 
     override suspend fun deleteNote(noteId: String) {
-        database.noteDao().deleteNote(noteId)
+        withContext(Dispatchers.IO) {
+            val note = database.noteDao().getNoteById(noteId)
+            val drawingData = note?.drawingData?.let {
+                try { json.decodeFromString<DrawingData>(it) } catch (e: Exception) { null }
+            }
+            
+            database.noteDao().deleteNote(noteId)
+            deleteFile("${noteId}.content")
+            deleteFile("${noteId}.html")
+            deleteFile("${noteId}.drawing")
+            
+            drawingData?.pdfInfo?.localPath?.let { path ->
+                val file = File(path)
+                if (file.exists()) file.delete()
+            }
+        }
         setHasPendingChanges(true)
     }
 
     override suspend fun deleteNotes(noteIds: List<String>) {
-        database.noteDao().deleteNotes(noteIds)
+        withContext(Dispatchers.IO) {
+            database.noteDao().deleteNotes(noteIds)
+            noteIds.forEach { id ->
+                deleteFile("${id}.content")
+                deleteFile("${id}.html")
+                deleteFile("${id}.drawing")
+            }
+        }
         setHasPendingChanges(true)
     }
+
+    override suspend fun getNoteContent(id: String): String? = readFile("${id}.content") ?: database.noteDao().getNoteById(id)?.content
+    override suspend fun getNoteHtml(id: String): String? = readFile("${id}.html") ?: database.noteDao().getNoteById(id)?.contentHtml
+    override suspend fun getDrawingData(id: String): DrawingData? {
+        val jsonStr = readFile("${id}.drawing")
+        return if (jsonStr != null) {
+            try { json.decodeFromString<DrawingData>(jsonStr) } catch (e: Exception) { null }
+        } else {
+            database.noteDao().getNoteById(id)?.drawingData?.let {
+                try { json.decodeFromString<DrawingData>(it) } catch (e: Exception) { null }
+            }
+        }
+    }
+
+    override suspend fun getEntryDescription(entryId: String): String? = readFile("${entryId}.desc") ?: database.listDao().getEntryById(entryId)?.description
 
     // --- Lists ---
     override fun getAllLists(): Flow<List<NoteList>> {
@@ -88,7 +196,8 @@ class RoomNoteRepository(
 
     override suspend fun saveEntry(entry: ListEntry) {
         database.withTransaction {
-            database.listDao().upsertEntry(entry.toEntity())
+            entry.description?.let { saveFile("${entry.id}.desc", it) }
+            database.listDao().upsertEntry(entry.toEntity().copy(description = null))
             database.entryTagCrossRefDao().deleteByEntryId(entry.id)
             database.entryTagCrossRefDao().insertAll(
                 entry.tagIds.map { EntryTagCrossRef(entry.id, it) }
@@ -98,7 +207,10 @@ class RoomNoteRepository(
     }
 
     override suspend fun deleteEntry(entryId: String) {
-        database.listDao().deleteEntry(entryId)
+        withContext(Dispatchers.IO) {
+            database.listDao().deleteEntry(entryId)
+            deleteFile("${entryId}.desc")
+        }
         setHasPendingChanges(true)
     }
 
@@ -122,6 +234,12 @@ class RoomNoteRepository(
     override suspend fun clearAllData() {
         withContext(Dispatchers.IO) {
             database.clearAllTables()
+            context.filesDir.listFiles()?.forEach { file ->
+                if (file.name.endsWith(".content") || file.name.endsWith(".html") || 
+                    file.name.endsWith(".drawing") || file.name.endsWith(".desc")) {
+                    file.delete()
+                }
+            }
             prefs.edit().clear().apply()
             _theme.value = AppTheme.SYSTEM
             _useDynamicColor.value = true
@@ -140,14 +258,38 @@ class RoomNoteRepository(
     }
 
     override suspend fun getBackupData(): BackupData = withContext(Dispatchers.IO) {
-        val notes = database.noteDao().getAllNotesList().map { it.toDomain() }
+        val notes = database.noteDao().getAllNotesList().map { entity ->
+            val id = entity.id
+            val content = readFile("${id}.content") ?: entity.content
+            val html = readFile("${id}.html") ?: entity.contentHtml
+            val drawingJson = readFile("${id}.drawing")
+            var drawingData = drawingJson?.let { 
+                try { json.decodeFromString<DrawingData>(it) } catch (e: Exception) { null }
+            } ?: entity.drawingData?.let {
+                try { json.decodeFromString<DrawingData>(it) } catch (e: Exception) { null }
+            }
+
+            // Populate PDF data for backup
+            drawingData = drawingData?.copy(
+                pdfInfo = drawingData.pdfInfo?.let { info ->
+                    val file = File(info.localPath)
+                    if (file.exists()) {
+                        val bytes = file.readBytes()
+                        info.copy(base64Data = Base64.encodeToString(bytes, Base64.DEFAULT))
+                    } else info
+                }
+            )
+
+            entity.toDomain().copy(content = content, contentHtml = html, drawingData = drawingData)
+        }
         val lists = database.listDao().getAllListsList().map { it.toDomain() }
         val tags = database.tagDao().getAllTagsList().map { it.toDomain() }
         
         val crossRefs = database.entryTagCrossRefDao().getAllCrossRefsList().groupBy { it.entryId }
         val entries = database.listDao().getAllEntriesList().map { entity ->
             val tagIds = crossRefs[entity.id]?.map { it.tagId } ?: emptyList()
-            entity.toDomain(tagIds)
+            val desc = readFile("${entity.id}.desc") ?: entity.description
+            entity.toDomain(tagIds).copy(description = desc)
         }
         
         BackupData(notes, lists, entries, tags)
@@ -156,9 +298,40 @@ class RoomNoteRepository(
     override suspend fun restoreBackupData(data: BackupData) = withContext(Dispatchers.IO) {
         database.withTransaction {
             database.clearAllTables()
+            context.filesDir.listFiles()?.forEach { file ->
+                if (file.name.endsWith(".content") || file.name.endsWith(".html") || 
+                    file.name.endsWith(".drawing") || file.name.endsWith(".desc")) {
+                    file.delete()
+                }
+            }
             
             // 1. Restore Notes
-            database.noteDao().upsertNotes(data.notes.map { it.toEntity() })
+            data.notes.forEach { note ->
+                saveFile("${note.id}.content", note.content)
+                note.contentHtml?.let { saveFile("${note.id}.html", it) }
+                
+                // Extract PDF if present
+                val restoredPdfInfo = note.drawingData?.pdfInfo?.let { info ->
+                    if (info.base64Data != null) {
+                        val bytes = Base64.decode(info.base64Data, Base64.DEFAULT)
+                        val fileName = "note_pdf_${UUID.randomUUID()}.pdf"
+                        val file = File(context.filesDir, fileName)
+                        file.writeBytes(bytes)
+                        info.copy(localPath = file.absolutePath, base64Data = null)
+                    } else info
+                }
+                
+                val drawingDataToSave = note.drawingData?.copy(pdfInfo = restoredPdfInfo)
+                drawingDataToSave?.let { saveFile("${note.id}.drawing", json.encodeToString(it)) }
+                
+                val preview = if (note.type == NoteType.TEXT) note.content.take(300) else null
+                database.noteDao().upsertNote(note.toEntity().copy(
+                    content = "",
+                    contentHtml = null,
+                    drawingData = null,
+                    previewText = preview
+                ))
+            }
             
             // 2. Restore Tags
             database.tagDao().upsertTags(data.tags.map { it.toEntity() })
@@ -172,15 +345,15 @@ class RoomNoteRepository(
             val entriesToRestore = data.entries.filter { it.listId in validListIds }
             val validEntryIds = entriesToRestore.map { it.id }.toSet()
             
-            val allEntryEntities = entriesToRestore.map { it.toEntity() }.map { 
-                it.copy(
-                    // Sanitize parentId: must exist in the set of IDs we are about to insert
-                    parentId = it.parentId?.takeIf { p -> p in validEntryIds }
+            val allEntryEntities = entriesToRestore.map { entry ->
+                entry.description?.let { saveFile("${entry.id}.desc", it) }
+                entry.toEntity().copy(
+                    description = null,
+                    parentId = entry.parentId?.takeIf { p -> p in validEntryIds }
                 )
             }
 
             // Pass 1: Insert all entries as top-level (parentId = null). 
-            // This ensures all IDs exist in the table before we try to link them.
             database.listDao().upsertEntries(allEntryEntities.map { it.copy(parentId = null) })
             
             // Pass 2: Update the parentId links.
