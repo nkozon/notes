@@ -95,6 +95,8 @@ fun NoteListScreen(
     val listsWithCounts by notesViewModel.listsWithCountsState.collectAsStateWithLifecycle()
     val showEntryCount by settingsViewModel.showEntryCountState.collectAsStateWithLifecycle()
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+
     var selectedPdfUri by remember { mutableStateOf<Uri?>(null) }
     var showMarginDialog by remember { mutableStateOf(false) }
 
@@ -116,7 +118,7 @@ fun NoteListScreen(
     var listToDelete by remember { mutableStateOf<NoteList?>(null) }
     var listToRename by remember { mutableStateOf<NoteList?>(null) }
     var showCreateListDialog by remember { mutableStateOf(false) }
-    var showAddNoteChoiceDialog by remember { mutableStateOf(false) }
+    var showDrawingTypeDialog by remember { mutableStateOf(false) }
     var isSearchActive by remember { mutableStateOf(false) }
 
     val gridState = androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
@@ -287,7 +289,7 @@ fun NoteListScreen(
                                 tooltip = "New Text Note"
                             )
                             TooltipIconButton(
-                                onClick = { showAddNoteChoiceDialog = true },
+                                onClick = { showDrawingTypeDialog = true },
                                 icon = Icons.Rounded.Brush,
                                 tooltip = "New Drawing"
                             )
@@ -458,133 +460,75 @@ fun NoteListScreen(
         }
     )
 
-    if (showAddNoteChoiceDialog) {
-        var showDrawingSubDialog by remember { mutableStateOf(false) }
-
-        if (showDrawingSubDialog) {
-            AlertDialog(
-                onDismissRequest = { showDrawingSubDialog = false },
-                title = { Text("Drawing Type") },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(
-                            onClick = {
-                                showDrawingSubDialog = false
-                                showAddNoteChoiceDialog = false
-                                onAddDrawingClick(notesViewModel.createNewDrawing()) // Default is Infinite
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                                Icon(Icons.Rounded.AllInclusive, contentDescription = null)
-                                Spacer(Modifier.width(12.dp))
-                                Column {
-                                    Text("Infinite Canvas", style = MaterialTheme.typography.titleMedium)
-                                    Text("Free-form space for sketching", style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                        }
-                        TextButton(
-                            onClick = {
-                                showDrawingSubDialog = false
-                                showAddNoteChoiceDialog = false
-                                val config = DrawingData(
-                                    canvasType = CanvasType.PAGED,
-                                    pageLayout = PageLayout(width = 842f, height = 1191f) // A4 size
-                                )
-                                onAddDrawingClick(notesViewModel.createNewDrawing(config))
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                                Icon(Icons.Rounded.Description, contentDescription = null)
-                                Spacer(Modifier.width(12.dp))
-                                Column {
-                                    Text("Paged Canvas (A4)", style = MaterialTheme.typography.titleMedium)
-                                    Text("Fixed size pages for structured notes", style = MaterialTheme.typography.bodySmall)
-                                }
-                            }
-                        }
-                        TextButton(
-                            onClick = {
-                                showDrawingSubDialog = false
-                                showAddNoteChoiceDialog = false
-                                val config = DrawingData(
-                                    canvasType = CanvasType.PAGED,
-                                    pageLayout = PageLayout(width = 1600f, height = 900f) // 16:9 Slides
-                                )
-                                onAddDrawingClick(notesViewModel.createNewDrawing(config))
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                                Icon(Icons.Rounded.Rectangle, contentDescription = null)
-                                Spacer(Modifier.width(12.dp))
-                                Column {
-                                    Text("Paged Canvas (16:9)", style = MaterialTheme.typography.titleMedium)
-                                    Text("Slide format for presentations", style = MaterialTheme.typography.bodySmall)
-                                }
+    if (showDrawingTypeDialog) {
+        AlertDialog(
+            onDismissRequest = { showDrawingTypeDialog = false },
+            title = { Text("Drawing Type") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = {
+                            showDrawingTypeDialog = false
+                            onAddDrawingClick(notesViewModel.createNewDrawing()) // Default is Infinite
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Rounded.AllInclusive, contentDescription = null)
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text("Infinite Canvas", style = MaterialTheme.typography.titleMedium)
+                                Text("Free-form space for sketching", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
-                },
-                confirmButton = {},
-                dismissButton = {
-                    TextButton(onClick = { showDrawingSubDialog = false }) { Text("Back") }
-                }
-            )
-        } else {
-            AlertDialog(
-                onDismissRequest = { showAddNoteChoiceDialog = false },
-                title = { Text("New Note") },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(
-                            onClick = {
-                                showAddNoteChoiceDialog = false
-                                onAddClick(notesViewModel.createNewNote())
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                                Icon(Icons.Rounded.Description, contentDescription = null)
-                                Spacer(Modifier.width(12.dp))
-                                Text("Text Note", style = MaterialTheme.typography.titleMedium)
-                            }
-                        }
-                        TextButton(
-                            onClick = {
-                                showDrawingSubDialog = true
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                                Icon(Icons.Rounded.Brush, contentDescription = null)
-                                Spacer(Modifier.width(12.dp))
-                                Text("Drawing Note", style = MaterialTheme.typography.titleMedium)
-                            }
-                        }
-                        TextButton(
-                            onClick = {
-                                showAddNoteChoiceDialog = false
-                                pdfPickerLauncher.launch("application/pdf")
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                                Icon(Icons.Rounded.PictureAsPdf, contentDescription = null)
-                                Spacer(Modifier.width(12.dp))
-                                Text("Import PDF", style = MaterialTheme.typography.titleMedium)
+                    TextButton(
+                        onClick = {
+                            showDrawingTypeDialog = false
+                            val config = DrawingData(
+                                canvasType = CanvasType.PAGED,
+                                pageLayout = PageLayout(width = 842f, height = 1191f) // A4 size
+                            )
+                            onAddDrawingClick(notesViewModel.createNewDrawing(config))
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Rounded.Description, contentDescription = null)
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text("Paged Canvas (A4)", style = MaterialTheme.typography.titleMedium)
+                                Text("Fixed size pages for structured notes", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
-                },
-                confirmButton = {},
-                dismissButton = {
-                    TextButton(onClick = { showAddNoteChoiceDialog = false }) { Text("Cancel") }
+                    TextButton(
+                        onClick = {
+                            showDrawingTypeDialog = false
+                            val config = DrawingData(
+                                canvasType = CanvasType.PAGED,
+                                pageLayout = PageLayout(width = 1600f, height = 900f) // 16:9 Slides
+                            )
+                            onAddDrawingClick(notesViewModel.createNewDrawing(config))
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Rounded.Rectangle, contentDescription = null)
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text("Paged Canvas (16:9)", style = MaterialTheme.typography.titleMedium)
+                                Text("Slide format for presentations", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
                 }
-            )
-        }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showDrawingTypeDialog = false }) { Text("Cancel") }
+            }
+        )
     }
 
     if (showMarginDialog && selectedPdfUri != null) {
@@ -598,10 +542,9 @@ fun NoteListScreen(
                 showMarginDialog = false
                 val config = DrawingData(
                     canvasType = CanvasType.PDF,
-                    backgroundPdfPath = selectedPdfUri.toString(), // Temp URI string
                     pageLayout = margins
                 )
-                onAddDrawingClick(notesViewModel.createNewDrawing(config))
+                onAddDrawingClick(notesViewModel.createNewDrawing(config, selectedPdfUri, context))
                 selectedPdfUri = null
             }
         )

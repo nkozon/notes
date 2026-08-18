@@ -103,16 +103,19 @@ private fun AddNoteScreenContent(
     }
 
     fun saveNote() {
-        val noteStillExists = noteId == null || viewModel.notesState.value.any { it.id == noteId }
+        val id = noteId ?: return
+        if (viewModel.deletingIds.value.contains(id)) return
+
+        val noteStillExists = viewModel.notesState.value.any { it.id == id }
         if (noteStillExists && !isDeleted && (title.text.isNotBlank() || richTextState.annotatedString.text.isNotBlank())) {
             viewModel.onEvent(
                 NoteEvent.SaveNote(
                     Note(
-                        id = noteId ?: UUID.randomUUID().toString(),
-                        title = title.text,
+                        id = id,
+                        title = title.text.ifBlank { "New Note" },
                         content = richTextState.annotatedString.text,
                         contentHtml = richTextState.toHtml(),
-                        timestamp = if (noteId == null) System.currentTimeMillis() else timestamp,
+                        timestamp = timestamp,
                         isPinned = isPinned
                     )
                 )

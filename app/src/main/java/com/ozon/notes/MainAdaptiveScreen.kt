@@ -1,8 +1,8 @@
 package com.ozon.notes
 
 import androidx.compose.animation.*
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -15,6 +15,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -33,8 +35,6 @@ fun MainAdaptiveScreen(
     checklistViewModel: ChecklistViewModel
 ) {
     val tabletMode by settingsViewModel.tabletModeState.collectAsStateWithLifecycle()
-    
-    // Custom directive based on Tablet Mode setting
     val standardDirective = calculatePaneScaffoldDirective(currentWindowAdaptiveInfo())
     val customDirective = remember(tabletMode, standardDirective) {
         when (tabletMode) {
@@ -45,315 +45,300 @@ fun MainAdaptiveScreen(
     }
     
     val navigator = rememberListDetailPaneScaffoldNavigator<String>(customDirective)
-    
-    // Determine if we are currently showing split-screen (two panes at once)
     val isShowingSplitScreen = navigator.scaffoldValue[ListDetailPaneScaffoldRole.Detail] == PaneAdaptedValue.Expanded &&
                                navigator.scaffoldValue[ListDetailPaneScaffoldRole.List] == PaneAdaptedValue.Expanded
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        // Main Content
-        if (!isShowingSplitScreen) {
-            val navController = rememberNavController()
-            NavHost(
-                navController = navController,
-                startDestination = "notes",
-                modifier = Modifier.fillMaxSize(),
-                enterTransition = {
-                    slideInHorizontally(initialOffsetX = { it }) + fadeIn()
-                },
-                exitTransition = {
-                    slideOutHorizontally(targetOffsetX = { -it }) + fadeOut()
-                },
-                popEnterTransition = {
-                    slideInHorizontally(initialOffsetX = { -it }) + fadeIn()
-                },
-                popExitTransition = {
-                    slideOutHorizontally(targetOffsetX = { it }) + fadeOut()
-                }
-            ) {
-                composable("notes") {
-                    NoteListScreen(
-                        notesViewModel = notesViewModel,
-                        settingsViewModel = settingsViewModel,
-                        onAddClick = { id -> navController.navigate("addEdit/$id") },
-                        onAddDrawingClick = { id -> navController.navigate("drawing/$id") },
-                        onNoteClick = { noteId, type -> 
-                            if (type == NoteType.DRAWING) navController.navigate("drawing/$noteId")
-                            else navController.navigate("addEdit/$noteId")
-                        },
-                        onListClick = { listId -> navController.navigate("listDetail/$listId") },
-                        onSettingsClick = { navController.navigate("settings") }
-                    )
-                }
-                composable("settings") {
-                    SettingsScreen(
-                        viewModel = settingsViewModel,
-                        onNavigateToTheme = { navController.navigate("theme") },
-                        onNavigateToBackupRestore = { navController.navigate("backupRestore") },
-                        onNavigateToAbout = { navController.navigate("about") },
-                        onNavigateUp = { navController.popBackStack() }
-                    )
-                }
-                composable("theme") {
-                    ThemeScreen(
-                        viewModel = settingsViewModel,
-                        onNavigateUp = { navController.popBackStack() }
-                    )
-                }
-                composable("backupRestore") {
-                    BackupRestoreScreen(
-                        viewModel = settingsViewModel,
-                        onNavigateUp = { navController.popBackStack() }
-                    )
-                }
-                composable("about") {
-                    AboutScreen(
-                        onNavigateUp = { navController.popBackStack() }
-                    )
-                }
-                composable("addEdit") {
-                    AddNoteScreen(
-                        noteId = null,
-                        viewModel = notesViewModel,
-                        onNavigateUp = { navController.popBackStack() }
-                    )
-                }
-                composable("addEdit/{noteId}") { backStackEntry ->
-                    val noteId = backStackEntry.arguments?.getString("noteId")
-                    AddNoteScreen(
-                        noteId = noteId,
-                        viewModel = notesViewModel,
-                        onNavigateUp = { navController.popBackStack() }
-                    )
-                }
-                composable("listDetail/{listId}") { backStackEntry ->
-                    val listId = backStackEntry.arguments?.getString("listId") ?: return@composable
-                    ListDetailScreen(
-                        listId = listId,
-                        checklistViewModel = checklistViewModel,
-                        settingsViewModel = settingsViewModel,
-                        onNavigateUp = { navController.popBackStack() }
-                    )
-                }
-                composable("drawing") {
-                    DrawingNoteScreen(
-                        noteId = null,
-                        notesViewModel = notesViewModel,
-                        settingsViewModel = settingsViewModel,
-                        onNavigateUp = { navController.popBackStack() }
-                    )
-                }
-                composable("drawing/{noteId}") { backStackEntry ->
-                    val noteId = backStackEntry.arguments?.getString("noteId")
-                    DrawingNoteScreen(
-                        noteId = noteId,
-                        notesViewModel = notesViewModel,
-                        settingsViewModel = settingsViewModel,
-                        onNavigateUp = { navController.popBackStack() }
-                    )
-                }
-            }
-        } else {
-            // Split-screen implementation
-            var currentDetailRoute by remember { mutableStateOf<DetailRoute?>(null) }
-            val splitFraction by notesViewModel.splitFractionState.collectAsStateWithLifecycle()
-            val isSidePanelVisible by notesViewModel.isSidePanelVisible.collectAsStateWithLifecycle()
-            
-            // Auto-close detail pane if the selected item is deleted
-            val notes by notesViewModel.notesState.collectAsStateWithLifecycle()
-            val lists by notesViewModel.listsState.collectAsStateWithLifecycle()
-            
-            LaunchedEffect(notes, lists) {
-                when (val route = currentDetailRoute) {
-                    is DetailRoute.Note -> {
-                        if (route.id != null && notes.none { it.id == route.id }) {
-                            currentDetailRoute = null
-                        }
-                    }
-                    is DetailRoute.Drawing -> {
-                        if (route.id != null && notes.none { it.id == route.id }) {
-                            currentDetailRoute = null
-                        }
-                    }
-                    else -> {}
-                }
-            }
-            
-            val minMasterWidth = 280.dp
-            val minDetailWidth = 360.dp
-            
-            var totalWidth by remember { mutableFloatStateOf(0f) }
-            val density = LocalDensity.current
+    if (!isShowingSplitScreen) {
+        MobileNavHost(notesViewModel, settingsViewModel, checklistViewModel)
+    } else {
+        TabletSplitScreen(notesViewModel, settingsViewModel, checklistViewModel)
+    }
+}
 
-            val animatedSplitFraction by animateFloatAsState(
-                targetValue = if (isSidePanelVisible) splitFraction else 0f,
-                label = "SplitFractionAnimation",
-                animationSpec = tween(400)
+@Composable
+private fun MobileNavHost(
+    notesViewModel: NotesViewModel,
+    settingsViewModel: SettingsViewModel,
+    checklistViewModel: ChecklistViewModel
+) {
+    val navController = rememberNavController()
+    NavHost(
+        navController = navController,
+        startDestination = "notes",
+        modifier = Modifier.fillMaxSize(),
+        enterTransition = { slideInHorizontally(initialOffsetX = { it }) + fadeIn() },
+        exitTransition = { slideOutHorizontally(targetOffsetX = { -it }) + fadeOut() },
+        popEnterTransition = { slideInHorizontally(initialOffsetX = { -it }) + fadeIn() },
+        popExitTransition = { slideOutHorizontally(targetOffsetX = { it }) + fadeOut() }
+    ) {
+        composable("notes") {
+            NoteListScreen(
+                notesViewModel = notesViewModel,
+                settingsViewModel = settingsViewModel,
+                onAddClick = { id -> navController.navigate("addEdit/$id") },
+                onAddDrawingClick = { id -> navController.navigate("drawing/$id") },
+                onNoteClick = { noteId, type -> 
+                    if (type == NoteType.DRAWING) navController.navigate("drawing/$noteId")
+                    else navController.navigate("addEdit/$noteId")
+                },
+                onListClick = { listId -> navController.navigate("listDetail/$listId") },
+                onSettingsClick = { navController.navigate("settings") }
             )
+        }
+        composable("settings") {
+            SettingsScreen(
+                viewModel = settingsViewModel,
+                onNavigateToTheme = { navController.navigate("theme") },
+                onNavigateToBackupRestore = { navController.navigate("backupRestore") },
+                onNavigateToAbout = { navController.navigate("about") },
+                onNavigateUp = { navController.popBackStack() }
+            )
+        }
+        composable("theme") {
+            ThemeScreen(viewModel = settingsViewModel, onNavigateUp = { navController.popBackStack() })
+        }
+        composable("backupRestore") {
+            BackupRestoreScreen(viewModel = settingsViewModel, onNavigateUp = { navController.popBackStack() })
+        }
+        composable("about") {
+            AboutScreen(onNavigateUp = { navController.popBackStack() })
+        }
+        composable("addEdit/{noteId}") { backStackEntry ->
+            AddNoteScreen(
+                noteId = backStackEntry.arguments?.getString("noteId"),
+                viewModel = notesViewModel,
+                onNavigateUp = { navController.popBackStack() }
+            )
+        }
+        composable("listDetail/{listId}") { backStackEntry ->
+            ListDetailScreen(
+                listId = backStackEntry.arguments?.getString("listId") ?: return@composable,
+                checklistViewModel = checklistViewModel,
+                settingsViewModel = settingsViewModel,
+                onNavigateUp = { navController.popBackStack() }
+            )
+        }
+        composable("drawing/{noteId}") { backStackEntry ->
+            DrawingNoteScreen(
+                noteId = backStackEntry.arguments?.getString("noteId"),
+                notesViewModel = notesViewModel,
+                settingsViewModel = settingsViewModel,
+                onNavigateUp = { navController.popBackStack() }
+            )
+        }
+    }
+}
 
+@Composable
+private fun TabletSplitScreen(
+    notesViewModel: NotesViewModel,
+    settingsViewModel: SettingsViewModel,
+    checklistViewModel: ChecklistViewModel
+) {
+    var currentDetailRoute by remember { mutableStateOf<DetailRoute?>(null) }
+    val splitFraction by notesViewModel.splitFractionState.collectAsStateWithLifecycle()
+    val isSidePanelVisible by notesViewModel.isSidePanelVisible.collectAsStateWithLifecycle()
+    
+    // Auto-close detail pane if the selected item is deleted
+    val notes by notesViewModel.notesState.collectAsStateWithLifecycle()
+    LaunchedEffect(notes) {
+        val route = currentDetailRoute
+        if (route is DetailRoute.Note && route.id != null && notes.none { it.id == route.id }) currentDetailRoute = null
+        if (route is DetailRoute.Drawing && route.id != null && notes.none { it.id == route.id }) currentDetailRoute = null
+    }
+
+    val density = LocalDensity.current
+    var totalWidth by remember { mutableFloatStateOf(0f) }
+    
+    // --- STABLE STATE MANAGEMENT ---
+    // We use a simple float for the local weight and update it manually to avoid remember-key resets
+    var localWeight by remember { mutableFloatStateOf(splitFraction) }
+    var isDragging by remember { mutableStateOf(false) }
+
+    // Sync local weight with database only when NOT dragging
+    LaunchedEffect(splitFraction) {
+        if (!isDragging) {
+            localWeight = splitFraction
+        }
+    }
+
+    // Smooth opening/closing animation
+    val animWeight by animateFloatAsState(
+        targetValue = if (isSidePanelVisible) localWeight else 0f,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = Spring.DampingRatioNoBouncy),
+        label = "SidePanelAnim"
+    )
+
+    // The weight used for the layout
+    val activeWeight = if (isDragging) localWeight else animWeight
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onSizeChanged { totalWidth = it.width.toFloat() }
+    ) {
+        Row(modifier = Modifier.fillMaxSize()) {
+            // 1. Sidebar (List Pane)
+            if (activeWeight > 0.001f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .weight(activeWeight)
+                        .graphicsLayer { clip = true }
+                ) {
+                    // Use a Box with REQUIRED width to prevent internal squishing during resize
+                    // This width is based on the LAST SET weight to keep layout perfectly stable
+                    val sidebarWidth = with(density) { (totalWidth * localWeight).toDp() }
+                    Box(modifier = Modifier.requiredWidth(sidebarWidth).fillMaxHeight()) {
+                        NoteListScreen(
+                            notesViewModel = notesViewModel,
+                            settingsViewModel = settingsViewModel,
+                            activeRoute = currentDetailRoute,
+                            onAddClick = { id -> currentDetailRoute = DetailRoute.Note(id) },
+                            onAddDrawingClick = { id -> currentDetailRoute = DetailRoute.Drawing(id) },
+                            onNoteClick = { id, type -> 
+                                currentDetailRoute = if (type == NoteType.DRAWING) DetailRoute.Drawing(id) else DetailRoute.Note(id) 
+                            },
+                            onListClick = { id -> currentDetailRoute = DetailRoute.List(id) },
+                            onSettingsClick = { currentDetailRoute = DetailRoute.Settings }
+                        )
+                    }
+                }
+            }
+
+            // 2. Detail Pane
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .onSizeChanged { totalWidth = it.width.toFloat() }
+                    .fillMaxHeight()
+                    .weight(1f - activeWeight)
             ) {
-                Row(modifier = Modifier.fillMaxSize()) {
-                    // List Pane
-                    if (animatedSplitFraction > 0.001f) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .weight(animatedSplitFraction)
-                        ) {
-                            val sidePanelWidthDp = with(density) { (totalWidth * splitFraction).toDp() }
-                            
-                            Box(
-                                modifier = Modifier
-                                    .requiredWidth(sidePanelWidthDp)
-                                    .fillMaxHeight()
-                            ) {
-                                NoteListScreen(
-                                    notesViewModel = notesViewModel,
-                                    settingsViewModel = settingsViewModel,
-                                    activeRoute = currentDetailRoute,
-                                    onAddClick = { id -> currentDetailRoute = DetailRoute.Note(id) },
-                                    onAddDrawingClick = { id -> currentDetailRoute = DetailRoute.Drawing(id) },
-                                    onNoteClick = { noteId, type -> 
-                                        currentDetailRoute = if (type == NoteType.DRAWING) DetailRoute.Drawing(noteId) else DetailRoute.Note(noteId) 
-                                    },
-                                    onListClick = { listId -> currentDetailRoute = DetailRoute.List(listId) },
-                                    onSettingsClick = { currentDetailRoute = DetailRoute.Settings }
-                                )
-                            }
-                        }
-
-                        // Vertical Resizable Handle
-                        AnimatedVisibility(
-                            visible = isSidePanelVisible,
-                            enter = fadeIn(),
-                            exit = fadeOut()
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxHeight()
-                                    .width(24.dp)
-                                    .pointerInput(totalWidth) {
-                                        detectDragGestures { change, dragAmount ->
-                                            change.consume()
-                                            if (totalWidth > 0) {
-                                                val deltaFraction = dragAmount.x / totalWidth
-                                                val newFraction = (splitFraction + deltaFraction).coerceIn(0.2f, 0.8f)
-                                                
-                                                // Check minimum width constraints
-                                                val masterWidth = with(density) { (totalWidth * newFraction).toDp() }
-                                                val detailWidth = with(density) { (totalWidth * (1f - newFraction)).toDp() }
-                                                
-                                                if (masterWidth >= minMasterWidth && detailWidth >= minDetailWidth) {
-                                                    notesViewModel.onEvent(NoteEvent.UpdateSplitFraction(newFraction))
-                                                }
-                                            }
-                                        }
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                // Vertical Pill Handle
-                                Surface(
-                                    modifier = Modifier
-                                        .width(4.dp)
-                                        .height(48.dp)
-                                        .clip(CircleShape),
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                                ) {}
-                            }
-                        }
+                AnimatedContent(
+                    targetState = currentDetailRoute,
+                    transitionSpec = {
+                        fadeIn(tween(300)) + slideInHorizontally { it / 12 } togetherWith fadeOut(tween(200))
+                    },
+                    label = "DetailPaneTransition"
+                ) { targetRoute ->
+                    key(targetRoute) {
+                        DetailPaneContent(
+                            route = targetRoute,
+                            notesViewModel = notesViewModel,
+                            settingsViewModel = settingsViewModel,
+                            checklistViewModel = checklistViewModel,
+                            onClose = { 
+                                currentDetailRoute = null
+                                notesViewModel.onEvent(NoteEvent.SetSidePanelVisible(true))
+                            },
+                            onNavigateToSettings = { currentDetailRoute = DetailRoute.Settings },
+                            onNavigateToTheme = { currentDetailRoute = DetailRoute.Theme },
+                            onNavigateToBackup = { currentDetailRoute = DetailRoute.BackupRestore },
+                            onNavigateToAbout = { currentDetailRoute = DetailRoute.About }
+                        )
                     }
+                }
 
-                    // Detail Pane
+                // 3. Floating Resize Handle
+                if (isSidePanelVisible) {
                     Box(
                         modifier = Modifier
                             .fillMaxHeight()
-                            .weight(1f - animatedSplitFraction)
-                    ) {
-                        AnimatedContent(
-                            targetState = currentDetailRoute,
-                            transitionSpec = {
-                                fadeIn(animationSpec = tween(300)) + 
-                                slideInHorizontally(animationSpec = tween(300)) { it / 8 } togetherWith
-                                fadeOut(animationSpec = tween(300))
-                            },
-                            label = "DetailPaneTransition"
-                        ) { targetRoute ->
-                            when (val route = targetRoute) {
-                                is DetailRoute.Note -> {
-                                    AddNoteScreen(
-                                        noteId = route.id,
-                                        viewModel = notesViewModel,
-                                        onNavigateUp = { currentDetailRoute = null }
-                                    )
-                                }
-                                is DetailRoute.Drawing -> {
-                                    DrawingNoteScreen(
-                                        noteId = route.id,
-                                        notesViewModel = notesViewModel,
-                                        settingsViewModel = settingsViewModel,
-                                        isSplitScreen = true,
-                                        onNavigateUp = { 
-                                            currentDetailRoute = null
-                                            notesViewModel.onEvent(NoteEvent.SetSidePanelVisible(true))
+                            .width(64.dp)
+                            .align(Alignment.CenterStart)
+                            .offset(x = (-32).dp)
+                            // We use Unit as key so the pointer block NEVER restarts during a drag
+                            .pointerInput(Unit) {
+                                detectDragGestures(
+                                    onDragStart = { isDragging = true },
+                                    onDragEnd = { 
+                                        isDragging = false
+                                        notesViewModel.onEvent(NoteEvent.UpdateSplitFraction(localWeight))
+                                    },
+                                    onDragCancel = { 
+                                        isDragging = false
+                                        localWeight = splitFraction 
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume()
+                                        if (totalWidth > 0) {
+                                            val delta = dragAmount.x / totalWidth
+                                            localWeight = (localWeight + delta).coerceIn(0.2f, 0.6f)
                                         }
-                                    )
-                                }
-                                is DetailRoute.List -> {
-                                    ListDetailScreen(
-                                        listId = route.id,
-                                        checklistViewModel = checklistViewModel,
-                                        settingsViewModel = settingsViewModel,
-                                        isTabletUi = true,
-                                        onNavigateUp = { currentDetailRoute = null }
-                                    )
-                                }
-                                is DetailRoute.Settings -> {
-                                    SettingsScreen(
-                                        viewModel = settingsViewModel,
-                                        onNavigateToTheme = { currentDetailRoute = DetailRoute.Theme },
-                                        onNavigateToBackupRestore = { currentDetailRoute = DetailRoute.BackupRestore },
-                                        onNavigateToAbout = { currentDetailRoute = DetailRoute.About },
-                                        onNavigateUp = { currentDetailRoute = null }
-                                    )
-                                }
-                                is DetailRoute.Theme -> {
-                                    ThemeScreen(
-                                        viewModel = settingsViewModel,
-                                        onNavigateUp = { currentDetailRoute = DetailRoute.Settings }
-                                    )
-                                }
-                                is DetailRoute.BackupRestore -> {
-                                    BackupRestoreScreen(
-                                        viewModel = settingsViewModel,
-                                        onNavigateUp = { currentDetailRoute = DetailRoute.Settings }
-                                    )
-                                }
-                                is DetailRoute.About -> {
-                                    AboutScreen(
-                                        onNavigateUp = { currentDetailRoute = DetailRoute.Settings }
-                                    )
-                                }
-                                null -> {
-                                    Box(
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            "Select a note or a list",
-                                            style = MaterialTheme.typography.headlineSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                            fontWeight = FontWeight.Medium
-                                        )
                                     }
-                                }
-                            }
-                        }
+                                )
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Surface(
+                            modifier = Modifier.width(4.dp).height(48.dp).clip(CircleShape),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+                        ) {}
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailPaneContent(
+    route: DetailRoute?,
+    notesViewModel: NotesViewModel,
+    settingsViewModel: SettingsViewModel,
+    checklistViewModel: ChecklistViewModel,
+    onClose: () -> Unit,
+    onNavigateToSettings: () -> Unit,
+    onNavigateToTheme: () -> Unit,
+    onNavigateToBackup: () -> Unit,
+    onNavigateToAbout: () -> Unit
+) {
+    when (route) {
+        is DetailRoute.Note -> {
+            AddNoteScreen(noteId = route.id, viewModel = notesViewModel, onNavigateUp = onClose)
+        }
+        is DetailRoute.Drawing -> {
+            DrawingNoteScreen(
+                noteId = route.id,
+                notesViewModel = notesViewModel,
+                settingsViewModel = settingsViewModel,
+                isSplitScreen = true,
+                onNavigateUp = onClose
+            )
+        }
+        is DetailRoute.List -> {
+            ListDetailScreen(
+                listId = route.id,
+                checklistViewModel = checklistViewModel,
+                settingsViewModel = settingsViewModel,
+                isTabletUi = true,
+                onNavigateUp = onClose
+            )
+        }
+        is DetailRoute.Settings -> {
+            SettingsScreen(
+                viewModel = settingsViewModel,
+                onNavigateToTheme = onNavigateToTheme,
+                onNavigateToBackupRestore = onNavigateToBackup,
+                onNavigateToAbout = onNavigateToAbout,
+                onNavigateUp = onClose
+            )
+        }
+        is DetailRoute.Theme -> {
+            ThemeScreen(viewModel = settingsViewModel, onNavigateUp = onNavigateToSettings)
+        }
+        is DetailRoute.BackupRestore -> {
+            BackupRestoreScreen(viewModel = settingsViewModel, onNavigateUp = onNavigateToSettings)
+        }
+        is DetailRoute.About -> {
+            AboutScreen(onNavigateUp = onNavigateToSettings)
+        }
+        null -> {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    "Select a note or a list",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
     }

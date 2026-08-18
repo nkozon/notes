@@ -8,7 +8,9 @@ import com.ozon.notes.domain.GetFilteredNotesUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
+import java.io.File
 
 /**
  * ViewModel responsible for the main dashboard state.
@@ -79,6 +81,9 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
     private val _isSidePanelVisible = MutableStateFlow(true)
     val isSidePanelVisible = _isSidePanelVisible.asStateFlow()
 
+    private val _deletingIds = MutableStateFlow<Set<String>>(emptySet())
+    val deletingIds = _deletingIds.asStateFlow()
+
     private var _pendingDrawingConfig: DrawingData? = null
     val pendingDrawingConfig: DrawingData? get() = _pendingDrawingConfig
 
@@ -88,21 +93,67 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
 
     fun createNewNote(): String {
         val id = UUID.randomUUID().toString()
-        val newNote = Note(id = id, title = "", content = "", type = NoteType.TEXT)
+        val newNote = Note(id = id, title = "New Note", content = "", type = NoteType.TEXT)
         viewModelScope.launch { repository.saveNote(newNote) }
         return id
     }
 
-    fun createNewDrawing(config: DrawingData? = null): String {
+    fun createNewDrawing(config: DrawingData? = null, pdfUri: android.net.Uri? = null, context: android.content.Context? = null): String {
         val id = UUID.randomUUID().toString()
+        val initialConfig = config ?: DrawingData(canvasType = CanvasType.INFINITE)
+        
         val newNote = Note(
             id = id, 
-            title = "", 
+            title = "New Drawing", 
             content = "Drawing Note", 
             type = NoteType.DRAWING,
-            drawingData = config ?: DrawingData(canvasType = CanvasType.INFINITE)
+            drawingData = initialConfig
         )
-        viewModelScope.launch { repository.saveNote(newNote) }
+        
+        viewModelScope.launch { 
+            if (initialConfig.canvasType == CanvasType.PDF && pdfUri != null && context != null) {
+                try {
+                    val localPath = withContext(Dispatchers.IO) {
+                        val inputStream = context.contentResolver.openInputStream(pdfUri)
+                        val fileName = "note_pdf_${UUID.randomUUID()}.pdf"
+                        val file = File(context.filesDir, fileName)
+                        file.outputStream().use { outputStream ->
+                            inputStream?.copyTo(outputStream)
+                        }
+                        file.absolutePath
+                    }
+                    
+                    val pfd = android.os.ParcelFileDescriptor.open(File(localPath), android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+                    val renderer = android.graphics.pdf.PdfRenderer(pfd)
+                    val count = renderer.pageCount
+                    val sizes = (0 until count).map { i ->
+                        val page = renderer.openPage(i)
+                        val size = PdfPageSize(page.width.toFloat(), page.height.toFloat())
+                        page.close()
+                        size
+                    }
+                    renderer.close()
+                    pfd.close()
+
+                    val pdfInfo = PdfInfo(
+                        localPath = localPath,
+                        originalName = "Imported PDF",
+                        pageCount = count,
+                        pageSizes = sizes
+                    )
+                    
+                    val updatedNote = newNote.copy(
+                        drawingData = initialConfig.copy(pdfInfo = pdfInfo, backgroundPdfPath = null)
+                    )
+                    repository.saveNote(updatedNote)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    repository.saveNote(newNote)
+                }
+            } else {
+                repository.saveNote(newNote)
+            }
+        }
         return id
     }
 
@@ -113,7 +164,13 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
                 repository.saveNote(event.note) 
             }
             is NoteEvent.TogglePinNote -> viewModelScope.launch { repository.togglePinNote(event.noteId) }
-            is NoteEvent.DeleteNote -> viewModelScope.launch { repository.deleteNote(event.noteId) }
+            is NoteEvent.DeleteNote -> {
+                _deletingIds.update { it + event.noteId }
+                viewModelScope.launch { 
+                    repository.deleteNote(event.noteId)
+                    _deletingIds.update { it - event.noteId }
+                }
+            }
             is NoteEvent.SaveList -> viewModelScope.launch { repository.saveList(event.list) }
             is NoteEvent.TogglePinList -> viewModelScope.launch { repository.togglePinList(event.listId) }
             is NoteEvent.DeleteList -> viewModelScope.launch { repository.deleteList(event.listId) }

@@ -356,9 +356,16 @@ fun DrawingNoteScreen(
     }
 
     fun saveDrawing() {
+        val id = noteId ?: return // Cannot save without an ID
+        // Check if note is currently being deleted
+        if (notesViewModel.deletingIds.value.contains(id)) return
+        
+        // Check if note was deleted from the ViewModel's global state
+        val noteStillExists = notesViewModel.notesState.value.any { it.id == id }
+        if (!noteStillExists && noteId != null) return 
+
         wasSaved = true
-        val id = noteId ?: UUID.randomUUID().toString()
-        val finalTitle = title.ifBlank { "Drawing" }
+        val finalTitle = title.ifBlank { "New Drawing" }
         notesViewModel.onEvent(NoteEvent.SaveNote(
             Note(
                 id = id,
@@ -407,24 +414,10 @@ fun DrawingNoteScreen(
                 pageLayout = note.drawingData?.pageLayout ?: PageLayout()
                 pdfInfo = note.drawingData?.pdfInfo
                 pageCount = note.drawingData?.pageCount ?: 1
-                
-                if (note.drawingData?.viewportScale != null && note.drawingData.viewportScale > 0) {
-                    canvasOffset = Offset(note.drawingData.viewportX, note.drawingData.viewportY)
-                    canvasScale = note.drawingData.viewportScale
-                    viewportLoaded = true
-                } else {
-                    viewportLoaded = false 
-                }
-            }
-        } else {
-            val pending = notesViewModel.pendingDrawingConfig
-            if (pending != null) {
-                canvasType = pending.canvasType
-                pageLayout = pending.pageLayout
-                pageCount = pending.pageCount
-                
-                if (canvasType == CanvasType.PDF && pending.backgroundPdfPath != null) {
-                    val uri = Uri.parse(pending.backgroundPdfPath)
+
+                // Handle initial PDF import if pdfInfo is missing but backgroundPdfPath exists (as a URI)
+                if (canvasType == CanvasType.PDF && pdfInfo == null && note.drawingData?.backgroundPdfPath != null) {
+                    val uri = Uri.parse(note.drawingData.backgroundPdfPath)
                     withContext(Dispatchers.IO) {
                         try {
                             val inputStream = context.contentResolver.openInputStream(uri)
@@ -446,15 +439,17 @@ fun DrawingNoteScreen(
                             renderer.close()
                             pfd.close()
 
-                            pdfInfo = PdfInfo(
+                            val newPdfInfo = PdfInfo(
                                 localPath = file.absolutePath,
                                 originalName = "Imported PDF",
                                 pageCount = count,
                                 pageSizes = sizes
                             )
+                            pdfInfo = newPdfInfo
                             pageCount = count
                             
                             // Important: update the note in DB with the new PDF info immediately
+                            // Use a direct update to avoid overwriting other changes
                             saveDrawing() 
                         } catch (e: Exception) {
                             withContext(Dispatchers.Main) {
@@ -464,7 +459,13 @@ fun DrawingNoteScreen(
                     }
                 }
                 
-                notesViewModel.setPendingDrawingConfig(null)
+                if (note.drawingData?.viewportScale != null && note.drawingData.viewportScale > 0) {
+                    canvasOffset = Offset(note.drawingData.viewportX, note.drawingData.viewportY)
+                    canvasScale = note.drawingData.viewportScale
+                    viewportLoaded = true
+                } else {
+                    viewportLoaded = false 
+                }
             }
         }
     }
@@ -491,13 +492,13 @@ fun DrawingNoteScreen(
     }
 
     val pngLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png")) { uri ->
-        uri?.let { context.contentResolver.openOutputStream(it)?.use { stream -> exportToPng(stream, strokes, images, canvasSize, canvasType, pageLayout, pdfInfo) } }
+        uri?.let { context.contentResolver.openOutputStream(it)?.use { stream -> exportToPng(stream, strokes, images, canvasSize, canvasType, pageLayout, pdfInfo, pageCount) } }
     }
     val pdfBitmapLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
-        uri?.let { context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, strokes, images, canvasSize, vector = false, canvasType, pageLayout, pdfInfo) } }
+        uri?.let { context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, strokes, images, canvasSize, vector = false, canvasType, pageLayout, pdfInfo, pageCount) } }
     }
     val pdfVectorLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
-        uri?.let { context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, strokes, images, canvasSize, vector = true, canvasType, pageLayout, pdfInfo) } }
+        uri?.let { context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, strokes, images, canvasSize, vector = true, canvasType, pageLayout, pdfInfo, pageCount) } }
     }
 
     fun saveImageLocally(uri: android.net.Uri): String? {
@@ -1473,7 +1474,8 @@ private fun exportToPng(
     size: androidx.compose.ui.unit.IntSize,
     canvasType: CanvasType,
     pageLayout: PageLayout,
-    pdfInfo: PdfInfo?
+    pdfInfo: PdfInfo?,
+    pageCount: Int
 ) {
     val padding = 40f
     
@@ -1481,14 +1483,14 @@ private fun exportToPng(
     var totalWidth = 0
     var totalHeight = 0
     val pageHeights = mutableListOf<Int>()
-    val pageCount = when(canvasType) {
+    val actualPageCount = when(canvasType) {
         CanvasType.PDF -> pdfInfo?.pageCount ?: 0
-        CanvasType.PAGED -> 10
+        CanvasType.PAGED -> pageCount
         else -> 1
     }
 
     if (canvasType == CanvasType.PDF && pdfInfo != null) {
-        for (i in 0 until pageCount) {
+        for (i in 0 until actualPageCount) {
             val pageSize = pdfInfo.pageSizes.getOrNull(i) ?: PdfPageSize(800f, 1100f)
             val w = (pageLayout.marginLeft + pageSize.width + pageLayout.marginRight).toInt()
             val h = (pageLayout.marginTop + pageSize.height + pageLayout.marginBottom + pageLayout.spacing).toInt()
@@ -1624,7 +1626,8 @@ private fun exportToPdf(
     vector: Boolean,
     canvasType: CanvasType,
     pageLayout: PageLayout,
-    pdfInfo: PdfInfo?
+    pdfInfo: PdfInfo?,
+    pageCount: Int
 ) {
     val pdfDocument = PdfDocument()
 
@@ -1635,7 +1638,7 @@ private fun exportToPdf(
             val renderer = PdfRenderer(pfd)
             var currentY = 0f
             
-            for (i in 0 until renderer.pageCount) {
+            for (i in 0 until (pdfInfo.pageCount)) {
                 val pageSize = pdfInfo.pageSizes.getOrNull(i) ?: PdfPageSize(800f, 1100f)
                 val pageWidth = pageSize.width
                 val pageHeight = pageSize.height
@@ -1677,7 +1680,7 @@ private fun exportToPdf(
         val pageWidth = pageLayout.width
         val pageHeight = pageLayout.height
         var currentY = 0f
-        for (i in 0 until 10) {
+        for (i in 0 until pageCount) {
             val pageInfo = PdfDocument.PageInfo.Builder(pageWidth.toInt(), pageHeight.toInt(), i + 1).create()
             val page = pdfDocument.startPage(pageInfo)
             page.canvas.drawColor(android.graphics.Color.WHITE)
