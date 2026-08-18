@@ -44,6 +44,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
+import android.content.Intent
 import androidx.compose.ui.graphics.vector.ImageVector
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -94,6 +95,7 @@ fun NoteListScreen(
     
     val listsWithCounts by notesViewModel.listsWithCountsState.collectAsStateWithLifecycle()
     val showEntryCount by settingsViewModel.showEntryCountState.collectAsStateWithLifecycle()
+    val importProgress by notesViewModel.importProgress.collectAsStateWithLifecycle()
 
     val context = androidx.compose.ui.platform.LocalContext.current
 
@@ -101,9 +103,14 @@ fun NoteListScreen(
     var showMarginDialog by remember { mutableStateOf(false) }
 
     val pdfPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent(),
+        contract = ActivityResultContracts.OpenDocument(),
         onResult = { uri ->
             if (uri != null) {
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (e: Exception) { e.printStackTrace() }
                 selectedPdfUri = uri
                 showMarginDialog = true
             }
@@ -294,7 +301,7 @@ fun NoteListScreen(
                                 tooltip = "New Drawing"
                             )
                             TooltipIconButton(
-                                onClick = { pdfPickerLauncher.launch("application/pdf") },
+                                onClick = { pdfPickerLauncher.launch(arrayOf("application/pdf")) },
                                 icon = Icons.Rounded.PictureAsPdf,
                                 tooltip = "Import PDF"
                             )
@@ -469,7 +476,7 @@ fun NoteListScreen(
                     TextButton(
                         onClick = {
                             showDrawingTypeDialog = false
-                            onAddDrawingClick(notesViewModel.createNewDrawing()) // Default is Infinite
+                            notesViewModel.createNewDrawing(onImportComplete = { id -> onAddDrawingClick(id) })
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -489,7 +496,7 @@ fun NoteListScreen(
                                 canvasType = CanvasType.PAGED,
                                 pageLayout = PageLayout(width = 842f, height = 1191f) // A4 size
                             )
-                            onAddDrawingClick(notesViewModel.createNewDrawing(config))
+                            notesViewModel.createNewDrawing(config, onImportComplete = { id -> onAddDrawingClick(id) })
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -509,7 +516,7 @@ fun NoteListScreen(
                                 canvasType = CanvasType.PAGED,
                                 pageLayout = PageLayout(width = 1600f, height = 900f) // 16:9 Slides
                             )
-                            onAddDrawingClick(notesViewModel.createNewDrawing(config))
+                            notesViewModel.createNewDrawing(config, onImportComplete = { id -> onAddDrawingClick(id) })
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -544,9 +551,25 @@ fun NoteListScreen(
                     canvasType = CanvasType.PDF,
                     pageLayout = margins
                 )
-                onAddDrawingClick(notesViewModel.createNewDrawing(config, selectedPdfUri, context))
+                notesViewModel.createNewDrawing(config, selectedPdfUri, context, onImportComplete = { id -> onAddDrawingClick(id) })
                 selectedPdfUri = null
             }
+        )
+    }
+
+    importProgress?.let { progress ->
+        AlertDialog(
+            onDismissRequest = { },
+            properties = androidx.compose.ui.window.DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
+            title = { Text("Importing PDF") },
+            text = {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                    CircularProgressIndicator()
+                    Spacer(Modifier.height(16.dp))
+                    Text(progress)
+                }
+            },
+            confirmButton = { }
         )
     }
 }

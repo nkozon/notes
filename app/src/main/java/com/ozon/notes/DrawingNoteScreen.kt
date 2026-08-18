@@ -250,17 +250,26 @@ fun DrawingNoteScreen(
                 if (!pdfPageBitmaps.containsKey(i) || targetQuality > currentQuality * 1.2f) {
                     try {
                         val page = renderer.openPage(i)
-                        val bw = (page.width * targetQuality).toInt()
-                        val bh = (page.height * targetQuality).toInt()
                         
-                        if (bw * bh < 5000 * 5000) {
+                        // Point 4 Fix: Aggressively cap quality for massive physical pages
+                        // 1. Calculate a scale that keeps the longest dimension under 4096 pixels
+                        val maxDim = 4096f
+                        val safetyScale = minOf(maxDim / page.width, maxDim / page.height).coerceAtMost(1.0f)
+                        
+                        // 2. Adjust target quality to respect this safety limit
+                        val finalQuality = (targetQuality * safetyScale).coerceAtLeast(1.0f)
+                        
+                        val bw = (page.width * finalQuality).toInt()
+                        val bh = (page.height * finalQuality).toInt()
+                        
+                        if (bw > 0 && bh > 0 && bw * bh < 5000 * 5000) {
                             val bitmap = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
                             page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                             
                             // Swap bitmaps
                             val old = pdfPageBitmaps[i]
                             pdfPageBitmaps[i] = bitmap
-                            pdfPageScales[i] = targetQuality
+                            pdfPageScales[i] = finalQuality
                             old?.recycle()
                         }
                         page.close()
@@ -589,6 +598,16 @@ fun DrawingNoteScreen(
                 .background(Color.White)
                 .onSizeChanged { canvasSize = it }
         ) {
+            if (canvasType == CanvasType.PDF && pdfInfo == null) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
+                        Spacer(Modifier.height(16.dp))
+                        Text("Importing PDF...", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+
             TopAppBar(
                 title = {
                     Box(modifier = Modifier.padding(start = 16.dp)) {

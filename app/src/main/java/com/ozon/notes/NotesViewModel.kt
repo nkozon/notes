@@ -91,6 +91,9 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
         _pendingDrawingConfig = config
     }
 
+    private val _importProgress = MutableStateFlow<String?>(null)
+    val importProgress = _importProgress.asStateFlow()
+
     fun createNewNote(): String {
         val id = UUID.randomUUID().toString()
         val newNote = Note(id = id, title = "New Note", content = "", type = NoteType.TEXT)
@@ -98,7 +101,12 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
         return id
     }
 
-    fun createNewDrawing(config: DrawingData? = null, pdfUri: android.net.Uri? = null, context: android.content.Context? = null): String {
+    fun createNewDrawing(
+        config: DrawingData? = null, 
+        pdfUri: android.net.Uri? = null, 
+        context: android.content.Context? = null,
+        onImportComplete: (String) -> Unit = {}
+    ) {
         val id = UUID.randomUUID().toString()
         val initialConfig = config ?: DrawingData(canvasType = CanvasType.INFINITE)
         
@@ -111,52 +119,64 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
         )
         
         viewModelScope.launch { 
+            _importProgress.value = "Creating note..."
+            repository.saveNote(newNote)
+            
             if (initialConfig.canvasType == CanvasType.PDF && pdfUri != null && context != null) {
                 try {
+                    _importProgress.value = "Copying PDF..."
                     val localPath = withContext(Dispatchers.IO) {
-                        val inputStream = context.contentResolver.openInputStream(pdfUri)
+                        val inputStream = context.contentResolver.openInputStream(pdfUri) 
+                            ?: throw Exception("Could not open PDF file")
                         val fileName = "note_pdf_${UUID.randomUUID()}.pdf"
                         val file = File(context.filesDir, fileName)
                         file.outputStream().use { outputStream ->
-                            inputStream?.copyTo(outputStream)
+                            inputStream.copyTo(outputStream)
                         }
                         file.absolutePath
                     }
                     
-                    val pfd = android.os.ParcelFileDescriptor.open(File(localPath), android.os.ParcelFileDescriptor.MODE_READ_ONLY)
-                    val renderer = android.graphics.pdf.PdfRenderer(pfd)
-                    val count = renderer.pageCount
-                    val sizes = (0 until count).map { i ->
-                        val page = renderer.openPage(i)
-                        val size = PdfPageSize(page.width.toFloat(), page.height.toFloat())
-                        page.close()
-                        size
+                    _importProgress.value = "Analyzing pages..."
+                    val pdfInfo = withContext(Dispatchers.IO) {
+                        val pfd = android.os.ParcelFileDescriptor.open(File(localPath), android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+                        val renderer = android.graphics.pdf.PdfRenderer(pfd)
+                        val count = renderer.pageCount
+                        val sizes = (0 until count).map { i ->
+                            val page = renderer.openPage(i)
+                            val size = PdfPageSize(page.width.toFloat(), page.height.toFloat())
+                            page.close()
+                            size
+                        }
+                        renderer.close()
+                        pfd.close()
+                        
+                        PdfInfo(
+                            localPath = localPath,
+                            originalName = "Imported PDF",
+                            pageCount = count,
+                            pageSizes = sizes
+                        )
                     }
-                    renderer.close()
-                    pfd.close()
-
-                    val pdfInfo = PdfInfo(
-                        localPath = localPath,
-                        originalName = "Imported PDF",
-                        pageCount = count,
-                        pageSizes = sizes
-                    )
                     
                     val updatedNote = newNote.copy(
-                        drawingData = initialConfig.copy(pdfInfo = pdfInfo, backgroundPdfPath = null)
+                        drawingData = initialConfig.copy(pdfInfo = pdfInfo, backgroundPdfPath = null, pageCount = pdfInfo.pageCount)
                     )
                     repository.saveNote(updatedNote)
+                    _importProgress.value = null
+                    onImportComplete(id)
                 } catch (e: Exception) {
                     e.printStackTrace()
-                    repository.saveNote(newNote)
+                    _importProgress.value = null
+                    withContext(Dispatchers.Main) {
+                        android.widget.Toast.makeText(context, "PDF Import Failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                    }
                 }
             } else {
-                repository.saveNote(newNote)
+                _importProgress.value = null
+                onImportComplete(id)
             }
         }
-        return id
     }
-
     fun onEvent(event: NoteEvent) {
         when (event) {
             is NoteEvent.UpdateSearchQuery -> _searchQuery.value = event.query
