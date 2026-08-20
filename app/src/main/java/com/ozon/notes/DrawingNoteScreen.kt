@@ -338,25 +338,36 @@ fun DrawingNoteScreen(
                         minX = minOf(minX, p.x - hw); minY = minOf(minY, p.y - hw)
                         maxX = maxOf(maxX, p.x + hw); maxY = maxOf(maxY, p.y + hw)
                     }
-                    Rect(minX, minOf(minY, maxY), maxX, maxY) // Sanity check
+                    Rect(minX, minOf(minY, maxY), maxX, maxY)
                 })
             }
             strokeBoundsMap = newMap
         }
     }
 
-    val pathCache = remember { java.util.concurrent.ConcurrentHashMap<String, Path>() }
-    val simplifiedPathCache = remember { java.util.concurrent.ConcurrentHashMap<String, Path>() }
+    val lodCaches = remember { List(4) { java.util.concurrent.ConcurrentHashMap<String, Path>() } }
 
     fun getOrBuildPath(stroke: com.ozon.notes.Stroke, scale: Float): Path {
-        val isZoomedOut = scale < 0.5f
-        val cache = if (isZoomedOut) simplifiedPathCache else pathCache
+        val lod = when {
+            scale < 0.4f -> 3
+            scale < 0.8f -> 2
+            scale < 1.5f -> 1
+            else -> 0
+        }
+        
+        val cache = lodCaches[lod]
+        
         return cache.getOrPut(stroke.id) {
             Path().apply {
                 val pts = stroke.points
                 if (pts.isNotEmpty()) {
                     moveTo(pts[0].x, pts[0].y)
-                    val threshold = if (isZoomedOut) (1.5f / scale) else 0f
+                    val threshold = when(lod) {
+                        3 -> 2.5f / scale
+                        2 -> 0.8f / scale
+                        1 -> 0.2f / scale
+                        else -> 0f
+                    }
                     var lastX = pts[0].x
                     var lastY = pts[0].y
                     for (i in 1 until pts.size) {
@@ -371,12 +382,17 @@ fun DrawingNoteScreen(
         }
     }
 
-    LaunchedEffect(strokes) {
-        // Clear caches when strokes change (though associate above handles the key change)
+    // Clean caches on stroke deletion to free memory
+    LaunchedEffect(strokes.size) {
         val currentIds = strokes.map { it.id }.toSet()
-        val toRemove = pathCache.keys.filter { it !in currentIds }
-        toRemove.forEach { pathCache.remove(it); simplifiedPathCache.remove(it) }
+        withContext(Dispatchers.Default) {
+            lodCaches.forEach { cache ->
+                val keysToRemove = cache.keys().asSequence().filter { it !in currentIds }.toList()
+                keysToRemove.forEach { cache.remove(it) }
+            }
+        }
     }
+
 
     fun getBounds(strokesList: List<com.ozon.notes.Stroke>, imagesList: List<com.ozon.notes.DrawingImage>): Rect {
         if (strokesList.isEmpty() && imagesList.isEmpty()) return Rect.Zero
@@ -991,7 +1007,7 @@ fun DrawingNoteScreen(
                                                 val totalMove = (currentPos - startPos) / updatedCanvasScale
                                                 strokes = strokesAtStart.map { s -> if (s.id in selectedStrokesAtStart) s.copy(points = s.points.map { DrawingPoint(it.x + totalMove.x, it.y + totalMove.y) }) else s }
                                                 images = imagesAtStart.map { img -> if (img.id in selectedImagesAtStart) img.copy(offset = DrawingPoint(img.offset.x + totalMove.x, img.offset.y + totalMove.y)) else img }
-                                                selectedStrokesAtStart.forEach { pathCache.remove(it); simplifiedPathCache.remove(it) }
+                                                selectedStrokesAtStart.forEach { id -> lodCaches.forEach { it.remove(id) } }
                                             }
                                             DragMode.RESIZE_TL, DragMode.RESIZE_TR, DragMode.RESIZE_BL, DragMode.RESIZE_BR -> {
                                                 if (bStart != null) {
@@ -1009,7 +1025,7 @@ fun DrawingNoteScreen(
                                                     val sX = newW / oldW; val sY = newH / oldH
                                                     strokes = strokesAtStart.map { s -> if (s.id in selectedStrokesAtStart) s.copy(points = s.points.map { DrawingPoint(pivot.x + (it.x - pivot.x) * sX, pivot.y + (it.y - pivot.y) * sY) }) else s }
                                                     images = imagesAtStart.map { img -> if (img.id in selectedImagesAtStart) img.copy(offset = DrawingPoint(pivot.x + (img.offset.x - pivot.x) * sX, pivot.y + (img.offset.y - pivot.y) * sY), scale = DrawingPoint(img.scale.x * sX, img.scale.y * sY)) else img }
-                                                    selectedStrokesAtStart.forEach { pathCache.remove(it); simplifiedPathCache.remove(it) }
+                                                    selectedStrokesAtStart.forEach { id -> lodCaches.forEach { it.remove(id) } }
                                                 }
                                             }
                                             DragMode.LASSO, DragMode.DRAW -> {
