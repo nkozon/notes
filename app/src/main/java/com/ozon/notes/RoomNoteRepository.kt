@@ -88,10 +88,66 @@ class RoomNoteRepository(
                 content = "",
                 contentHtml = null,
                 drawingData = drawingDataForDb,
-                previewText = preview
+                previewText = preview,
+                previewImage = if (note.type == NoteType.DRAWING) generateThumbnail(note) else null
             ))
         }
         setHasPendingChanges(true)
+    }
+
+    private fun generateThumbnail(note: Note): String? {
+        val strokes = note.drawingData?.strokes ?: return null
+        if (strokes.isEmpty()) return null
+
+        try {
+            var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
+            var maxX = Float.MIN_VALUE; var maxY = Float.MIN_VALUE
+            strokes.forEach { s ->
+                s.points.forEach { p ->
+                    minX = minOf(minX, p.x); minY = minOf(minY, p.y)
+                    maxX = maxOf(maxX, p.x); maxY = maxOf(maxY, p.y)
+                }
+            }
+            val w = maxX - minX; val h = maxY - minY
+            if (w <= 0 || h <= 0) return null
+
+            val size = 300
+            val scale = (size * 0.8f) / maxOf(w, h)
+            val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(bitmap)
+            canvas.drawColor(android.graphics.Color.WHITE)
+            
+            val paint = android.graphics.Paint().apply {
+                isAntiAlias = true
+                strokeCap = android.graphics.Paint.Cap.ROUND
+                strokeJoin = android.graphics.Paint.Join.ROUND
+                style = android.graphics.Paint.Style.STROKE
+            }
+
+            val dx = (size - w * scale) / 2f - minX * scale
+            val dy = (size - h * scale) / 2f - minY * scale
+
+            strokes.forEach { s ->
+                paint.color = s.colorArgb
+                paint.strokeWidth = s.width * scale
+                val path = android.graphics.Path()
+                s.points.forEachIndexed { i, p ->
+                    if (i == 0) path.moveTo(p.x * scale + dx, p.y * scale + dy)
+                    else path.lineTo(p.x * scale + dx, p.y * scale + dy)
+                }
+                canvas.drawPath(path, paint)
+            }
+
+            val file = File(context.filesDir, "${note.id}.thumb")
+            file.outputStream().use { 
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 80, it)
+            }
+            bitmap.recycle()
+            return file.absolutePath
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return null
+        }
     }
 
     override suspend fun togglePinNote(noteId: String) {
@@ -110,6 +166,7 @@ class RoomNoteRepository(
             deleteFile("${noteId}.content")
             deleteFile("${noteId}.html")
             deleteFile("${noteId}.drawing")
+            deleteFile("${noteId}.thumb")
             
             drawingData?.pdfInfo?.localPath?.let { path ->
                 val file = File(path)
@@ -126,6 +183,7 @@ class RoomNoteRepository(
                 deleteFile("${id}.content")
                 deleteFile("${id}.html")
                 deleteFile("${id}.drawing")
+                deleteFile("${id}.thumb")
             }
         }
         setHasPendingChanges(true)
@@ -149,6 +207,12 @@ class RoomNoteRepository(
     // --- Lists ---
     override fun getAllLists(): Flow<List<NoteList>> {
         return database.listDao().getAllLists().map { entities ->
+            entities.map { it.toDomain() }
+        }
+    }
+
+    override fun getAllListsWithCounts(): Flow<List<NoteListWithCounts>> {
+        return database.listDao().getAllListsWithCounts().map { entities ->
             entities.map { it.toDomain() }
         }
     }
@@ -182,28 +246,14 @@ class RoomNoteRepository(
     }
 
     override fun getAllEntries(): Flow<List<ListEntry>> {
-        return combine(
-            database.listDao().getAllEntries(),
-            database.entryTagCrossRefDao().getAllCrossRefs()
-        ) { entities, crossRefs ->
-            val crossRefsByEntryId = crossRefs.groupBy { it.entryId }
-            entities.map { entity ->
-                val tagIds = crossRefsByEntryId[entity.id]?.map { it.tagId } ?: emptyList()
-                entity.toDomain(tagIds)
-            }
+        return database.listDao().getAllEntriesWithTags().map { entities ->
+            entities.map { it.toDomain() }
         }
     }
 
     override fun getEntriesForList(listId: String): Flow<List<ListEntry>> {
-        return combine(
-            database.listDao().getEntriesForList(listId),
-            database.entryTagCrossRefDao().getAllCrossRefs()
-        ) { entities, crossRefs ->
-            val crossRefsByEntryId = crossRefs.groupBy { it.entryId }
-            entities.map { entity ->
-                val tagIds = crossRefsByEntryId[entity.id]?.map { it.tagId } ?: emptyList()
-                entity.toDomain(tagIds)
-            }
+        return database.listDao().getEntriesForListWithTags(listId).map { entities ->
+            entities.map { it.toDomain() }
         }
     }
 
@@ -249,7 +299,8 @@ class RoomNoteRepository(
             database.clearAllTables()
             context.filesDir.listFiles()?.forEach { file ->
                 if (file.name.endsWith(".content") || file.name.endsWith(".html") || 
-                    file.name.endsWith(".drawing") || file.name.endsWith(".desc")) {
+                    file.name.endsWith(".drawing") || file.name.endsWith(".desc") ||
+                    file.name.endsWith(".thumb")) {
                     file.delete()
                 }
             }
@@ -313,7 +364,8 @@ class RoomNoteRepository(
             database.clearAllTables()
             context.filesDir.listFiles()?.forEach { file ->
                 if (file.name.endsWith(".content") || file.name.endsWith(".html") || 
-                    file.name.endsWith(".drawing") || file.name.endsWith(".desc")) {
+                    file.name.endsWith(".drawing") || file.name.endsWith(".desc") ||
+                    file.name.endsWith(".thumb")) {
                     file.delete()
                 }
             }
@@ -602,5 +654,16 @@ class RoomNoteRepository(
     override suspend fun setLastDrawingColor(color: Int) {
         prefs.edit().putInt("last_drawing_color", color).apply()
         _lastDrawingColor.value = color
+    }
+
+    private val _toolbarAnchor = MutableStateFlow(
+        prefs.getString("toolbar_anchor", null)?.let {
+            try { ToolbarAnchor.valueOf(it) } catch (e: Exception) { null }
+        } ?: ToolbarAnchor.BOTTOM
+    )
+    override fun getToolbarAnchor(): Flow<ToolbarAnchor> = _toolbarAnchor
+    override suspend fun setToolbarAnchor(anchor: ToolbarAnchor) {
+        prefs.edit().putString("toolbar_anchor", anchor.name).apply()
+        _toolbarAnchor.value = anchor
     }
 }

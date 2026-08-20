@@ -5,7 +5,10 @@ import kotlinx.coroutines.flow.Flow
 
 // --- ENTITIES ---
 
-@Entity(tableName = "notes")
+@Entity(
+    tableName = "notes",
+    indices = [Index("isPinned", "timestamp")]
+)
 data class NoteEntity(
     @PrimaryKey val id: String,
     val title: String,
@@ -14,11 +17,15 @@ data class NoteEntity(
     val type: String = "TEXT", // "TEXT" or "DRAWING"
     val drawingData: String? = null, // JSON representation of DrawingData
     val previewText: String? = null, // First few lines for the list view
+    val previewImage: String? = null, // Path to thumbnail
     val timestamp: Long,
     val isPinned: Boolean = false
 )
 
-@Entity(tableName = "note_lists")
+@Entity(
+    tableName = "note_lists",
+    indices = [Index("isPinned", "timestamp")]
+)
 data class NoteListEntity(
     @PrimaryKey val id: String,
     val title: String,
@@ -44,7 +51,7 @@ data class NoteListEntity(
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index("listId"), Index("parentId")]
+    indices = [Index("listId"), Index("parentId"), Index("timestamp")]
 )
 data class ListEntryEntity(
     @PrimaryKey val id: String,
@@ -101,6 +108,29 @@ data class TagEntity(
     val colorArgb: Int? = null
 )
 
+// --- WRAPPERS FOR OPTIMIZED QUERIES ---
+
+data class NoteListEntityWithCounts(
+    @Embedded val list: NoteListEntity,
+    val entryCount: Int,
+    val subEntryCount: Int,
+    val checkedCount: Int
+)
+
+data class ListEntryWithTags(
+    @Embedded val entry: ListEntryEntity,
+    @Relation(
+        parentColumn = "id",
+        entityColumn = "id",
+        associateBy = Junction(
+            value = EntryTagCrossRef::class,
+            parentColumn = "entryId",
+            entityColumn = "tagId"
+        )
+    )
+    val tags: List<TagEntity>
+)
+
 // --- DAOs (Data Access Objects) ---
 
 @Dao
@@ -153,14 +183,28 @@ interface ListDao {
     @Query("UPDATE note_lists SET sortOrder = :sortOrder WHERE id = :listId")
     suspend fun updateSortOrder(listId: String, sortOrder: String)
 
+    @Transaction
+    @Query("""
+        SELECT 
+            l.*, 
+            (SELECT COUNT(*) FROM list_entries e WHERE e.listId = l.id AND e.parentId IS NULL) as entryCount,
+            (SELECT COUNT(*) FROM list_entries e WHERE e.listId = l.id AND e.parentId IS NOT NULL) as subEntryCount,
+            (SELECT COUNT(*) FROM list_entries e WHERE e.listId = l.id AND e.isChecked = 1) as checkedCount
+        FROM note_lists l
+        ORDER BY l.isPinned DESC, l.timestamp DESC
+    """)
+    fun getAllListsWithCounts(): Flow<List<NoteListEntityWithCounts>>
+
+    @Transaction
+    @Query("SELECT * FROM list_entries")
+    fun getAllEntriesWithTags(): Flow<List<ListEntryWithTags>>
+
+    @Transaction
+    @Query("SELECT * FROM list_entries WHERE listId = :listId ORDER BY timestamp ASC")
+    fun getEntriesForListWithTags(listId: String): Flow<List<ListEntryWithTags>>
+
     @Query("DELETE FROM note_lists WHERE id = :listId")
     suspend fun deleteList(listId: String)
-
-    @Query("SELECT * FROM list_entries WHERE listId = :listId ORDER BY timestamp ASC")
-    fun getEntriesForList(listId: String): Flow<List<ListEntryEntity>>
-
-    @Query("SELECT * FROM list_entries")
-    fun getAllEntries(): Flow<List<ListEntryEntity>>
 
     @Query("SELECT * FROM list_entries")
     suspend fun getAllEntriesList(): List<ListEntryEntity>
@@ -231,7 +275,7 @@ interface EntryTagCrossRefDao {
 
 @Database(
     entities = [NoteEntity::class, NoteListEntity::class, ListEntryEntity::class, TagEntity::class, EntryTagCrossRef::class],
-    version = 16, 
+    version = 18, 
     exportSchema = false
 )
 abstract class NoteDatabase : RoomDatabase() {
@@ -241,6 +285,18 @@ abstract class NoteDatabase : RoomDatabase() {
     abstract fun entryTagCrossRefDao(): EntryTagCrossRefDao
 
     companion object {
+        val MIGRATION_17_18 = object : androidx.room.migration.Migration(17, 18) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE notes ADD COLUMN previewImage TEXT")
+            }
+        }
+        val MIGRATION_16_17 = object : androidx.room.migration.Migration(16, 17) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_notes_isPinned_timestamp ON notes(isPinned, timestamp)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_note_lists_isPinned_timestamp ON note_lists(isPinned, timestamp)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_list_entries_timestamp ON list_entries(timestamp)")
+            }
+        }
         val MIGRATION_15_16 = object : androidx.room.migration.Migration(15, 16) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE note_lists ADD COLUMN sortOrder TEXT NOT NULL DEFAULT 'ALPHABETICAL'")

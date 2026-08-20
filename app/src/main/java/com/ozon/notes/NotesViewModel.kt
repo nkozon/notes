@@ -54,16 +54,18 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val listsWithCountsState: StateFlow<List<NoteListWithCounts>> = combine(
-        listsState,
-        repository.getAllEntries()
-    ) { lists, allEntries ->
-        val entriesByList = allEntries.groupBy { it.listId }
-        lists.map { list ->
-            val listEntries = entriesByList[list.id] ?: emptyList()
-            val entries = listEntries.count { it.parentId.isNullOrBlank() }
-            val subEntries = listEntries.count { !it.parentId.isNullOrBlank() }
-            val checkedCount = listEntries.count { it.isChecked }
-            NoteListWithCounts(list, entries, subEntries, checkedCount)
+        searchQuery,
+        listsSortOrder,
+        repository.getAllListsWithCounts()
+    ) { query, _, allListsWithCounts ->
+        // Filtering in memory is fine since the list of lists is usually small.
+        // We use the already-calculated counts from the DB.
+        if (query.isBlank()) {
+            allListsWithCounts
+        } else {
+            allListsWithCounts.filter { 
+                it.list.title.contains(query, ignoreCase = true) 
+            }
         }
     }
     .flowOn(Dispatchers.Default)
@@ -77,6 +79,9 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
 
     val lastDrawingColor: StateFlow<Int> = repository.getLastDrawingColor()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), android.graphics.Color.BLACK)
+
+    val toolbarAnchor: StateFlow<ToolbarAnchor> = repository.getToolbarAnchor()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ToolbarAnchor.BOTTOM)
 
     private val _isSidePanelVisible = MutableStateFlow(true)
     val isSidePanelVisible = _isSidePanelVisible.asStateFlow()
@@ -207,6 +212,7 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
             is NoteEvent.UpdateSplitFraction -> viewModelScope.launch { repository.setSplitFraction(event.fraction) }
             is NoteEvent.UpdateForceStylusOnly -> viewModelScope.launch { repository.setForceStylusOnly(event.enabled) }
             is NoteEvent.UpdateLastDrawingColor -> viewModelScope.launch { repository.setLastDrawingColor(event.color) }
+            is NoteEvent.UpdateToolbarAnchor -> viewModelScope.launch { repository.setToolbarAnchor(event.anchor) }
             is NoteEvent.ToggleSidePanel -> {
                 _isSidePanelVisible.value = !_isSidePanelVisible.value
             }

@@ -11,6 +11,10 @@ import android.view.MotionEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -48,6 +52,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.pointer.*
@@ -68,9 +73,6 @@ import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.roundToInt
 
-enum class DragMode { NONE, DRAW, LASSO, MOVE, RESIZE_TL, RESIZE_TR, RESIZE_BL, RESIZE_BR, PAN }
-enum class ToolbarAnchor { TOP, BOTTOM, LEFT, RIGHT, TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT }
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DrawingNoteScreen(
@@ -84,6 +86,7 @@ fun DrawingNoteScreen(
     val isSidePanelVisible by notesViewModel.isSidePanelVisible.collectAsStateWithLifecycle()
     val forceStylusOnly by notesViewModel.forceStylusOnly.collectAsStateWithLifecycle()
     val lastDrawingColor by notesViewModel.lastDrawingColor.collectAsStateWithLifecycle()
+    val savedToolbarAnchor by notesViewModel.toolbarAnchor.collectAsStateWithLifecycle()
     val appTheme by settingsViewModel.themeState.collectAsStateWithLifecycle()
     val isDarkTheme = when (appTheme) {
         AppTheme.LIGHT -> false
@@ -102,6 +105,8 @@ fun DrawingNoteScreen(
     var pageCount by remember { mutableIntStateOf(1) }
     var viewportLoaded by remember { mutableStateOf(false) }
     var wasSaved by remember { mutableStateOf(false) }
+    var lastSavedTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    var isDirty by remember { mutableStateOf(false) }
 
     var currentTool by remember { mutableStateOf(DrawingTool.PEN) }
     var activeDrawingTool by remember { mutableStateOf<DrawingTool?>(null) }
@@ -112,13 +117,13 @@ fun DrawingNoteScreen(
 
     var clipboardStrokes by remember { mutableStateOf<List<com.ozon.notes.Stroke>?>(null) }
     
-    var toolbarAnchor by remember { mutableStateOf(ToolbarAnchor.BOTTOM) }
+    var toolbarAnchor by remember(savedToolbarAnchor) { mutableStateOf(savedToolbarAnchor) }
     var isToolbarCollapsed by remember { mutableStateOf(false) }
 
     var canvasOffset by remember { mutableStateOf(Offset.Zero) }
     var canvasScale by remember { mutableFloatStateOf(1f) }
-    var penThickness by remember { mutableFloatStateOf(5f) }
-    var eraserThickness by remember { mutableFloatStateOf(40f) }
+    var penThickness by remember { mutableFloatStateOf(2.5f) }
+    var eraserThickness by remember { mutableFloatStateOf(20f) }
     var selectedPenColor by remember { mutableStateOf(Color(lastDrawingColor)) }
     
     var showThicknessPopup by remember { mutableStateOf(false) }
@@ -179,119 +184,140 @@ fun DrawingNoteScreen(
     val pdfPageScales = remember { mutableStateMapOf<Int, Float>() }
     var pdfRenderer by remember { mutableStateOf<PdfRenderer?>(null) }
 
-    LaunchedEffect(pdfInfo) {
+    DisposableEffect(pdfInfo) {
         val info = pdfInfo
+        var renderer: PdfRenderer? = null
+        var pfd: ParcelFileDescriptor? = null
         if (info != null) {
             try {
-                withContext(Dispatchers.IO) {
-                    val file = File(info.localPath)
-                    if (file.exists()) {
-                        val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-                        pdfRenderer = PdfRenderer(pfd)
-                    }
+                val file = File(info.localPath)
+                if (file.exists()) {
+                    pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+                    renderer = PdfRenderer(pfd)
+                    pdfRenderer = renderer
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Error opening PDF: ${e.message}", Toast.LENGTH_LONG).show()
-                }
             }
+        }
+        onDispose {
+            pdfRenderer = null
+            renderer?.close()
+            pfd?.close()
+        }
+    }
+
+    val pagePositions = remember(pdfInfo, pageLayout, pageCount, canvasType) {
+        val info = pdfInfo
+        if (canvasType == CanvasType.PDF && info != null) {
+            val positions = ArrayList<Rect>(info.pageCount)
+            var currentY = 0f
+            for (i in 0 until info.pageCount) {
+                val pageSize = info.pageSizes.getOrNull(i) ?: PdfPageSize(800f, 1100f)
+                val fullWidth = pageLayout.marginLeft + pageSize.width + pageLayout.marginRight
+                val fullHeight = pageLayout.marginTop + pageSize.height + pageLayout.marginBottom
+                positions.add(Rect(0f, currentY, fullWidth, currentY + fullHeight))
+                currentY += fullHeight + pageLayout.spacing
+            }
+            positions
+        } else if (canvasType == CanvasType.PAGED) {
+            val positions = ArrayList<Rect>(pageCount)
+            var currentY = 0f
+            for (i in 0 until pageCount) {
+                positions.add(Rect(0f, currentY, pageLayout.width, pageLayout.height))
+                currentY += pageLayout.height + pageLayout.spacing
+            }
+            positions
+        } else {
+            emptyList<Rect>()
         }
     }
     
-    // Viewport calculation for on-demand rendering
-    val currentViewport = remember(canvasOffset, canvasScale, canvasSize) {
-        Rect(
-            left = (-canvasOffset.x / canvasScale) - 100f,
-            top = (-canvasOffset.y / canvasScale) - 100f,
-            right = ((canvasSize.width - canvasOffset.x) / canvasScale) + 100f,
-            bottom = ((canvasSize.height - canvasOffset.y) / canvasScale) + 100f
-        )
+    // Viewport calculation for on-demand rendering - uses derivedStateOf to prevent stale closures
+    val currentViewport by remember {
+        derivedStateOf {
+            Rect(
+                left = (-canvasOffset.x / canvasScale) - 400f, // even larger buffer for reliability
+                top = (-canvasOffset.y / canvasScale) - 400f,
+                right = ((canvasSize.width - canvasOffset.x) / canvasScale) + 400f,
+                bottom = ((canvasSize.height - canvasOffset.y) / canvasScale) + 400f
+            )
+        }
     }
 
-    LaunchedEffect(pdfRenderer, currentViewport, canvasScale) {
-        val renderer = pdfRenderer ?: return@LaunchedEffect
-        val info = pdfInfo ?: return@LaunchedEffect
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
+    LaunchedEffect(pdfRenderer, pdfInfo) {
+        if (pdfRenderer == null || pdfInfo == null) return@LaunchedEffect
         
-        withContext(Dispatchers.IO) {
-            var currentY = 0f
-            val visibleIndices = mutableListOf<Int>()
-            
-            for (i in 0 until info.pageCount) {
-                try {
-                    val pageSize = info.pageSizes.getOrNull(i) ?: PdfPageSize(800f, 1100f)
-                    val pageWidth = pageSize.width
-                    val pageHeight = pageSize.height
-                    val fullWidth = pageLayout.marginLeft + pageWidth + pageLayout.marginRight
-                    val fullHeight = pageLayout.marginTop + pageHeight + pageLayout.marginBottom
-                    val pageRect = Rect(0f, currentY, fullWidth, currentY + fullHeight)
-                    
-                    if (currentViewport.overlaps(pageRect)) {
-                        visibleIndices.add(i)
-                    }
-                    currentY += fullHeight + pageLayout.spacing
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
+        // Use snapshotFlow to observe the derivedStateOf currentViewport
+        snapshotFlow { currentViewport }
+            .debounce(50)
+            .collect { viewport ->
+                val renderer = pdfRenderer ?: return@collect
+                
+                withContext(Dispatchers.IO) {
+                    // Filter visible indices based on the latest viewport
+                    val visibleIndices = pagePositions.indices.filter { pagePositions[it].overlaps(viewport) }
+                        .sortedBy { Math.abs(pagePositions[it].center.y - viewport.center.y) }
 
-            // Remove non-visible bitmaps to save memory
-            val keysToRemove = pdfPageBitmaps.keys.filter { it !in visibleIndices }
-            if (keysToRemove.isNotEmpty()) {
-                withContext(Dispatchers.Main) {
-                    keysToRemove.forEach { 
-                        pdfPageBitmaps[it]?.recycle()
-                        pdfPageBitmaps.remove(it) 
-                        pdfPageScales.remove(it)
-                    }
-                }
-            }
+                    if (visibleIndices.isEmpty()) return@withContext
 
-            // Render visible pages
-            visibleIndices.forEach { i ->
-                kotlinx.coroutines.yield() // prevent blocking other coroutines during heavy rendering loop
-                
-                // Allow lower quality when zoomed out to prevent OOM
-                val targetQuality = (canvasScale * 1.5f).coerceIn(0.2f, 4f)
-                val currentQuality = pdfPageScales[i] ?: 0f
-                
-                // Re-render if missing, if quality has improved significantly, or if we need to downscale drastically to save memory
-                val needsHigherQuality = targetQuality > currentQuality * 1.3f
-                val needsLowerQuality = currentQuality > targetQuality * 2.5f // Free memory if heavily zoomed out
-                
-                if (!pdfPageBitmaps.containsKey(i) || needsHigherQuality || needsLowerQuality) {
-                    try {
-                        val page = renderer.openPage(i)
+                    // Render visible pages sequentially but with proximity priority
+                    visibleIndices.forEach { i ->
+                        kotlinx.coroutines.yield()
                         
-                        // Safety limit calculation
-                        val maxDim = 4096f
-                        val safetyScale = minOf(maxDim / page.width, maxDim / page.height).coerceAtMost(1.0f)
-                        val finalQuality = (targetQuality * safetyScale).coerceAtLeast(0.1f)
+                        val targetQuality = (canvasScale * 1.3f).coerceIn(0.7f, 2.2f)
+                        val currentQuality = pdfPageScales[i] ?: 0f
                         
-                        val bw = (page.width * finalQuality).toInt()
-                        val bh = (page.height * finalQuality).toInt()
+                        val needsHigherQuality = targetQuality > currentQuality * 1.15f
+                        val needsLowerQuality = currentQuality > targetQuality * 2.5f
                         
-                        if (bw > 0 && bh > 0 && bw * bh < 8000 * 8000) {
-                            val bitmap = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
-                            // PdfRenderer requires a white background because it renders transparent by default
-                            bitmap.eraseColor(android.graphics.Color.WHITE)
-                            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                            
-                            withContext(Dispatchers.Main) {
-                                // Swap bitmaps
-                                val old = pdfPageBitmaps[i]
-                                pdfPageBitmaps[i] = bitmap
-                                pdfPageScales[i] = finalQuality
-                                old?.recycle()
+                        if (!pdfPageBitmaps.containsKey(i) || needsHigherQuality || needsLowerQuality) {
+                            try {
+                                val page = synchronized(renderer) { renderer.openPage(i) }
+                                
+                                val maxDim = 2048f
+                                val safetyScale = minOf(maxDim / page.width, maxDim / page.height).coerceAtMost(1.0f)
+                                val finalQuality = (targetQuality * safetyScale).coerceAtLeast(0.1f)
+                                
+                                val bw = (page.width * finalQuality).toInt()
+                                val bh = (page.height * finalQuality).toInt()
+                                
+                                if (bw > 0 && bh > 0) {
+                                    val bitmap = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
+                                    bitmap.eraseColor(android.graphics.Color.WHITE)
+                                    synchronized(renderer) { page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY) }
+                                    
+                                    withContext(Dispatchers.Main) {
+                                        val old = pdfPageBitmaps[i]
+                                        pdfPageBitmaps[i] = bitmap
+                                        pdfPageScales[i] = finalQuality
+                                        old?.recycle()
+                                    }
+                                }
+                                synchronized(renderer) { page.close() }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
                             }
                         }
-                        page.close()
-                    } catch (e: Exception) {
-                        e.printStackTrace()
+                    }
+
+                    // Clean up non-visible bitmaps AFTER rendering visible ones to keep UI smooth
+                    // Be conservative: keep a few extra pages around to avoid flashing
+                    val keysToRemove = pdfPageBitmaps.keys.filter { index ->
+                        index !in visibleIndices && !viewport.overlaps(pagePositions[index])
+                    }
+                    if (keysToRemove.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            keysToRemove.forEach { 
+                                pdfPageBitmaps[it]?.recycle()
+                                pdfPageBitmaps.remove(it) 
+                                pdfPageScales.remove(it)
+                            }
+                        }
                     }
                 }
             }
-        }
     }
     val updatedBounds by rememberUpdatedState(selectionBounds)
     val updatedTool by rememberUpdatedState(currentTool)
@@ -394,6 +420,8 @@ fun DrawingNoteScreen(
         if (!noteStillExists && noteId != null) return 
 
         wasSaved = true
+        isDirty = false
+        lastSavedTime = System.currentTimeMillis()
         val finalTitle = title.ifBlank { "New Drawing" }
         notesViewModel.onEvent(NoteEvent.SaveNote(
             Note(
@@ -416,11 +444,16 @@ fun DrawingNoteScreen(
         ))
     }
 
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30000)
+            saveDrawing()
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
             if (!wasSaved) saveDrawing()
-            pdfRenderer?.close()
-            pdfRenderer = null
             pdfPageBitmaps.values.forEach { it.recycle() }
             pdfPageBitmaps.clear()
         }
@@ -443,6 +476,8 @@ fun DrawingNoteScreen(
                 pageLayout = note.drawingData?.pageLayout ?: PageLayout()
                 pdfInfo = note.drawingData?.pdfInfo
                 pageCount = note.drawingData?.pageCount ?: 1
+                
+                isDirty = false
 
                 // Handle initial PDF import if pdfInfo is missing but backgroundPdfPath exists (as a URI)
                 if (canvasType == CanvasType.PDF && pdfInfo == null && note.drawingData?.backgroundPdfPath != null) {
@@ -579,6 +614,7 @@ fun DrawingNoteScreen(
                 images = images + newImage
                 selectedImageIds = setOf(newImage.id)
                 selectedStrokeIds = emptySet()
+                isDirty = true
             }
         }
     }
@@ -611,6 +647,7 @@ fun DrawingNoteScreen(
             val pasted = clipboard.map { s -> s.copy(id = UUID.randomUUID().toString(), points = s.points.map { DrawingPoint(it.x + offsetX, it.y + offsetY) }) }
             strokes = strokes + pasted
             selectedStrokeIds = pasted.map { it.id }.toSet()
+            isDirty = true
         }
     }
 
@@ -631,7 +668,7 @@ fun DrawingNoteScreen(
                             .clip(RoundedCornerShape(topStart = 12.dp))
                     } else Modifier
                 )
-                .background(Color.White)
+                .background(Color(0xFFF9F9F9))
                 .onSizeChanged { canvasSize = it }
         ) {
             if (canvasType == CanvasType.PDF && pdfInfo == null) {
@@ -649,7 +686,10 @@ fun DrawingNoteScreen(
                     Box(modifier = Modifier.padding(start = 16.dp)) {
                         BasicTextField(
                             value = title,
-                            onValueChange = { title = it },
+                            onValueChange = { 
+                                title = it
+                                isDirty = true
+                            },
                             singleLine = true,
                             textStyle = MaterialTheme.typography.titleLarge.copy(
                                 textAlign = TextAlign.Start, 
@@ -703,10 +743,29 @@ fun DrawingNoteScreen(
                         modifier = Modifier.padding(end = 16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        val recentlySaved = !isDirty && (System.currentTimeMillis() - lastSavedTime) < 5000
+                        CircleIconButton(
+                            onClick = { saveDrawing() },
+                            icon = if (recentlySaved) Icons.Rounded.Check else Icons.Rounded.Save,
+                            contentDescription = "Save Note",
+                            containerColor = when {
+                                recentlySaved -> Color(0xFF4CAF50).copy(alpha = 0.25f)
+                                isDirty -> Color(0xFFFF9800).copy(alpha = 0.25f)
+                                else -> Color.Black.copy(alpha = 0.25f)
+                            },
+                            contentColor = when {
+                                recentlySaved -> Color(0xFF2E7D32)
+                                isDirty -> Color(0xFFE65100)
+                                else -> Color.Black
+                            }
+                        )
+                        Spacer(Modifier.width(12.dp))
+
                         if (canvasType != CanvasType.INFINITE) {
                             CircleIconButton(
                                 onClick = { 
                                     pageCount++
+                                    isDirty = true
                                     Toast.makeText(context, "Page ${pageCount} added", Toast.LENGTH_SHORT).show()
                                 },
                                 icon = Icons.Rounded.NoteAdd,
@@ -761,7 +820,7 @@ fun DrawingNoteScreen(
                 modifier = Modifier.zIndex(12f).statusBarsPadding()
             )
 
-            // 1. Canvas Layer (Bottom)
+            // 1. Drawing Layer
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -885,9 +944,16 @@ fun DrawingNoteScreen(
                                                     width = penThickness,
                                                     tool = currentWorkingTool
                                                 )
+                                                isDirty = true
                                             }
                                             currentPathPoints.clear()
                                         }
+                                        if (dragMode == DragMode.MOVE || dragMode.name.startsWith("RESIZE")) {
+                                            if (strokes != strokesAtStart || images != imagesAtStart) {
+                                                isDirty = true
+                                            }
+                                        }
+                                        currentPathPoints.clear()
                                         break
                                     }
 
@@ -902,6 +968,7 @@ fun DrawingNoteScreen(
                                                     width = penThickness,
                                                     tool = currentWorkingTool
                                                 )
+                                                isDirty = true
                                             }
                                             val lastPt = currentPathPoints.last()
                                             currentPathPoints.clear()
@@ -970,6 +1037,7 @@ fun DrawingNoteScreen(
                                                     }
                                                     val eraseRect = Rect(minX - radius, minY - radius, maxX + radius, maxY + radius)
 
+                                                    val oldStrokesSize = strokes.size
                                                     strokes = strokes.filterNot { stroke ->
                                                         if (stroke.tool == DrawingTool.ERASER) {
                                                             false
@@ -987,6 +1055,9 @@ fun DrawingNoteScreen(
                                                                 }
                                                             }
                                                         }
+                                                    }
+                                                    if (strokes.size != oldStrokesSize) {
+                                                        isDirty = true
                                                     }
                                                 }
                                             }
@@ -1032,118 +1103,105 @@ fun DrawingNoteScreen(
                         }
                     }
             ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    if (canvasType != CanvasType.INFINITE) {
-                        drawRect(color = Color(0xFFF9F9F9))
+                // LAYER 1: Background & Static Content
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            translationX = canvasOffset.x
+                            translationY = canvasOffset.y
+                            scaleX = canvasScale
+                            scaleY = canvasScale
+                        transformOrigin = TransformOrigin(0f, 0f)
+                    }
+                ) {
+                    // 1. Render PDF Background
+                    if (canvasType == CanvasType.PDF && pdfInfo != null) {
+                        var first = -1
+                        for (i in pagePositions.indices) {
+                            if (pagePositions[i].bottom > currentViewport.top) {
+                                first = i
+                                break
+                            }
+                        }
+                        if (first != -1) {
+                            for (i in first until pagePositions.size) {
+                                if (pagePositions[i].top > currentViewport.bottom) break
+                                val pageRect = pagePositions[i]
+                                
+                                drawRect(color = Color.White, topLeft = pageRect.topLeft, size = pageRect.size)
+                                pdfPageBitmaps[i]?.let { bitmap ->
+                                    drawImage(
+                                        image = bitmap.asImageBitmap(),
+                                        dstOffset = IntOffset((pageRect.left + pageLayout.marginLeft).toInt(), (pageRect.top + pageLayout.marginTop).toInt()),
+                                        dstSize = IntSize((pageRect.width - pageLayout.marginLeft - pageLayout.marginRight).toInt(), (pageRect.height - pageLayout.marginTop - pageLayout.marginBottom).toInt()),
+                                        filterQuality = FilterQuality.Medium
+                                    )
+                                }
+                                drawRect(color = Color.LightGray, topLeft = pageRect.topLeft, size = pageRect.size, style = Stroke(width = 1f / canvasScale))
+                            }
+                        }
                     }
 
-                    val viewport = Rect(
-                        left = (-canvasOffset.x / canvasScale) - 50f,
-                        top = (-canvasOffset.y / canvasScale) - 50f,
-                        right = ((size.width - canvasOffset.x) / canvasScale) + 50f,
-                        bottom = ((size.height - canvasOffset.y) / canvasScale) + 50f
-                    )
+                    // 2. Render Paged Background
+                    if (canvasType == CanvasType.PAGED) {
+                        var first = -1
+                        for (i in pagePositions.indices) {
+                            if (pagePositions[i].bottom > currentViewport.top) {
+                                first = i
+                                break
+                            }
+                        }
+                        if (first != -1) {
+                            for (i in first until pagePositions.size) {
+                                if (pagePositions[i].top > currentViewport.bottom) break
+                                val pageRect = pagePositions[i]
+                                drawRect(color = Color.White, topLeft = pageRect.topLeft, size = pageRect.size)
+                                drawRect(color = Color.LightGray, topLeft = pageRect.topLeft, size = pageRect.size, style = Stroke(width = 1f / canvasScale))
+                            }
+                        }
+                    }
 
+                    images.forEach { img ->
+                        val imgRect = Rect(img.offset.x, img.offset.y, img.offset.x + img.scale.x, img.offset.y + img.scale.y)
+                        if (currentViewport.overlaps(imgRect)) {
+                            bitmapCache[img.path]?.let { bitmap ->
+                                drawImage(
+                                    image = bitmap,
+                                    dstOffset = IntOffset(img.offset.x.roundToInt(), img.offset.y.roundToInt()),
+                                    dstSize = IntSize(img.scale.x.roundToInt(), img.scale.y.roundToInt()),
+                                )
+                            }
+                        }
+                    }
+
+                    strokes.forEach { stroke ->
+                        val bounds = strokeBoundsMap[stroke.id]
+                        if (bounds == null || currentViewport.overlaps(bounds)) {
+                            val path = getOrBuildPath(stroke, canvasScale)
+                            drawPath(
+                                path = path, 
+                                color = if (stroke.id in selectedStrokeIds) Color.Blue.copy(alpha = 0.6f) else Color(stroke.colorArgb), 
+                                style = Stroke(width = stroke.width, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                            )
+                        }
+                    }
+                }
+
+                // LAYER 2: Active Stroke & Selection (Real-time)
+                Canvas(modifier = Modifier.fillMaxSize()) {
                     withTransform({
                         translate(canvasOffset.x, canvasOffset.y)
                         scale(canvasScale, canvasScale, Offset.Zero)
                     }) {
-                        // 1. Render PDF Background
-                        if (canvasType == CanvasType.PDF && pdfInfo != null) {
-                            var currentY = 0f
-                            for (i in 0 until pdfInfo!!.pageCount) {
-                                val pageSize = pdfInfo!!.pageSizes.getOrNull(i) ?: PdfPageSize(800f, 1100f)
-                                val pageWidth = pageSize.width
-                                val pageHeight = pageSize.height
-                                
-                                val fullWidth = pageLayout.marginLeft + pageWidth + pageLayout.marginRight
-                                val fullHeight = pageLayout.marginTop + pageHeight + pageLayout.marginBottom
-                                
-                                val pageRect = Rect(0f, currentY, fullWidth, currentY + fullHeight)
-                                
-                                if (viewport.overlaps(pageRect)) {
-                                    // Draw Page Background (White)
-                                    drawRect(
-                                        color = Color.White,
-                                        topLeft = Offset(0f, currentY),
-                                        size = Size(fullWidth, fullHeight)
-                                    )
-                                    
-                                    val bitmap = pdfPageBitmaps[i]
-                                    if (bitmap != null) {
-                                        drawImage(
-                                            image = bitmap.asImageBitmap(),
-                                            dstOffset = IntOffset(pageLayout.marginLeft.toInt(), (currentY + pageLayout.marginTop).toInt()),
-                                            dstSize = IntSize(pageWidth.toInt(), pageHeight.toInt()),
-                                            filterQuality = FilterQuality.High
-                                        )
-                                    }
-
-                                    // Draw Page Border
-                                    drawRect(
-                                        color = Color.LightGray,
-                                        topLeft = Offset(0f, currentY),
-                                        size = Size(fullWidth, fullHeight),
-                                        style = Stroke(width = 1f / canvasScale)
-                                    )
-                                }
-                                currentY += fullHeight + pageLayout.spacing
-                            }
-                        }
-
-                        // 2. Render Paged Background
-                        if (canvasType == CanvasType.PAGED) {
-                            val pageWidth = pageLayout.width
-                            val pageHeight = pageLayout.height
-                            var currentY = 0f
-                            for (i in 0 until pageCount) {
-                                val pageRect = Rect(0f, currentY, pageWidth, currentY + pageHeight)
-                                if (viewport.overlaps(pageRect)) {
-                                    drawRect(
-                                        color = Color.White,
-                                        topLeft = Offset(0f, currentY),
-                                        size = Size(pageWidth, pageHeight)
-                                    )
-                                    drawRect(
-                                        color = Color.LightGray,
-                                        topLeft = Offset(0f, currentY),
-                                        size = Size(pageWidth, pageHeight),
-                                        style = Stroke(width = 1f / canvasScale)
-                                    )
-                                }
-                                currentY += pageHeight + pageLayout.spacing
-                            }
-                        }
-
-                        images.forEach { img ->
-                            val imgRect = Rect(img.offset.x, img.offset.y, img.offset.x + img.scale.x, img.offset.y + img.scale.y)
-                            if (viewport.overlaps(imgRect)) {
-                                bitmapCache[img.path]?.let { bitmap ->
-                                    drawImage(
-                                        image = bitmap,
-                                        dstOffset = IntOffset(img.offset.x.roundToInt(), img.offset.y.roundToInt()),
-                                        dstSize = androidx.compose.ui.unit.IntSize(img.scale.x.roundToInt(), img.scale.y.roundToInt()),
-                                        alpha = 1f
-                                    )
-                                }
-                            }
-                        }
-                        strokes.forEach { stroke ->
-                            val bounds = strokeBoundsMap[stroke.id]
-                            if (bounds == null || viewport.overlaps(bounds)) {
-                                val path = getOrBuildPath(stroke, canvasScale)
-                                drawPath(
-                                    path = path, 
-                                    color = if (stroke.id in selectedStrokeIds) Color.Blue.copy(alpha = 0.6f) else Color(stroke.colorArgb), 
-                                    style = Stroke(width = stroke.width, cap = StrokeCap.Round, join = StrokeJoin.Round)
-                                )
-                            }
-                        }
                         val drawingTool = activeDrawingTool ?: updatedTool
                         if (currentPathPoints.isNotEmpty()) {
                             val path = Path().apply { currentPathPoints.forEachIndexed { i, p -> if (i == 0) moveTo(p.x, p.y) else lineTo(p.x, p.y) } }
-                            if (drawingTool == DrawingTool.LASSO) drawPath(path = path, color = Color.Blue, style = Stroke(width = 1.dp.toPx() / canvasScale, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f / canvasScale, 10f / canvasScale), 0f)))
-                            else if (drawingTool != DrawingTool.HAND) drawPath(path = path, color = if (drawingTool == DrawingTool.ERASER) Color.LightGray else selectedPenColor, style = Stroke(width = if (drawingTool == DrawingTool.ERASER) eraserThickness else penThickness, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                            if (drawingTool == DrawingTool.LASSO) {
+                                drawPath(path = path, color = Color.Blue, style = Stroke(width = 1.dp.toPx() / canvasScale, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f / canvasScale, 10f / canvasScale), 0f)))
+                            } else if (drawingTool != DrawingTool.HAND) {
+                                drawPath(path = path, color = if (drawingTool == DrawingTool.ERASER) Color.LightGray else selectedPenColor, style = Stroke(width = if (drawingTool == DrawingTool.ERASER) eraserThickness else penThickness, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                            }
                         }
                         selectionBounds?.let { bounds ->
                             drawRect(color = Color.Blue, topLeft = bounds.topLeft, size = bounds.size, style = Stroke(width = 1.dp.toPx() / canvasScale, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f / canvasScale, 10f / canvasScale), 0f)))
@@ -1181,7 +1239,10 @@ fun DrawingNoteScreen(
                         }
                     },
                     anchor = toolbarAnchor,
-                    onAnchorChange = { toolbarAnchor = it },
+                    onAnchorChange = { 
+                        toolbarAnchor = it
+                        notesViewModel.onEvent(NoteEvent.UpdateToolbarAnchor(it))
+                    },
                     isCollapsed = isToolbarCollapsed,
                     onToggleCollapse = { isToolbarCollapsed = it },
                     penThickness = penThickness,
@@ -1197,9 +1258,21 @@ fun DrawingNoteScreen(
                     showColorPopup = showColorPopup,
                     onToggleColorPopup = { showColorPopup = it; if (it) showThicknessPopup = false },
                     undoEnabled = strokes.isNotEmpty(),
-                    onUndo = { if (strokes.isNotEmpty()) { redoStack = redoStack + strokes.last(); strokes = strokes.dropLast(1) } },
+                    onUndo = { 
+                        if (strokes.isNotEmpty()) { 
+                            redoStack = redoStack + strokes.last()
+                            strokes = strokes.dropLast(1)
+                            isDirty = true
+                        } 
+                    },
                     redoEnabled = redoStack.isNotEmpty(),
-                    onRedo = { if (redoStack.isNotEmpty()) { strokes = strokes + redoStack.last(); redoStack = redoStack.dropLast(1) } },
+                    onRedo = { 
+                        if (redoStack.isNotEmpty()) { 
+                            strokes = strokes + redoStack.last()
+                            redoStack = redoStack.dropLast(1)
+                            isDirty = true
+                        } 
+                    },
                     pasteEnabled = clipboardStrokes != null,
                     onPaste = { handlePaste() },
                     canvasScale = canvasScale,
@@ -1231,6 +1304,7 @@ fun DrawingNoteScreen(
                                 images = images + newImages
                                 selectedStrokeIds = newStrokes.map { it.id }.toSet()
                                 selectedImageIds = newImages.map { it.id }.toSet()
+                                isDirty = true
                                 Toast.makeText(context, "Duplicated", Toast.LENGTH_SHORT).show()
                             }) { Icon(Icons.Rounded.ContentCopy, contentDescription = "Duplicate") }
                             IconButton(onClick = { 
@@ -1238,6 +1312,7 @@ fun DrawingNoteScreen(
                                 images = images.filterNot { it.id in selectedImageIds }
                                 selectedStrokeIds = emptySet(); selectedImageIds = emptySet()
                                 showSelectionThicknessPopup = false; showSelectionColorPopup = false
+                                isDirty = true
                             }) { Icon(Icons.Rounded.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error) }
                             if (selectedStrokeIds.isNotEmpty()) {
                                 VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
@@ -1260,15 +1335,21 @@ fun DrawingNoteScreen(
                                 onColorChange = { newColor ->
                                     strokes = strokes.map { s -> if (s.id in selectedStrokeIds) s.copy(colorArgb = newColor.toArgb()) else s }
                                     showSelectionColorPopup = false
+                                    isDirty = true
                                 },
                                 onOpenPicker = { /* Picker */ }
                             )
                         }
                         if (showSelectionThicknessPopup) {
                             ThicknessPopup(
-                                thickness = strokes.find { it.id in selectedStrokeIds }?.width ?: 5f,
-                                onThicknessChange = { newWidth -> strokes = strokes.map { s -> if (s.id in selectedStrokeIds) s.copy(width = newWidth) else s } },
-                                color = Color(strokes.find { it.id in selectedStrokeIds }?.colorArgb ?: Color.Black.toArgb())
+                                thickness = strokes.find { it.id in selectedStrokeIds }?.width ?: 2.5f,
+                                onThicknessChange = { newWidth -> 
+                                    strokes = strokes.map { s -> if (s.id in selectedStrokeIds) s.copy(width = newWidth) else s }
+                                    isDirty = true
+                                },
+                                color = Color(strokes.find { it.id in selectedStrokeIds }?.colorArgb ?: Color.Black.toArgb()),
+                                min = 0.5f,
+                                max = 50f
                             )
                         }
                     }
@@ -1360,7 +1441,13 @@ fun DrawingToolbar(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             if (!isCollapsed && showThicknessPopup) {
-                ThicknessPopup(thickness = if (currentTool == DrawingTool.PEN) penThickness else eraserThickness, onThicknessChange = if (currentTool == DrawingTool.PEN) onPenThicknessChange else onEraserThicknessChange, color = if (currentTool == DrawingTool.PEN) selectedPenColor else Color.LightGray)
+                ThicknessPopup(
+                    thickness = if (currentTool == DrawingTool.PEN) penThickness else eraserThickness, 
+                    onThicknessChange = if (currentTool == DrawingTool.PEN) onPenThicknessChange else onEraserThicknessChange, 
+                    color = if (currentTool == DrawingTool.PEN) selectedPenColor else Color.LightGray,
+                    min = 0.5f,
+                    max = 50f
+                )
                 Spacer(Modifier.height(8.dp))
             }
             if (!isCollapsed && showColorPopup) {
@@ -1527,12 +1614,12 @@ fun ColorCircle(color: Color, isSelected: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-fun ThicknessPopup(thickness: Float, onThicknessChange: (Float) -> Unit, color: Color) {
+fun ThicknessPopup(thickness: Float, onThicknessChange: (Float) -> Unit, color: Color, min: Float = 0.5f, max: Float = 50f) {
     Surface(modifier = Modifier.width(200.dp).shadow(4.dp, RoundedCornerShape(16.dp)), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp)) {
         Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Box(modifier = Modifier.size(100.dp, 40.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { Box(modifier = Modifier.height((thickness / 4f).dp).fillMaxWidth(0.8f).background(color, CircleShape)) }
             Spacer(Modifier.height(12.dp))
-            Slider(value = thickness, onValueChange = onThicknessChange, valueRange = 1f..100f)
+            Slider(value = thickness, onValueChange = onThicknessChange, valueRange = min..max)
         }
     }
 }

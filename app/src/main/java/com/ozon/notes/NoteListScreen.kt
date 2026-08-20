@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
@@ -912,7 +913,7 @@ fun NoteCard(
                     }
                 }
             },
-            trailingContent = if (isDrawing && note.drawingData?.strokes?.isNotEmpty() == true) {
+            trailingContent = if (isDrawing && (note.previewImage != null || note.drawingData?.strokes?.isNotEmpty() == true)) {
                 {
                     Box(
                         modifier = Modifier
@@ -921,7 +922,27 @@ fun NoteCard(
                             .background(Color.White)
                             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
                     ) {
-                        DrawingPreview(strokes = note.drawingData.strokes)
+                        if (note.previewImage != null) {
+                            val bitmap = remember(note.previewImage) {
+                                try {
+                                    android.graphics.BitmapFactory.decodeFile(note.previewImage).asImageBitmap()
+                                } catch (e: Exception) {
+                                    null
+                                }
+                            }
+                            if (bitmap != null) {
+                                androidx.compose.foundation.Image(
+                                    bitmap = bitmap,
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                                )
+                            } else {
+                                DrawingPreview(strokes = note.drawingData?.strokes ?: emptyList())
+                            }
+                        } else {
+                            DrawingPreview(strokes = note.drawingData?.strokes ?: emptyList())
+                        }
                     }
                 }
             } else null

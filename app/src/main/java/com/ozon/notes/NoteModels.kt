@@ -7,6 +7,9 @@ enum class CanvasType {
     INFINITE, PAGED, PDF
 }
 
+enum class DragMode { NONE, DRAW, LASSO, MOVE, RESIZE_TL, RESIZE_TR, RESIZE_BL, RESIZE_BR, PAN }
+enum class ToolbarAnchor { TOP, BOTTOM, LEFT, RIGHT, TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT }
+
 @Serializable
 data class PageLayout(
     val width: Float = 0f,
@@ -52,6 +55,7 @@ data class Note(
     val content: String,
     val contentHtml: String? = null,
     val previewText: String? = null,
+    val previewImage: String? = null, // Path to thumbnail for drawings
     val type: NoteType = NoteType.TEXT,
     val drawingData: DrawingData? = null,
     val timestamp: Long = System.currentTimeMillis(),

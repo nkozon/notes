@@ -45,6 +45,7 @@ sealed interface NoteEvent {
     data class SetSidePanelVisible(val visible: Boolean) : NoteEvent
     data class UpdateForceStylusOnly(val enabled: Boolean) : NoteEvent
     data class UpdateLastDrawingColor(val color: Int) : NoteEvent
+    data class UpdateToolbarAnchor(val anchor: ToolbarAnchor) : NoteEvent
     data object TriggerAutoBackup : NoteEvent
     data object CheckForUpdate : NoteEvent
     data class InstallUpdate(val url: String, val version: String) : NoteEvent

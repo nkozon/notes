@@ -21,6 +21,7 @@ fun NoteEntity.toDomain(): Note {
         content = content,
         contentHtml = contentHtml,
         previewText = previewText,
+        previewImage = previewImage,
         type = try { NoteType.valueOf(type) } catch (_: Exception) { NoteType.TEXT },
         drawingData = drawingData?.let {
             try { json.decodeFromString<DrawingData>(it) } catch (e: Exception) { null }
@@ -37,6 +38,7 @@ fun Note.toEntity(): NoteEntity {
         content = content,
         contentHtml = contentHtml,
         previewText = previewText,
+        previewImage = previewImage,
         type = type.name,
         drawingData = drawingData?.let { json.encodeToString(it) },
         timestamp = timestamp,
@@ -54,6 +56,15 @@ fun NoteListEntity.toDomain(): NoteList {
         timestamp = timestamp,
         isPinned = isPinned,
         sortOrder = try { ListSortOrder.valueOf(sortOrder) } catch (e: Exception) { ListSortOrder.ALPHABETICAL }
+    )
+}
+
+fun NoteListEntityWithCounts.toDomain(): NoteListWithCounts {
+    return NoteListWithCounts(
+        list = list.toDomain(),
+        entryCount = entryCount,
+        subEntryCount = subEntryCount,
+        checkedCount = checkedCount
     )
 }
 
@@ -83,6 +94,10 @@ fun ListEntryEntity.toDomain(tagIds: List<String>): ListEntry {
         description = description,
         timestamp = timestamp
     )
+}
+
+fun ListEntryWithTags.toDomain(): ListEntry {
+    return entry.toDomain(tags.map { it.id })
 }
 
 fun ListEntry.toEntity(): ListEntryEntity {

@@ -21,6 +21,7 @@ interface NoteRepository {
 
     // --- Lists ---
     fun getAllLists(): Flow<List<NoteList>>
+    fun getAllListsWithCounts(): Flow<List<NoteListWithCounts>>
     suspend fun saveList(list: NoteList)
     suspend fun togglePinList(listId: String)
     suspend fun deleteList(listId: String)
@@ -97,6 +98,8 @@ interface NoteRepository {
     suspend fun setForceStylusOnly(enabled: Boolean)
     fun getLastDrawingColor(): Flow<Int>
     suspend fun setLastDrawingColor(color: Int)
+    fun getToolbarAnchor(): Flow<ToolbarAnchor>
+    suspend fun setToolbarAnchor(anchor: ToolbarAnchor)
 }
 
 //class InMemoryNoteRepository : NoteRepository {
@@ -149,7 +152,9 @@ object AppContainer {
             NoteDatabase.MIGRATION_12_13,
             NoteDatabase.MIGRATION_13_14,
             NoteDatabase.MIGRATION_14_15,
-            NoteDatabase.MIGRATION_15_16
+            NoteDatabase.MIGRATION_15_16,
+            NoteDatabase.MIGRATION_16_17,
+            NoteDatabase.MIGRATION_17_18
         )
             .fallbackToDestructiveMigration()
             .build().also { database = it }
