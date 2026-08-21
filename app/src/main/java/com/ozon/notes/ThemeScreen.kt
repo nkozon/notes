@@ -3,6 +3,7 @@ package com.ozon.notes
 import android.os.Build
 import androidx.compose.animation.*
 import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -285,10 +286,16 @@ fun ThemeModeItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val cornerRadius by animateDpAsState(
+        targetValue = if (selected) 24.dp else 12.dp,
+        animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing),
+        label = "cornerRadius"
+    )
+
     Surface(
         onClick = onClick,
         modifier = modifier.height(48.dp),
-        shape = if (selected) CircleShape else RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(cornerRadius),
         color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
     ) {
         Box(contentAlignment = Alignment.Center) {

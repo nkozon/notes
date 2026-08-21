@@ -6,11 +6,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -27,6 +29,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ozon.notes.ui.theme.GoogleSansFlexRounded
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -49,6 +52,7 @@ fun SettingsScreen(
     val tabletMode by viewModel.tabletModeState.collectAsStateWithLifecycle()
     val checklistBehavior by viewModel.checklistBehaviorState.collectAsStateWithLifecycle()
     val showEntryCount by viewModel.showEntryCountState.collectAsStateWithLifecycle()
+    val smoothingStrength by viewModel.smoothingStrength.collectAsStateWithLifecycle()
     
     val ratingIndicatorsEnabled by viewModel.ratingIndicatorsEnabled.collectAsStateWithLifecycle()
     val highScoreEnabled by viewModel.highScoreEnabled.collectAsStateWithLifecycle()
@@ -113,9 +117,9 @@ fun SettingsScreen(
                 .animateContentSize(animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing)),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
-            // Preferences Section
-            SettingsSection(title = "Preferences") {
-                SettingsItemContainer(index = 0, total = 5, onClick = onNavigateToTheme) {
+            // Appearance Section
+            SettingsSection(title = "Appearance") {
+                SettingsItemContainer(index = 0, total = 2, onClick = onNavigateToTheme) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -143,33 +147,54 @@ fun SettingsScreen(
                     }
                 }
 
-                SettingsDropdown(
-                    label = "Tablet Mode",
-                    items = TabletMode.entries,
-                    selectedItem = tabletMode,
-                    onItemSelected = { viewModel.onEvent(NoteEvent.UpdateTabletMode(it)) },
-                    itemLabel = { it.name.lowercase().replaceFirstChar { char -> char.uppercase() } },
-                    index = 1,
-                    total = 5
-                )
-
-                SettingsDropdown(
-                    label = "Checklist Behavior",
-                    items = ChecklistBehavior.entries,
-                    selectedItem = checklistBehavior,
-                    onItemSelected = { viewModel.onEvent(NoteEvent.UpdateChecklistBehavior(it)) },
-                    itemLabel = {
-                        when (it) {
-                            ChecklistBehavior.GREY_OUT -> "Grey out"
-                            ChecklistBehavior.MOVE_TO_BOTTOM -> "Move to bottom"
-                            ChecklistBehavior.HIDE -> "Hide"
+                SettingsItemContainer(index = 1, total = 2) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Tablet Mode", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            TabletMode.entries.forEach { mode ->
+                                SettingsToggleItem(
+                                    label = mode.name.lowercase().replaceFirstChar { it.uppercase() },
+                                    selected = tabletMode == mode,
+                                    onClick = { viewModel.onEvent(NoteEvent.UpdateTabletMode(mode)) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
-                    },
-                    index = 2,
-                    total = 5
-                )
+                    }
+                }
+            }
 
-                SettingsItemContainer(index = 3, total = 5) {
+            // List Preferences Section
+            SettingsSection(title = "List Preferences") {
+                SettingsItemContainer(index = 0, total = 3) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Checklist Behavior", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            ChecklistBehavior.entries.forEach { behavior ->
+                                SettingsToggleItem(
+                                    label = when (behavior) {
+                                        ChecklistBehavior.GREY_OUT -> "Grey out"
+                                        ChecklistBehavior.MOVE_TO_BOTTOM -> "Move to bottom"
+                                        ChecklistBehavior.HIDE -> "Hide"
+                                    },
+                                    selected = checklistBehavior == behavior,
+                                    onClick = { viewModel.onEvent(NoteEvent.UpdateChecklistBehavior(behavior)) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                SettingsItemContainer(index = 1, total = 3) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -206,14 +231,34 @@ fun SettingsScreen(
                     onLowEnabledChange = { viewModel.onEvent(NoteEvent.UpdateLowScoreEnabled(it)) },
                     lowThreshold = lowScoreThreshold,
                     onLowThresholdChange = { viewModel.onEvent(NoteEvent.UpdateLowScoreThreshold(it)) },
-                    index = 4,
-                    total = 5
+                    index = 2,
+                    total = 3
                 )
             }
 
             // Drawing Section
             SettingsSection(title = "Drawing") {
-                SettingsItemContainer(index = 0, total = 1) {
+                SettingsItemContainer(index = 0, total = 2) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Smoothing Strength", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            SmoothingStrength.entries.forEach { strength ->
+                                SettingsToggleItem(
+                                    label = strength.name.lowercase().replaceFirstChar { it.uppercase() },
+                                    selected = smoothingStrength == strength,
+                                    onClick = { viewModel.onEvent(NoteEvent.UpdateSmoothingStrength(strength)) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                SettingsItemContainer(index = 1, total = 2) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -261,22 +306,6 @@ fun SettingsScreen(
                 }
             }
 
-            SettingsSection(title = "Danger Zone") {
-                SettingsItemContainer(index = 0, total = 1, onClick = { showClearDataDialog = true }) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Rounded.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                        Spacer(Modifier.width(16.dp))
-                        Column {
-                            Text("Clear All Data", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
-                            Text("Permanently delete all notes and lists", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-            }
-
             SettingsSection(title = "Info") {
                 SettingsItemContainer(index = 0, total = 2, onClick = { viewModel.onEvent(NoteEvent.CheckForUpdate) }) {
                     Row(
@@ -313,13 +342,41 @@ fun SettingsScreen(
                     }
                 }
                 SettingsItemContainer(index = 1, total = 2, onClick = onNavigateToAbout) {
+                    val context = LocalContext.current
+                    val versionName = remember {
+                        try {
+                            val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+                            packageInfo.versionName
+                        } catch (_: Exception) {
+                            "Unknown"
+                        }
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(Icons.Rounded.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(16.dp))
-                        Text("About this app", style = MaterialTheme.typography.titleMedium)
+                        Column {
+                            Text("About this app", style = MaterialTheme.typography.titleMedium)
+                            Text("Version $versionName", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+
+            SettingsSection(title = "Danger Zone") {
+                SettingsItemContainer(index = 0, total = 1, onClick = { showClearDataDialog = true }) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Rounded.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.width(16.dp))
+                        Column {
+                            Text("Clear All Data", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
+                            Text("Permanently delete all notes and lists", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             }
@@ -532,6 +589,38 @@ fun RatingIndicatorsSetting(
 }
 
 @Composable
+fun SettingsToggleItem(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val cornerRadius by animateDpAsState(
+        targetValue = if (selected) 24.dp else 12.dp,
+        animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing),
+        label = "cornerRadius"
+    )
+
+    Surface(
+        onClick = onClick,
+        modifier = modifier.height(48.dp),
+        shape = RoundedCornerShape(cornerRadius),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontFamily = GoogleSansFlexRounded
+                ),
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
 fun SettingsSection(
     title: String,
     content: @Composable ColumnScope.() -> Unit
@@ -571,63 +660,3 @@ fun SettingsItemContainer(
     }
 }
 
-@Composable
-fun <T> SettingsDropdown(
-    label: String,
-    items: List<T>,
-    selectedItem: T,
-    onItemSelected: (T) -> Unit,
-    itemLabel: (T) -> String,
-    index: Int,
-    total: Int
-) {
-    var expanded by remember { mutableStateOf(false) }
-
-    SettingsItemContainer(index = index, total = total, onClick = { expanded = true }) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.weight(1f)
-            )
-            
-            Box {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = itemLabel(selectedItem),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Icon(
-                        imageVector = Icons.Rounded.KeyboardArrowDown,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                DropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false }
-                ) {
-                    items.forEach { item ->
-                        DropdownMenuItem(
-                            text = { Text(text = itemLabel(item)) },
-                            onClick = {
-                                onItemSelected(item)
-                                expanded = false
-                            }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}

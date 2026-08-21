@@ -213,6 +213,7 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
             is NoteEvent.UpdateForceStylusOnly -> viewModelScope.launch { repository.setForceStylusOnly(event.enabled) }
             is NoteEvent.UpdateLastDrawingColor -> viewModelScope.launch { repository.setLastDrawingColor(event.color) }
             is NoteEvent.UpdateToolbarAnchor -> viewModelScope.launch { repository.setToolbarAnchor(event.anchor) }
+            is NoteEvent.UpdateSmoothingStrength -> viewModelScope.launch { repository.setSmoothingStrength(event.strength) }
             is NoteEvent.ToggleSidePanel -> {
                 _isSidePanelVisible.value = !_isSidePanelVisible.value
             }

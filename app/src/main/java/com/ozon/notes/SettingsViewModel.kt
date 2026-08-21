@@ -79,6 +79,9 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
     val forceStylusOnly: StateFlow<Boolean> = repository.getForceStylusOnly()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    val smoothingStrength: StateFlow<SmoothingStrength> = repository.getSmoothingStrength()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SmoothingStrength.MODERATE)
+
     private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
     val updateState = _updateState.asStateFlow()
 
@@ -101,6 +104,7 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
             is NoteEvent.UpdateLowScoreEnabled -> viewModelScope.launch { repository.setLowScoreEnabled(event.enabled) }
             is NoteEvent.UpdateLowScoreThreshold -> viewModelScope.launch { repository.setLowScoreThreshold(event.threshold) }
             is NoteEvent.UpdateForceStylusOnly -> viewModelScope.launch { repository.setForceStylusOnly(event.enabled) }
+            is NoteEvent.UpdateSmoothingStrength -> viewModelScope.launch { repository.setSmoothingStrength(event.strength) }
             is NoteEvent.ClearAllData -> viewModelScope.launch { repository.clearAllData() }
             is NoteEvent.BackupData -> viewModelScope.launch { 
                 val data = repository.getBackupData()

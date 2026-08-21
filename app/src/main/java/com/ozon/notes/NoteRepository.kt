@@ -100,6 +100,8 @@ interface NoteRepository {
     suspend fun setLastDrawingColor(color: Int)
     fun getToolbarAnchor(): Flow<ToolbarAnchor>
     suspend fun setToolbarAnchor(anchor: ToolbarAnchor)
+    fun getSmoothingStrength(): Flow<SmoothingStrength>
+    suspend fun setSmoothingStrength(strength: SmoothingStrength)
 }
 
 //class InMemoryNoteRepository : NoteRepository {

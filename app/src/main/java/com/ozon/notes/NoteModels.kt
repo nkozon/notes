@@ -192,6 +192,10 @@ enum class TagFilterMode {
     AND, OR
 }
 
+enum class SmoothingStrength {
+    NONE, LIGHT, MODERATE, HEAVY
+}
+
 @androidx.compose.runtime.Immutable
 @Serializable
 data class BackupData(

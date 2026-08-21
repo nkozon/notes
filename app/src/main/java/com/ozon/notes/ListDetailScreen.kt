@@ -11,6 +11,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -29,6 +30,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -92,6 +94,7 @@ fun ListDetailScreen(
     val sortOrder by checklistViewModel.listSortOrder.collectAsStateWithLifecycle()
     val checklistBehavior by settingsViewModel.checklistBehaviorState.collectAsStateWithLifecycle()
     val showEntryCount by settingsViewModel.showEntryCountState.collectAsStateWithLifecycle()
+    val isOledMode by settingsViewModel.isOledModeState.collectAsStateWithLifecycle()
     
     val ratingIndicatorsEnabled by settingsViewModel.ratingIndicatorsEnabled.collectAsStateWithLifecycle()
     val highScoreEnabled by settingsViewModel.highScoreEnabled.collectAsStateWithLifecycle()
@@ -321,11 +324,9 @@ fun ListDetailScreen(
         ) {
             val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-            // Construct the hierarchical view for the list.
-            // We use pre-grouped entries to avoid O(N^2) filtering inside the recursive function,
-            // making rendering efficient even for hundreds of nested items.
+            // constructing the hierarchical view for the list.
             val hierarchicalEntries = remember(entries, expandedEntries, checklistBehavior, currentList.type, searchQuery) {
-                val fullList = mutableListOf<Pair<ListEntry, Int>>()
+                val fullList = mutableListOf<Triple<ListEntry, Int, Boolean>>()
                 val entriesByParent = entries.groupBy { it.parentId }
                 
                 fun addAll(parentId: String?, depth: Int) {
@@ -333,7 +334,8 @@ fun ListDetailScreen(
                         if (currentList.type == ListType.CHECKLIST && checklistBehavior == ChecklistBehavior.HIDE && entry.isChecked) {
                             // Skip hidden entries
                         } else {
-                            fullList.add(entry to depth)
+                            val hasChildren = entriesByParent.containsKey(entry.id)
+                            fullList.add(Triple(entry, depth, hasChildren))
                             // Auto-expand everything if searching, otherwise respect user toggle
                             if (expandedEntries.contains(entry.id) || searchQuery.isNotBlank()) {
                                 addAll(entry.id, depth + 1)
@@ -346,8 +348,12 @@ fun ListDetailScreen(
             }
 
             val isMoveToBottom = currentList.type == ListType.CHECKLIST && checklistBehavior == ChecklistBehavior.MOVE_TO_BOTTOM
-            val checkedEntries = if (isMoveToBottom) hierarchicalEntries.filter { it.first.isChecked } else emptyList()
-            val uncheckedEntries = if (isMoveToBottom) hierarchicalEntries.filter { !it.first.isChecked } else hierarchicalEntries
+            val checkedEntries = remember(hierarchicalEntries, isMoveToBottom) {
+                if (isMoveToBottom) hierarchicalEntries.filter { it.first.isChecked } else emptyList()
+            }
+            val uncheckedEntries = remember(hierarchicalEntries, isMoveToBottom) {
+                if (isMoveToBottom) hierarchicalEntries.filter { !it.first.isChecked } else hierarchicalEntries
+            }
 
             LaunchedEffect(entries) {
                 lastAddedId?.let { id ->
@@ -422,14 +428,13 @@ fun ListDetailScreen(
                     }
                 }
 
-                items(
+                itemsIndexed(
                     items = uncheckedEntries,
-                    key = { item -> item.first.id }
-                ) { item ->
+                    key = { _, item -> item.first.id }
+                ) { index, item ->
                     val entry = item.first
                     val depth = item.second
-                    val index = uncheckedEntries.indexOf(item)
-                    val hasChildren = entries.any { it.parentId == entry.id }
+                    val hasChildren = item.third
                     val isExpanded = expandedEntries.contains(entry.id)
                     
                     val isFirstItemInList = index == 0
@@ -438,12 +443,10 @@ fun ListDetailScreen(
                     val topRadius = if (isFirstItemInList) 28.dp else 4.dp
                     val bottomRadius = if (isLastItemInList) 28.dp else 4.dp
 
-                    val topStartRadiusAnimated by animateDpAsState(targetValue = topRadius, label = "topStart")
-                    val topEndRadiusAnimated by animateDpAsState(targetValue = topRadius, label = "topEnd")
-                    val bottomStartRadiusAnimated by animateDpAsState(targetValue = bottomRadius, label = "bottomStart")
-                    val bottomEndRadiusAnimated by animateDpAsState(targetValue = bottomRadius, label = "bottomEnd")
+                    val topRadiusAnimated by animateDpAsState(targetValue = topRadius, label = "topRadius")
+                    val bottomRadiusAnimated by animateDpAsState(targetValue = bottomRadius, label = "bottomRadius")
 
-                    val shape = RoundedCornerShape(topStartRadiusAnimated, topEndRadiusAnimated, bottomEndRadiusAnimated, bottomStartRadiusAnimated)
+                    val shape = RoundedCornerShape(topRadiusAnimated, topRadiusAnimated, bottomRadiusAnimated, bottomRadiusAnimated)
 
                     Box(modifier = Modifier.animateItem()) {
                         SwipeToDismissWrapper(
@@ -472,7 +475,10 @@ fun ListDetailScreen(
                                     hasChildren = if (currentList.type == ListType.RATING) hasChildren else false,
                                     isExpanded = isExpanded,
                                     searchQuery = searchQuery,
-                                    indicatorColor = indicatorContentColor?.copy(alpha = 0.12f),
+                                    indicatorColor = indicatorContentColor?.let { 
+                                        val baseAlpha = if (isOledMode) 0.28f else 0.12f
+                                        it.copy(alpha = baseAlpha).compositeOver(MaterialTheme.colorScheme.surface)
+                                    },
                                     indicatorContentColor = indicatorContentColor,
                                     tagNames = allTags.filter { it.id in entry.tagIds }.map { it.name },
                                     onToggleExpand = {
@@ -519,27 +525,25 @@ fun ListDetailScreen(
                     }
 
                     if (!isCompletedCollapsed) {
-                        items(
+                        itemsIndexed(
                             items = checkedEntries,
-                            key = { item -> item.first.id }
-                        ) { item ->
+                            key = { _, item -> item.first.id }
+                        ) { index, item ->
                             val entry = item.first
                             val depth = item.second
-                            val index = checkedEntries.indexOf(item)
-                            val hasChildren = entries.any { it.parentId == entry.id }
+                            val hasChildren = item.third
                             val isExpanded = expandedEntries.contains(entry.id)
                             
-                            val topStartRadius = if (index == 0) 28.dp else 4.dp
-                            val topEndRadius = if (index == 0) 28.dp else 4.dp
-                            val bottomStartRadius = if (index == checkedEntries.size - 1) 28.dp else 4.dp
-                            val bottomEndRadius = if (index == checkedEntries.size - 1) 28.dp else 4.dp
+                            val isFirst = index == 0
+                            val isLast = index == checkedEntries.size - 1
 
-                            val topStartRadiusAnimated by animateDpAsState(targetValue = topStartRadius, label = "topStart")
-                            val topEndRadiusAnimated by animateDpAsState(targetValue = topEndRadius, label = "topEnd")
-                            val bottomStartRadiusAnimated by animateDpAsState(targetValue = bottomStartRadius, label = "bottomStart")
-                            val bottomEndRadiusAnimated by animateDpAsState(targetValue = bottomEndRadius, label = "bottomEnd")
+                            val topRadius = if (isFirst) 28.dp else 4.dp
+                            val bottomRadius = if (isLast) 28.dp else 4.dp
 
-                            val shape = RoundedCornerShape(topStartRadiusAnimated, topEndRadiusAnimated, bottomEndRadiusAnimated, bottomStartRadiusAnimated)
+                            val topRadiusAnimated by animateDpAsState(targetValue = topRadius, label = "topStart")
+                            val bottomRadiusAnimated by animateDpAsState(targetValue = bottomRadius, label = "bottomStart")
+
+                            val shape = RoundedCornerShape(topRadiusAnimated, topRadiusAnimated, bottomRadiusAnimated, bottomRadiusAnimated)
 
                             Box(modifier = Modifier.animateItem()) {
                                 SwipeToDismissWrapper(
@@ -556,12 +560,12 @@ fun ListDetailScreen(
                                             entry = entry,
                                             listType = currentList.type,
                                             depth = depth,
-                                            hasChildren = if (currentList.type == ListType.RATING) hasChildren else false,
+                                            hasChildren = hasChildren,
                                             isExpanded = isExpanded,
                                             searchQuery = searchQuery,
                                             indicatorColor = null,
                                             indicatorContentColor = null,
-                                            tagNames = allTags.filter { it.id in entry.tagIds }.map { it.name },
+                                            tagNames = remember(allTags, entry.tagIds) { allTags.filter { it.id in entry.tagIds }.map { it.name } },
                                             onToggleExpand = {
                                                 expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
                                             },
@@ -1660,29 +1664,6 @@ fun TagFilterDropdown(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                if (selectedTagIds.isNotEmpty()) {
-                    Surface(
-                        onClick = {
-                            onClearAll()
-                            expanded = false
-                        },
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
-                        contentColor = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Rounded.Clear, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(12.dp))
-                            Text("Clear all filters", style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     allTags.forEachIndexed { index, tag ->
                         val isSelected = selectedTagIds.contains(tag.id)
@@ -1739,6 +1720,28 @@ fun TagFilterDropdown(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
                         textAlign = TextAlign.Center
                     )
+                }
+
+                if (selectedTagIds.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Surface(
+                        onClick = {
+                            onClearAll()
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
+                        contentColor = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Rounded.Clear, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text("Clear all filters", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
                 }
             }
         }
@@ -1957,7 +1960,7 @@ private fun PreviewSubEntryItem(
                     text = ratingText,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(start = 12.dp)
                 )
             }

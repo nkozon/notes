@@ -666,4 +666,15 @@ class RoomNoteRepository(
         prefs.edit().putString("toolbar_anchor", anchor.name).apply()
         _toolbarAnchor.value = anchor
     }
+
+    private val _smoothingStrength = MutableStateFlow(
+        prefs.getString("smoothing_strength", null)?.let {
+            try { SmoothingStrength.valueOf(it) } catch (e: Exception) { null }
+        } ?: SmoothingStrength.MODERATE
+    )
+    override fun getSmoothingStrength(): Flow<SmoothingStrength> = _smoothingStrength
+    override suspend fun setSmoothingStrength(strength: SmoothingStrength) {
+        prefs.edit().putString("smoothing_strength", strength.name).apply()
+        _smoothingStrength.value = strength
+    }
 }

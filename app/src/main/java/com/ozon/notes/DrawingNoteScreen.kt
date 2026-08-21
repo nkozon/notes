@@ -86,6 +86,7 @@ fun DrawingNoteScreen(
     val isSidePanelVisible by notesViewModel.isSidePanelVisible.collectAsStateWithLifecycle()
     val forceStylusOnly by notesViewModel.forceStylusOnly.collectAsStateWithLifecycle()
     val lastDrawingColor by notesViewModel.lastDrawingColor.collectAsStateWithLifecycle()
+    val smoothingStrength by settingsViewModel.smoothingStrength.collectAsStateWithLifecycle()
     val savedToolbarAnchor by notesViewModel.toolbarAnchor.collectAsStateWithLifecycle()
     val appTheme by settingsViewModel.themeState.collectAsStateWithLifecycle()
     val isDarkTheme = when (appTheme) {
@@ -338,7 +339,7 @@ fun DrawingNoteScreen(
                         minX = minOf(minX, p.x - hw); minY = minOf(minY, p.y - hw)
                         maxX = maxOf(maxX, p.x + hw); maxY = maxOf(maxY, p.y + hw)
                     }
-                    Rect(minX, minOf(minY, maxY), maxX, maxY)
+                    Rect(minX, minY, maxX, maxY)
                 })
             }
             strokeBoundsMap = newMap
@@ -934,6 +935,15 @@ fun DrawingNoteScreen(
                                     currentPathPoints.add(DrawingPoint(worldStartPos.x, worldStartPos.y))
                                 }
 
+                                var smoothedX = worldStartPos.x
+                                var smoothedY = worldStartPos.y
+                                val alpha = when (smoothingStrength) {
+                                    SmoothingStrength.NONE -> 1.0f
+                                    SmoothingStrength.LIGHT -> 0.7f
+                                    SmoothingStrength.MODERATE -> 0.45f
+                                    SmoothingStrength.HEAVY -> 0.25f
+                                }
+
                                 val touchSlop = viewConfiguration.touchSlop
                                 val effectiveSlop = if (dragMode == DragMode.DRAW || dragMode == DragMode.LASSO || isStylus) 0.1f else touchSlop
                                 var hasMovedPastSlop = false
@@ -968,8 +978,8 @@ fun DrawingNoteScreen(
                                             if (strokes != strokesAtStart || images != imagesAtStart) {
                                                 isDirty = true
                                             }
+                                            currentPathPoints.clear()
                                         }
-                                        currentPathPoints.clear()
                                         break
                                     }
 
@@ -989,6 +999,8 @@ fun DrawingNoteScreen(
                                             val lastPt = currentPathPoints.last()
                                             currentPathPoints.clear()
                                             currentPathPoints.add(lastPt)
+                                            smoothedX = lastPt.x
+                                            smoothedY = lastPt.y
                                         }
                                         currentWorkingTool = newTool
                                         activeDrawingTool = newTool
@@ -1031,17 +1043,38 @@ fun DrawingNoteScreen(
                                             DragMode.LASSO, DragMode.DRAW -> {
                                                 val addedPoints = mutableListOf<DrawingPoint>()
                                                 change.historical.forEach { h -> 
-                                                    val pt = DrawingPoint((h.position.x - updatedCanvasOffset.x) / updatedCanvasScale, (h.position.y - updatedCanvasOffset.y) / updatedCanvasScale)
+                                                    val rawX = (h.position.x - updatedCanvasOffset.x) / updatedCanvasScale
+                                                    val rawY = (h.position.y - updatedCanvasOffset.y) / updatedCanvasScale
+                                                    
+                                                    if (currentWorkingTool == DrawingTool.PEN && alpha < 1.0f) {
+                                                        smoothedX = alpha * rawX + (1 - alpha) * smoothedX
+                                                        smoothedY = alpha * rawY + (1 - alpha) * smoothedY
+                                                    } else {
+                                                        smoothedX = rawX
+                                                        smoothedY = rawY
+                                                    }
+                                                    
+                                                    val pt = DrawingPoint(smoothedX, smoothedY)
                                                     addedPoints.add(pt)
                                                     currentPathPoints.add(pt)
                                                 }
-                                                val currentPt = DrawingPoint(worldPos.x, worldPos.y)
+                                                val rawX = worldPos.x
+                                                val rawY = worldPos.y
+                                                
+                                                if (currentWorkingTool == DrawingTool.PEN && alpha < 1.0f) {
+                                                    smoothedX = alpha * rawX + (1 - alpha) * smoothedX
+                                                    smoothedY = alpha * rawY + (1 - alpha) * smoothedY
+                                                } else {
+                                                    smoothedX = rawX
+                                                    smoothedY = rawY
+                                                }
+                                                
+                                                val currentPt = DrawingPoint(smoothedX, smoothedY)
                                                 addedPoints.add(currentPt)
                                                 currentPathPoints.add(currentPt)
 
                                                 if (dragMode == DragMode.DRAW && currentWorkingTool == DrawingTool.ERASER) {
                                                     val radius = eraserThickness / 2f
-                                                    val radiusSq = radius * radius
                                                     
                                                     var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
                                                     var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
@@ -1054,6 +1087,8 @@ fun DrawingNoteScreen(
                                                     val eraseRect = Rect(minX - radius, minY - radius, maxX + radius, maxY + radius)
 
                                                     val oldStrokesSize = strokes.size
+                                                    val eraserRadius = eraserThickness / 2f
+                                                    
                                                     strokes = strokes.filterNot { stroke ->
                                                         if (stroke.tool == DrawingTool.ERASER) {
                                                             false
@@ -1062,13 +1097,27 @@ fun DrawingNoteScreen(
                                                             if (bounds != null && !bounds.overlaps(eraseRect)) {
                                                                 false
                                                             } else {
-                                                                stroke.points.any { sp ->
-                                                                    addedPoints.any { ep ->
-                                                                        val dx = sp.x - ep.x
-                                                                        val dy = sp.y - ep.y
-                                                                        dx * dx + dy * dy < radiusSq
+                                                                val thresholdSq = (eraserRadius + stroke.width / 2f).let { it * it }
+                                                                var hit = false
+                                                                for (i in 0 until stroke.points.size - 1) {
+                                                                    val p1 = stroke.points[i]
+                                                                    val p2 = stroke.points[i + 1]
+                                                                    for (ep in addedPoints) {
+                                                                        if (distanceToSegmentSq(ep.x, ep.y, p1.x, p1.y, p2.x, p2.y) < thresholdSq) {
+                                                                            hit = true
+                                                                            break
+                                                                        }
+                                                                    }
+                                                                    if (hit) break
+                                                                }
+                                                                if (!hit && stroke.points.size == 1) {
+                                                                    val p = stroke.points[0]
+                                                                    for (ep in addedPoints) {
+                                                                        val dx = p.x - ep.x; val dy = p.y - ep.y
+                                                                        if (dx*dx + dy*dy < thresholdSq) { hit = true; break }
                                                                     }
                                                                 }
+                                                                hit
                                                             }
                                                         }
                                                     }
@@ -1098,18 +1147,32 @@ fun DrawingNoteScreen(
                                     }
                                 } else {
                                     if (dragMode == DragMode.LASSO && currentPathPoints.size > 2) {
-                                        val lassoPath = android.graphics.Path().apply { currentPathPoints.forEachIndexed { i, p -> if (i == 0) moveTo(p.x, p.y) else lineTo(p.x, p.y) }; close() }
+                                        val lassoPoints = currentPathPoints.toList()
+                                        
+                                        // Use a higher precision for the region to handle small world coordinates
+                                        val scaleFactor = 100f
+                                        val lassoPath = android.graphics.Path().apply { 
+                                            lassoPoints.forEachIndexed { i, p -> 
+                                                if (i == 0) moveTo(p.x * scaleFactor, p.y * scaleFactor) 
+                                                else lineTo(p.x * scaleFactor, p.y * scaleFactor) 
+                                            }
+                                            close() 
+                                        }
+                                        
                                         val region = android.graphics.Region()
                                         val b = android.graphics.RectF()
                                         lassoPath.computeBounds(b, true)
                                         region.setPath(lassoPath, android.graphics.Region(b.left.toInt(), b.top.toInt(), b.right.toInt(), b.bottom.toInt()))
+                                        
                                         val newIds = mutableSetOf<String>()
-                                        val penStrokes = updatedStrokes.filter { it.tool != DrawingTool.ERASER && it.points.any { pt -> region.contains(pt.x.toInt(), pt.y.toInt()) } }
+                                        val penStrokes = updatedStrokes.filter { it.tool != DrawingTool.ERASER && it.points.any { pt -> region.contains((pt.x * scaleFactor).toInt(), (pt.y * scaleFactor).toInt()) } }
                                         penStrokes.forEach { newIds.add(it.id) }
+                                        
                                         if (newIds.isNotEmpty()) {
                                             val selBounds = getBounds(penStrokes, emptyList())
                                             updatedStrokes.filter { it.tool == DrawingTool.ERASER }.forEach { eraser -> if (eraser.points.any { pt -> selBounds.contains(Offset(pt.x, pt.y)) }) newIds.add(eraser.id) }
                                         }
+                                        
                                         selectedStrokeIds = newIds
                                         currentPathPoints.clear()
                                     }
@@ -1892,4 +1955,20 @@ private fun getBoundsLocal(strokes: List<com.ozon.notes.Stroke>, images: List<co
     strokes.forEach { s -> val halfWidth = s.width / 2f; s.points.forEach { p -> minX = minOf(minX, p.x - halfWidth); minY = minOf(minY, p.y - halfWidth); maxX = maxOf(maxX, p.x + halfWidth); maxY = maxOf(maxY, p.y + halfWidth) } }
     images.forEach { img -> minX = minOf(minX, img.offset.x); minY = minOf(minY, img.offset.y); maxX = maxOf(maxX, img.offset.x + img.scale.x); maxY = maxOf(maxY, img.offset.y + img.scale.y) }
     return Rect(minX, minY, maxX, maxY)
+}
+
+private fun distanceToSegmentSq(px: Float, py: Float, x1: Float, y1: Float, x2: Float, y2: Float): Float {
+    val dx = x2 - x1
+    val dy = y2 - y1
+    if (dx == 0f && dy == 0f) return (px - x1) * (px - x1) + (py - y1) * (py - y1)
+    val t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)
+    return if (t < 0) {
+        (px - x1) * (px - x1) + (py - y1) * (py - y1)
+    } else if (t > 1) {
+        (px - x2) * (px - x2) + (py - y2) * (py - y2)
+    } else {
+        val qx = x1 + t * dx
+        val qy = y1 + t * dy
+        (px - qx) * (px - qx) + (py - qy) * (py - qy)
+    }
 }

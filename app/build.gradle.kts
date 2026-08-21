@@ -17,8 +17,8 @@ android {
         applicationId = "com.ozon.notes"
         minSdk = 30
         targetSdk = 36
-        versionCode = 15
-        versionName = "1.7.4"
+        versionCode = 16
+        versionName = "1.7.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

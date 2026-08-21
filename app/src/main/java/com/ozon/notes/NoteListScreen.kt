@@ -321,13 +321,11 @@ fun NoteListScreen(
                     val targetTopRadius = if (isSelected) 32.dp else if (isFirst) 28.dp else 4.dp
                     val targetBottomRadius = if (isSelected) 32.dp else if (isLast) 28.dp else 4.dp
 
-                    val topStartRadius by animateDpAsState(targetValue = targetTopRadius, label = "topStart")
-                    val topEndRadius by animateDpAsState(targetValue = targetTopRadius, label = "topEnd")
-                    val bottomStartRadius by animateDpAsState(targetValue = targetBottomRadius, label = "bottomStart")
-                    val bottomEndRadius by animateDpAsState(targetValue = targetBottomRadius, label = "bottomEnd")
+                    val topRadius by animateDpAsState(targetValue = targetTopRadius, label = "topRadius")
+                    val bottomRadius by animateDpAsState(targetValue = targetBottomRadius, label = "bottomRadius")
                     
-                    val shape = remember(topStartRadius, topEndRadius, bottomEndRadius, bottomStartRadius) {
-                        RoundedCornerShape(topStartRadius, topEndRadius, bottomEndRadius, bottomStartRadius)
+                    val shape = remember(topRadius, bottomRadius) {
+                        RoundedCornerShape(topRadius, topRadius, bottomRadius, bottomRadius)
                     }
 
                     SwipeActionWrapper(
@@ -394,13 +392,11 @@ fun NoteListScreen(
                     val targetTopRadius = if (isSelected) 32.dp else if (isFirst) 28.dp else 4.dp
                     val targetBottomRadius = if (isSelected) 32.dp else if (isLast) 28.dp else 4.dp
 
-                    val topStartRadius by animateDpAsState(targetValue = targetTopRadius, label = "listTopStart")
-                    val topEndRadius by animateDpAsState(targetValue = targetTopRadius, label = "listTopEnd")
-                    val bottomStartRadius by animateDpAsState(targetValue = targetBottomRadius, label = "listBottomStart")
-                    val bottomEndRadius by animateDpAsState(targetValue = targetBottomRadius, label = "listBottomEnd")
+                    val topRadius by animateDpAsState(targetValue = targetTopRadius, label = "listTopRadius")
+                    val bottomRadius by animateDpAsState(targetValue = targetBottomRadius, label = "listBottomRadius")
                     
-                    val shape = remember(topStartRadius, topEndRadius, bottomEndRadius, bottomStartRadius) {
-                        RoundedCornerShape(topStartRadius, topEndRadius, bottomEndRadius, bottomStartRadius)
+                    val shape = remember(topRadius, bottomRadius) {
+                        RoundedCornerShape(topRadius, topRadius, bottomRadius, bottomRadius)
                     }
 
                     SwipeActionWrapper(
@@ -952,13 +948,15 @@ fun NoteCard(
 
 @Composable
 fun DrawingPreview(strokes: List<com.ozon.notes.Stroke>) {
-    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize().padding(4.dp)) {
-        if (strokes.isEmpty()) return@Canvas
+    if (strokes.isEmpty()) return
+
+    val previewBitmap = remember(strokes) {
+        if (strokes.isEmpty()) return@remember null
         
         var minX = Float.MAX_VALUE
         var minY = Float.MAX_VALUE
-        var maxX = Float.MIN_VALUE
-        var maxY = Float.MIN_VALUE
+        var maxX = -Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
         
         strokes.forEach { stroke ->
             stroke.points.forEach { pt ->
@@ -972,31 +970,50 @@ fun DrawingPreview(strokes: List<com.ozon.notes.Stroke>) {
         val drawingWidth = maxX - minX
         val drawingHeight = maxY - minY
         
-        if (drawingWidth <= 0 || drawingHeight <= 0) return@Canvas
+        if (drawingWidth <= 0 || drawingHeight <= 0) return@remember null
+
+        // Render to a small bitmap for preview
+        val bw = 120; val bh = 80 // Base size for preview
+        val bitmap = android.graphics.Bitmap.createBitmap(bw, bh, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
         
-        val scale = minOf(size.width / drawingWidth, size.height / drawingHeight) * 0.8f
+        val scale = minOf(bw / drawingWidth, bh / drawingHeight) * 0.8f
+        val offsetX = (bw - drawingWidth * scale) / 2f - minX * scale
+        val offsetY = (bh - drawingHeight * scale) / 2f - minY * scale
         
-        val offsetX = (size.width - drawingWidth * scale) / 2f - minX * scale
-        val offsetY = (size.height - drawingHeight * scale) / 2f - minY * scale
+        val paint = android.graphics.Paint().apply {
+            isAntiAlias = true
+            strokeCap = android.graphics.Paint.Cap.ROUND
+            strokeJoin = android.graphics.Paint.Join.ROUND
+            style = android.graphics.Paint.Style.STROKE
+        }
         
         strokes.forEach { stroke ->
-            val path = androidx.compose.ui.graphics.Path().apply {
-                stroke.points.forEachIndexed { index, point ->
-                    val x = point.x * scale + offsetX
-                    val y = point.y * scale + offsetY
-                    if (index == 0) moveTo(x, y)
-                    else lineTo(x, y)
+            paint.color = stroke.colorArgb
+            paint.strokeWidth = stroke.width * scale
+            val path = android.graphics.Path()
+            val points = stroke.points
+            if (points.isNotEmpty()) {
+                path.moveTo(points[0].x * scale + offsetX, points[0].y * scale + offsetY)
+                // Simplify: take only every 3rd point
+                for (i in 1 until points.size step 3) {
+                    path.lineTo(points[i].x * scale + offsetX, points[i].y * scale + offsetY)
+                }
+                if ((points.size - 1) % 3 != 0) {
+                    path.lineTo(points.last().x * scale + offsetX, points.last().y * scale + offsetY)
                 }
             }
-            drawPath(
-                path = path,
-                color = Color(stroke.colorArgb),
-                style = androidx.compose.ui.graphics.drawscope.Stroke(
-                    width = stroke.width * scale, 
-                    cap = StrokeCap.Round, 
-                    join = StrokeJoin.Round
-                )
-            )
+            canvas.drawPath(path, paint)
         }
+        bitmap.asImageBitmap()
+    }
+
+    if (previewBitmap != null) {
+        androidx.compose.foundation.Image(
+            bitmap = previewBitmap,
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize().padding(4.dp),
+            contentScale = androidx.compose.ui.layout.ContentScale.Fit
+        )
     }
 }
