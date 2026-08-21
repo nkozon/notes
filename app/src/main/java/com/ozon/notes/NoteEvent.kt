@@ -50,4 +50,9 @@ sealed interface NoteEvent {
     data object TriggerAutoBackup : NoteEvent
     data object CheckForUpdate : NoteEvent
     data class InstallUpdate(val url: String, val version: String) : NoteEvent
+    
+    // Granular Backup
+    data class ExportNote(val noteId: String, val onDataReady: (com.ozon.notes.BackupData) -> Unit) : NoteEvent
+    data class ExportList(val listId: String, val onDataReady: (com.ozon.notes.BackupData) -> Unit) : NoteEvent
+    data class ImportGranular(val data: com.ozon.notes.BackupData) : NoteEvent
 }

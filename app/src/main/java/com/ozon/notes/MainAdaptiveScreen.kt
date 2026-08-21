@@ -90,6 +90,7 @@ private fun MobileNavHost(
                 viewModel = settingsViewModel,
                 onNavigateToTheme = { navController.navigate("theme") },
                 onNavigateToBackupRestore = { navController.navigate("backupRestore") },
+                onNavigateToGranularBackup = { navController.navigate("granularBackup") },
                 onNavigateToAbout = { navController.navigate("about") },
                 onNavigateUp = { navController.popBackStack() }
             )
@@ -99,6 +100,13 @@ private fun MobileNavHost(
         }
         composable("backupRestore") {
             BackupRestoreScreen(viewModel = settingsViewModel, onNavigateUp = { navController.popBackStack() })
+        }
+        composable("granularBackup") {
+            GranularBackupScreen(
+                notesViewModel = notesViewModel, 
+                settingsViewModel = settingsViewModel, 
+                onNavigateUp = { navController.popBackStack() }
+            )
         }
         composable("about") {
             AboutScreen(onNavigateUp = { navController.popBackStack() })
@@ -232,6 +240,7 @@ private fun TabletSplitScreen(
                             onNavigateToSettings = { currentDetailRoute = DetailRoute.Settings },
                             onNavigateToTheme = { currentDetailRoute = DetailRoute.Theme },
                             onNavigateToBackup = { currentDetailRoute = DetailRoute.BackupRestore },
+                            onNavigateToGranularBackup = { currentDetailRoute = DetailRoute.GranularBackup },
                             onNavigateToAbout = { currentDetailRoute = DetailRoute.About }
                         )
                     }
@@ -289,6 +298,7 @@ private fun DetailPaneContent(
     onNavigateToSettings: () -> Unit,
     onNavigateToTheme: () -> Unit,
     onNavigateToBackup: () -> Unit,
+    onNavigateToGranularBackup: () -> Unit,
     onNavigateToAbout: () -> Unit
 ) {
     when (route) {
@@ -318,6 +328,7 @@ private fun DetailPaneContent(
                 viewModel = settingsViewModel,
                 onNavigateToTheme = onNavigateToTheme,
                 onNavigateToBackupRestore = onNavigateToBackup,
+                onNavigateToGranularBackup = onNavigateToGranularBackup,
                 onNavigateToAbout = onNavigateToAbout,
                 onNavigateUp = onClose
             )
@@ -327,6 +338,13 @@ private fun DetailPaneContent(
         }
         is DetailRoute.BackupRestore -> {
             BackupRestoreScreen(viewModel = settingsViewModel, onNavigateUp = onNavigateToSettings)
+        }
+        is DetailRoute.GranularBackup -> {
+            GranularBackupScreen(
+                notesViewModel = notesViewModel, 
+                settingsViewModel = settingsViewModel, 
+                onNavigateUp = onNavigateToSettings
+            )
         }
         is DetailRoute.About -> {
             AboutScreen(onNavigateUp = onNavigateToSettings)

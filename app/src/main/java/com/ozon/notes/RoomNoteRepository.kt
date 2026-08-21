@@ -359,6 +359,42 @@ class RoomNoteRepository(
         BackupData(notes, lists, entries, tags)
     }
 
+    override suspend fun getNoteBackup(noteId: String): BackupData? {
+        val note = getNoteById(noteId) ?: return null
+        
+        // Handle PDF base64 if it's a PDF drawing
+        val pdfRestoredNote = note.drawingData?.pdfInfo?.let { info ->
+            val file = File(info.localPath)
+            if (file.exists()) {
+                val bytes = file.readBytes()
+                val updatedInfo = info.copy(base64Data = Base64.encodeToString(bytes, Base64.DEFAULT))
+                note.copy(drawingData = note.drawingData.copy(pdfInfo = updatedInfo))
+            } else note
+        } ?: note
+        
+        return BackupData(notes = listOf(pdfRestoredNote), lists = emptyList(), entries = emptyList(), tags = emptyList())
+    }
+
+    override suspend fun getListBackup(listId: String): BackupData? {
+        val listEntity = database.listDao().getListById(listId) ?: return null
+        val list = listEntity.toDomain()
+        
+        val allTags = database.tagDao().getAllTagsList().map { it.toDomain() }
+        val crossRefs = database.entryTagCrossRefDao().getAllCrossRefsList().groupBy { it.entryId }
+        
+        val entries = database.listDao().getEntriesForListSync(listId).map { entity ->
+            val tagIds = crossRefs[entity.id]?.map { it.tagId } ?: emptyList()
+            val desc = readFile("${entity.id}.desc") ?: entity.description
+            entity.toDomain(tagIds).copy(description = desc)
+        }
+        
+        // Filter tags to only those used in this list or defined for this list
+        val relevantTagIds = entries.flatMap { it.tagIds }.toSet()
+        val relevantTags = allTags.filter { it.listId == listId || it.id in relevantTagIds }
+        
+        return BackupData(notes = emptyList(), lists = listOf(list), entries = entries, tags = relevantTags)
+    }
+
     override suspend fun restoreBackupData(data: BackupData) = withContext(Dispatchers.IO) {
         database.withTransaction {
             database.clearAllTables()
@@ -369,76 +405,85 @@ class RoomNoteRepository(
                     file.delete()
                 }
             }
-            
-            // 1. Restore Notes
-            data.notes.forEach { note ->
-                saveFile("${note.id}.content", note.content)
-                note.contentHtml?.let { saveFile("${note.id}.html", it) }
-                
-                // Extract PDF if present
-                val restoredPdfInfo = note.drawingData?.pdfInfo?.let { info ->
-                    if (info.base64Data != null) {
-                        val bytes = Base64.decode(info.base64Data, Base64.DEFAULT)
-                        val fileName = "note_pdf_${UUID.randomUUID()}.pdf"
-                        val file = File(context.filesDir, fileName)
-                        file.writeBytes(bytes)
-                        info.copy(localPath = file.absolutePath, base64Data = null)
-                    } else info
-                }
-                
-                val drawingDataToSave = note.drawingData?.copy(pdfInfo = restoredPdfInfo)
-                drawingDataToSave?.let { saveFile("${note.id}.drawing", json.encodeToString(it)) }
-                
-                val preview = if (note.type == NoteType.TEXT) note.content.take(300) else null
-                database.noteDao().upsertNote(note.toEntity().copy(
-                    content = "",
-                    contentHtml = null,
-                    drawingData = null,
-                    previewText = preview
-                ))
-            }
-            
-            // 2. Restore Tags
-            database.tagDao().upsertTags(data.tags.map { it.toEntity() })
+            importBackupDataInternal(data)
+        }
+    }
 
-            // 3. Restore Lists
-            database.listDao().upsertLists(data.lists.map { it.toEntity() })
+    override suspend fun importBackupData(data: BackupData) = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            importBackupDataInternal(data)
+        }
+    }
 
-            // 4. Restore Entries and CrossRefs
-            val validListIds = data.lists.map { it.id }.toSet()
-            val validTagIds = data.tags.map { it.id }.toSet()
-            val entriesToRestore = data.entries.filter { it.listId in validListIds }
-            val validEntryIds = entriesToRestore.map { it.id }.toSet()
+    private suspend fun importBackupDataInternal(data: BackupData) {
+        // 1. Restore Notes
+        data.notes.forEach { note ->
+            saveFile("${note.id}.content", note.content)
+            note.contentHtml?.let { saveFile("${note.id}.html", it) }
             
-            val allEntryEntities = entriesToRestore.map { entry ->
-                entry.description?.let { saveFile("${entry.id}.desc", it) }
-                entry.toEntity().copy(
-                    description = null,
-                    parentId = entry.parentId?.takeIf { p -> p in validEntryIds }
-                )
+            val restoredPdfInfo = note.drawingData?.pdfInfo?.let { info ->
+                if (info.base64Data != null) {
+                    val bytes = Base64.decode(info.base64Data, Base64.DEFAULT)
+                    val fileName = "note_pdf_${UUID.randomUUID()}.pdf"
+                    val file = File(context.filesDir, fileName)
+                    file.writeBytes(bytes)
+                    info.copy(localPath = file.absolutePath, base64Data = null)
+                } else info
             }
+            
+            val drawingDataToSave = note.drawingData?.copy(pdfInfo = restoredPdfInfo)
+            drawingDataToSave?.let { saveFile("${note.id}.drawing", json.encodeToString(it)) }
+            
+            val preview = if (note.type == NoteType.TEXT) note.content.take(300) else null
+            database.noteDao().upsertNote(note.toEntity().copy(
+                content = "",
+                contentHtml = null,
+                drawingData = null,
+                previewText = preview,
+                previewImage = if (note.type == NoteType.DRAWING) generateThumbnail(note) else null
+            ))
+        }
+        
+        // 2. Restore Tags
+        database.tagDao().upsertTags(data.tags.map { it.toEntity() })
 
-            // Pass 1: Insert all entries as top-level (parentId = null). 
-            database.listDao().upsertEntries(allEntryEntities.map { it.copy(parentId = null) })
-            
-            // Pass 2: Update the parentId links.
-            val updates = allEntryEntities
-                .filter { it.parentId != null }
-                .map { it.id to it.parentId }
-            
-            if (updates.isNotEmpty()) {
-                database.listDao().updateEntriesParents(updates)
-            }
+        // 3. Restore Lists
+        database.listDao().upsertLists(data.lists.map { it.toEntity() })
 
-            // Pass 3: Restore Tag CrossRefs
-            val crossRefs = entriesToRestore.flatMap { entry ->
-                entry.tagIds
-                    .filter { it in validTagIds }
-                    .map { EntryTagCrossRef(entry.id, it) }
-            }
-            if (crossRefs.isNotEmpty()) {
-                database.entryTagCrossRefDao().insertAll(crossRefs)
-            }
+        // 4. Restore Entries and CrossRefs
+        val validListIds = data.lists.map { it.id }.toSet()
+        val validTagIds = data.tags.map { it.id }.toSet()
+        val entriesToRestore = data.entries.filter { it.listId in validListIds }
+        val validEntryIds = entriesToRestore.map { it.id }.toSet()
+        
+        val allEntryEntities = entriesToRestore.map { entry ->
+            entry.description?.let { saveFile("${entry.id}.desc", it) }
+            entry.toEntity().copy(
+                description = null,
+                parentId = entry.parentId?.takeIf { p -> p in validEntryIds }
+            )
+        }
+
+        // Pass 1: Insert all entries as top-level (parentId = null). 
+        database.listDao().upsertEntries(allEntryEntities.map { it.copy(parentId = null) })
+        
+        // Pass 2: Update the parentId links.
+        val updates = allEntryEntities
+            .filter { it.parentId != null }
+            .map { it.id to it.parentId }
+        
+        if (updates.isNotEmpty()) {
+            database.listDao().updateEntriesParents(updates)
+        }
+
+        // Pass 3: Restore Tag CrossRefs
+        val crossRefs = entriesToRestore.flatMap { entry ->
+            entry.tagIds
+                .filter { it in validTagIds }
+                .map { EntryTagCrossRef(entry.id, it) }
+        }
+        if (crossRefs.isNotEmpty()) {
+            database.entryTagCrossRefDao().insertAll(crossRefs)
         }
     }
 

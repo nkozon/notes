@@ -40,7 +40,10 @@ interface NoteRepository {
     suspend fun clearAllData()
 
     suspend fun getBackupData(): BackupData
+    suspend fun getNoteBackup(noteId: String): BackupData?
+    suspend fun getListBackup(listId: String): BackupData?
     suspend fun restoreBackupData(data: BackupData)
+    suspend fun importBackupData(data: BackupData)
     fun getContext(): Context
 
     // --- Settings ---

@@ -42,6 +42,7 @@ sealed class DetailRoute {
     data class Drawing(val id: String?) : DetailRoute()
     data class List(val id: String) : DetailRoute()
     data object BackupRestore : DetailRoute()
+    data object GranularBackup : DetailRoute()
     data object Settings : DetailRoute()
     data object Theme : DetailRoute()
     data object About : DetailRoute()

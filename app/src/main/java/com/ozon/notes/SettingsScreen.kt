@@ -45,6 +45,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel,
     onNavigateToTheme: () -> Unit,
     onNavigateToBackupRestore: () -> Unit,
+    onNavigateToGranularBackup: () -> Unit,
     onNavigateToAbout: () -> Unit,
     onNavigateUp: () -> Unit
 ) {
@@ -287,7 +288,7 @@ fun SettingsScreen(
 
             // Data Management Section
             SettingsSection(title = "Data Management") {
-                SettingsItemContainer(index = 0, total = 1, onClick = onNavigateToBackupRestore) {
+                SettingsItemContainer(index = 0, total = 2, onClick = onNavigateToBackupRestore) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -295,9 +296,26 @@ fun SettingsScreen(
                         Icon(Icons.Rounded.CloudSync, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(16.dp))
                         Column {
-                            Text("Backup & Restore", style = MaterialTheme.typography.titleMedium)
+                            Text("Full Backup & Restore", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                text = "Configure automatic and manual backups",
+                                text = "Configure automatic and manual full backups",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                SettingsItemContainer(index = 1, total = 2, onClick = onNavigateToGranularBackup) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Rounded.SettingsEthernet, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(16.dp))
+                        Column {
+                            Text("Granular Backup", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                text = "Export or import individual notes and lists",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

@@ -119,6 +119,17 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
                     startDownloadProgressPolling(id)
                 }
             }
+            is NoteEvent.ExportNote -> viewModelScope.launch {
+                val data = repository.getNoteBackup(event.noteId)
+                if (data != null) event.onDataReady(data)
+            }
+            is NoteEvent.ExportList -> viewModelScope.launch {
+                val data = repository.getListBackup(event.listId)
+                if (data != null) event.onDataReady(data)
+            }
+            is NoteEvent.ImportGranular -> viewModelScope.launch {
+                repository.importBackupData(event.data)
+            }
             else -> { /* Other events handled by other viewmodels */ }
         }
     }

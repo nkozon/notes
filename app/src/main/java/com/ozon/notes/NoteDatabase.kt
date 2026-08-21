@@ -168,6 +168,9 @@ interface ListDao {
     @Query("SELECT * FROM note_lists")
     suspend fun getAllListsList(): List<NoteListEntity>
 
+    @Query("SELECT * FROM note_lists WHERE id = :listId")
+    suspend fun getListById(listId: String): NoteListEntity?
+
     @Query("SELECT * FROM list_entries WHERE id = :entryId")
     suspend fun getEntryById(entryId: String): ListEntryEntity?
 
@@ -208,6 +211,9 @@ interface ListDao {
 
     @Query("SELECT * FROM list_entries")
     suspend fun getAllEntriesList(): List<ListEntryEntity>
+
+    @Query("SELECT * FROM list_entries WHERE listId = :listId")
+    suspend fun getEntriesForListSync(listId: String): List<ListEntryEntity>
 
     @Upsert
     suspend fun upsertEntry(entry: ListEntryEntity)
