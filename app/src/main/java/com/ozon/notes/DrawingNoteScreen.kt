@@ -459,7 +459,8 @@ fun DrawingNoteScreen(
 
         wasSaved = true
         isDirty = false
-        lastSavedTime = System.currentTimeMillis()
+        val now = System.currentTimeMillis()
+        lastSavedTime = now
         val finalTitle = title.ifBlank { "New Drawing" }
         notesViewModel.onEvent(NoteEvent.SaveNote(
             Note(
@@ -467,6 +468,7 @@ fun DrawingNoteScreen(
                 title = finalTitle,
                 content = "Drawing Note",
                 type = NoteType.DRAWING,
+                timestamp = now,
                 drawingData = DrawingData(
                     strokes = strokes, 
                     images = images,

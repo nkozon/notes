@@ -208,7 +208,8 @@ fun SortDropdown(
                                             ListSortOrder.TAG_REVERSE_ALPHABETICAL -> "Reverse alphabetical"
                                             ListSortOrder.RATING_LOW_TO_HIGH -> "Increasing score"
                                             ListSortOrder.RATING_HIGH_TO_LOW -> "Decreasing score"
-                                            else -> ""
+                                            ListSortOrder.NEWEST -> "Newest first"
+                                            ListSortOrder.OLDEST -> "Oldest first"
                                         },
                                         style = MaterialTheme.typography.bodyLarge.copy(
                                             fontFamily = if (isSelected) com.ozon.notes.ui.theme.GoogleSansFlexRounded else MaterialTheme.typography.bodyLarge.fontFamily

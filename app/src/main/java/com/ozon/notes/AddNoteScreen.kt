@@ -108,6 +108,7 @@ private fun AddNoteScreenContent(
 
         val noteStillExists = viewModel.notesState.value.any { it.id == id }
         if (noteStillExists && !isDeleted && (title.text.isNotBlank() || richTextState.annotatedString.text.isNotBlank())) {
+            val now = System.currentTimeMillis()
             viewModel.onEvent(
                 NoteEvent.SaveNote(
                     Note(
@@ -115,11 +116,12 @@ private fun AddNoteScreenContent(
                         title = title.text.ifBlank { "New Note" },
                         content = richTextState.annotatedString.text,
                         contentHtml = richTextState.toHtml(),
-                        timestamp = timestamp,
+                        timestamp = now,
                         isPinned = isPinned
                     )
                 )
             )
+            timestamp = now
         }
     }
 

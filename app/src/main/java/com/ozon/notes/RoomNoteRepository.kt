@@ -317,7 +317,7 @@ class RoomNoteRepository(
             _autoBackupEnabled.value = false
             _backupUri.value = null
             _hasPendingChanges.value = false
-            _sortOrderUpdateTrigger.tryEmit(Unit)
+            _noteSortOrder.value = ListSortOrder.NEWEST
         }
     }
 
@@ -569,21 +569,17 @@ class RoomNoteRepository(
         _tabletMode.value = mode
     }
 
-    private val _sortOrderUpdateTrigger = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    private val _noteSortOrder = MutableStateFlow(
+        prefs.getString("note_sort_order_all", null)?.let {
+            try { ListSortOrder.valueOf(it) } catch (e: Exception) { null }
+        } ?: ListSortOrder.NEWEST
+    )
 
-    override fun getNoteSortOrder(): Flow<ListSortOrder> = _sortOrderUpdateTrigger
-        .onStart { emit(Unit) }
-        .map {
-            val key = "note_sort_order_all"
-            prefs.getString(key, null)?.let {
-                try { ListSortOrder.valueOf(it) } catch (e: Exception) { null }
-            } ?: ListSortOrder.NEWEST
-        }
+    override fun getNoteSortOrder(): Flow<ListSortOrder> = _noteSortOrder
 
     override suspend fun setNoteSortOrder(sortOrder: ListSortOrder) {
-        val key = "note_sort_order_all"
-        prefs.edit().putString(key, sortOrder.name).apply()
-        _sortOrderUpdateTrigger.tryEmit(Unit)
+        prefs.edit().putString("note_sort_order_all", sortOrder.name).apply()
+        _noteSortOrder.value = sortOrder
     }
 
     private val _listsSortOrder = MutableStateFlow(

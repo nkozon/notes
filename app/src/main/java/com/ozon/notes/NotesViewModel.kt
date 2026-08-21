@@ -57,14 +57,26 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
         searchQuery,
         listsSortOrder,
         repository.getAllListsWithCounts()
-    ) { query, _, allListsWithCounts ->
-        // Filtering in memory is fine since the list of lists is usually small.
-        // We use the already-calculated counts from the DB.
-        if (query.isBlank()) {
+    ) { query, sortOrder, allListsWithCounts ->
+        val filtered = if (query.isBlank()) {
             allListsWithCounts
         } else {
             allListsWithCounts.filter { 
                 it.list.title.contains(query, ignoreCase = true) 
+            }
+        }
+
+        filtered.sortedWith { a, b ->
+            val la = a.list; val lb = b.list
+            if (la.isPinned != lb.isPinned) {
+                return@sortedWith lb.isPinned.compareTo(la.isPinned)
+            }
+            when (sortOrder) {
+                ListSortOrder.ALPHABETICAL -> la.title.compareTo(lb.title, ignoreCase = true)
+                ListSortOrder.REVERSE_ALPHABETICAL -> lb.title.compareTo(la.title, ignoreCase = true)
+                ListSortOrder.NEWEST -> lb.timestamp.compareTo(la.timestamp)
+                ListSortOrder.OLDEST -> la.timestamp.compareTo(lb.timestamp)
+                else -> lb.timestamp.compareTo(la.timestamp)
             }
         }
     }
