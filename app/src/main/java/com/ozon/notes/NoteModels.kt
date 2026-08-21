@@ -142,6 +142,7 @@ data class ListEntry(
     val id: String = UUID.randomUUID().toString(),
     val listId: String,
     val parentId: String? = null,
+    val linkedEntryId: String? = null, // One-to-many link (e.g. many sequels link to one prequel)
     val tagIds: List<String> = emptyList(),
     val title: String,
     val isChecked: Boolean = false,

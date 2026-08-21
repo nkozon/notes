@@ -49,14 +49,21 @@ data class NoteListEntity(
             parentColumns = ["id"],
             childColumns = ["parentId"],
             onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = ListEntryEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["linkedEntryId"],
+            onDelete = ForeignKey.SET_NULL
         )
     ],
-    indices = [Index("listId"), Index("parentId"), Index("timestamp")]
+    indices = [Index("listId"), Index("parentId"), Index("linkedEntryId"), Index("timestamp")]
 )
 data class ListEntryEntity(
     @PrimaryKey val id: String,
     val listId: String,
     val parentId: String? = null,
+    val linkedEntryId: String? = null,
     val title: String,
     val isChecked: Boolean,
     val rating: Float,
@@ -281,7 +288,7 @@ interface EntryTagCrossRefDao {
 
 @Database(
     entities = [NoteEntity::class, NoteListEntity::class, ListEntryEntity::class, TagEntity::class, EntryTagCrossRef::class],
-    version = 18, 
+    version = 19, 
     exportSchema = false
 )
 abstract class NoteDatabase : RoomDatabase() {
@@ -291,6 +298,45 @@ abstract class NoteDatabase : RoomDatabase() {
     abstract fun entryTagCrossRefDao(): EntryTagCrossRefDao
 
     companion object {
+        val MIGRATION_18_19 = object : androidx.room.migration.Migration(18, 19) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                // 1. Create the new table with the correct schema (including foreign keys and no default values as expected by Room)
+                db.execSQL("""
+                    CREATE TABLE `list_entries_new` (
+                        `id` TEXT NOT NULL, 
+                        `listId` TEXT NOT NULL, 
+                        `parentId` TEXT, 
+                        `linkedEntryId` TEXT, 
+                        `title` TEXT NOT NULL, 
+                        `isChecked` INTEGER NOT NULL, 
+                        `rating` REAL NOT NULL, 
+                        `isPinned` INTEGER NOT NULL, 
+                        `description` TEXT, 
+                        `timestamp` INTEGER NOT NULL, 
+                        PRIMARY KEY(`id`), 
+                        FOREIGN KEY(`listId`) REFERENCES `note_lists`(`id`) ON DELETE CASCADE, 
+                        FOREIGN KEY(`parentId`) REFERENCES `list_entries`(`id`) ON DELETE CASCADE, 
+                        FOREIGN KEY(`linkedEntryId`) REFERENCES `list_entries`(`id`) ON DELETE SET NULL
+                    )
+                """.trimIndent())
+
+                // 2. Copy data from the old table. linkedEntryId will be NULL for all existing entries.
+                db.execSQL("""
+                    INSERT INTO `list_entries_new` (`id`, `listId`, `parentId`, `linkedEntryId`, `title`, `isChecked`, `rating`, `isPinned`, `description`, `timestamp`)
+                    SELECT `id`, `listId`, `parentId`, NULL, `title`, `isChecked`, `rating`, `isPinned`, `description`, `timestamp` FROM `list_entries`
+                """.trimIndent())
+
+                // 3. Drop the old table and rename the new one
+                db.execSQL("DROP TABLE `list_entries`")
+                db.execSQL("ALTER TABLE `list_entries_new` RENAME TO `list_entries`")
+
+                // 4. Re-create indices
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_list_entries_listId` ON `list_entries` (`listId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_list_entries_parentId` ON `list_entries` (`parentId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_list_entries_linkedEntryId` ON `list_entries` (`linkedEntryId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_list_entries_timestamp` ON `list_entries` (`timestamp`)")
+            }
+        }
         val MIGRATION_17_18 = object : androidx.room.migration.Migration(17, 18) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE notes ADD COLUMN previewImage TEXT")

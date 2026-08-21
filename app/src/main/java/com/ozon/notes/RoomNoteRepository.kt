@@ -460,7 +460,8 @@ class RoomNoteRepository(
             entry.description?.let { saveFile("${entry.id}.desc", it) }
             entry.toEntity().copy(
                 description = null,
-                parentId = entry.parentId?.takeIf { p -> p in validEntryIds }
+                parentId = entry.parentId?.takeIf { p -> p in validEntryIds },
+                linkedEntryId = entry.linkedEntryId?.takeIf { l -> l in validEntryIds }
             )
         }
 

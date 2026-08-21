@@ -40,7 +40,12 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.SubdirectoryArrowRight
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.LinkOff
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.*
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,6 +68,9 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.ozon.notes.ui.theme.GoogleSansFlexRounded
@@ -480,7 +488,7 @@ fun ListDetailScreen(
                                         it.copy(alpha = baseAlpha).compositeOver(MaterialTheme.colorScheme.surface)
                                     },
                                     indicatorContentColor = indicatorContentColor,
-                                    tagNames = allTags.filter { it.id in entry.tagIds }.map { it.name },
+                                    tagNames = remember(allTags, entry.tagIds) { allTags.filter { it.id in entry.tagIds }.map { it.name } },
                                     onToggleExpand = {
                                         expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
                                     },
@@ -599,10 +607,11 @@ fun ListDetailScreen(
             listId = listId,
             listType = currentList.type,
             allTags = allTags,
+            allEntries = entries,
             onDismiss = { showAddEntryDialog = false },
-            onConfirm = { title, rating, tagIds ->
+            onConfirm = { title, rating, tagIds, linkedId ->
                 checklistViewModel.onEvent(NoteEvent.SaveEntry(
-                    ListEntry(listId = listId, title = title, rating = rating, tagIds = tagIds)
+                    ListEntry(listId = listId, title = title, rating = rating, tagIds = tagIds, linkedEntryId = linkedId)
                 ))
                 showAddEntryDialog = false
             },
@@ -616,11 +625,12 @@ fun ListDetailScreen(
             listType = currentList.type,
             titlePrefix = "Subentry for ${parentForNewSubentry?.title}",
             allTags = allTags,
+            allEntries = entries,
             onDismiss = { parentForNewSubentry = null },
-            onConfirm = { title, rating, tagIds ->
+            onConfirm = { title, rating, tagIds, linkedId ->
                 parentForNewSubentry?.let { parent ->
                     checklistViewModel.onEvent(NoteEvent.SaveEntry(
-                        ListEntry(listId = listId, parentId = parent.id, title = title, rating = rating, tagIds = tagIds)
+                        ListEntry(listId = listId, parentId = parent.id, title = title, rating = rating, tagIds = tagIds, linkedEntryId = linkedId)
                     ))
                     expandedEntries = expandedEntries + parent.id
                 }
@@ -636,11 +646,12 @@ fun ListDetailScreen(
             listType = currentList.type,
             entry = editingEntry,
             allTags = allTags,
+            allEntries = entries,
             onDismiss = { editingEntry = null },
-            onConfirm = { title, rating, tagIds ->
+            onConfirm = { title, rating, tagIds, linkedId ->
                 editingEntry?.let {
                     checklistViewModel.onEvent(NoteEvent.SaveEntry(
-                        it.copy(title = title, rating = rating, tagIds = tagIds)
+                        it.copy(title = title, rating = rating, tagIds = tagIds, linkedEntryId = linkedId)
                     ))
                 }
                 editingEntry = null
@@ -758,8 +769,7 @@ fun ListDetailScreen(
                     if (isTabletUi) {
                         // Tablet Design: Side artwork + Persistent content on the right
                         Row(
-                            modifier = Modifier
-                                .fillMaxSize(),
+                            modifier = Modifier.fillMaxSize(),
                             horizontalArrangement = Arrangement.spacedBy(0.dp)
                         ) {
                             // Left: Artwork (Poster ratio, padded)
@@ -812,7 +822,9 @@ fun ListDetailScreen(
                                             fontWeight = FontWeight.Bold
                                         )
                                         val tagNames = allTags.filter { it.id in entry.tagIds }.map { it.name }
-                                        if (tagNames.isNotEmpty()) {
+                                        val isSequel = entry.linkedEntryId != null
+                                        val isPrequel = entries.any { it.linkedEntryId == entry.id }
+                                        if (tagNames.isNotEmpty() && !isSequel && !isPrequel) {
                                             FlowRow(
                                                 modifier = Modifier.padding(top = 8.dp),
                                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -831,6 +843,32 @@ fun ListDetailScreen(
                                                         )
                                                     }
                                                 }
+                                            }
+                                        }
+                                    }
+
+                                    val linkedToEntry = entry.linkedEntryId?.let { lId -> entries.find { it.id == lId } }
+                                    if (linkedToEntry != null) {
+                                        Surface(
+                                            shape = RoundedCornerShape(24.dp),
+                                            color = MaterialTheme.colorScheme.surfaceContainerHigh
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(Icons.Rounded.Link, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                                                Spacer(Modifier.width(12.dp))
+                                                Text(
+                                                    text = buildAnnotatedString {
+                                                        append("Part of ")
+                                                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                            append(linkedToEntry.title)
+                                                        }
+                                                    },
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
                                             }
                                         }
                                     }
@@ -964,7 +1002,9 @@ fun ListDetailScreen(
                                             color = MaterialTheme.colorScheme.primary
                                         )
                                         val tagNames = allTags.filter { it.id in entry.tagIds }.map { it.name }
-                                        if (tagNames.isNotEmpty()) {
+                                        val isSequel = entry.linkedEntryId != null
+                                        val isPrequel = entries.any { it.linkedEntryId == entry.id }
+                                        if (tagNames.isNotEmpty() && !isSequel && !isPrequel) {
                                             FlowRow(
                                                 modifier = Modifier.padding(top = 8.dp),
                                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -983,6 +1023,32 @@ fun ListDetailScreen(
                                                         )
                                                     }
                                                 }
+                                            }
+                                        }
+                                    }
+
+                                    val linkedToEntry = entry.linkedEntryId?.let { lId -> entries.find { it.id == lId } }
+                                    if (linkedToEntry != null) {
+                                        Surface(
+                                            shape = RoundedCornerShape(24.dp),
+                                            color = MaterialTheme.colorScheme.surfaceContainerHigh
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(Icons.Rounded.Link, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                                                Spacer(Modifier.width(12.dp))
+                                                Text(
+                                                    text = buildAnnotatedString {
+                                                        append("Part of ")
+                                                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                            append(linkedToEntry.title)
+                                                        }
+                                                    },
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
                                             }
                                         }
                                     }
@@ -1294,13 +1360,13 @@ fun ListEntryItem(
                                 tagNames.forEach { name ->
                                     Surface(
                                         shape = CircleShape,
-                                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
                                     ) {
                                         Text(
                                             text = name,
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
                                         )
                                     }
                                 }
@@ -1403,16 +1469,17 @@ fun DescriptionDialog(
     )
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EntryDialog(
     listId: String,
     listType: ListType,
     entry: ListEntry? = null,
     allTags: List<Tag> = emptyList(),
+    allEntries: List<ListEntry> = emptyList(),
     titlePrefix: String? = null,
     onDismiss: () -> Unit,
-    onConfirm: (String, Float, List<String>) -> Unit,
+    onConfirm: (String, Float, List<String>, String?) -> Unit,
     onSaveTag: (Tag) -> Unit
 ) {
     var title by remember { 
@@ -1425,16 +1492,21 @@ fun EntryDialog(
     }
     var rating by remember { mutableFloatStateOf(entry?.rating ?: 0f) }
     var selectedTagIds by remember { mutableStateOf(entry?.tagIds?.toSet() ?: emptySet()) }
+    var linkedEntryId by remember { mutableStateOf(entry?.linkedEntryId) }
     var showAddTagDialog by remember { mutableStateOf(false) }
 
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val scope = rememberCoroutineScope()
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(titlePrefix ?: if (entry == null) "Add Entry" else "Edit Entry") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
@@ -1461,6 +1533,200 @@ fun EntryDialog(
                             valueRange = 0f..10f,
                             steps = 19 // 0, 0.5, ..., 10
                         )
+                    }
+
+                    // Linked Entry Selection
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Part of", style = MaterialTheme.typography.labelLarge)
+                        val selectedLinkedEntry = allEntries.find { it.id == linkedEntryId }
+                        var showSelectionSheet by remember { mutableStateOf(false) }
+
+                        Surface(
+                            onClick = { showSelectionSheet = true },
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = selectedLinkedEntry?.title ?: "None",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (selectedLinkedEntry != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null)
+                            }
+                        }
+
+                        if (showSelectionSheet) {
+                            val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+                            var linkedSearchQuery by remember { mutableStateOf("") }
+                            val filteredEntries = remember(linkedSearchQuery, allEntries, entry) {
+                                allEntries.filter { 
+                                    it.id != entry?.id && 
+                                    it.parentId == null && 
+                                    it.linkedEntryId == null &&
+                                    (linkedSearchQuery.isBlank() || it.title.contains(linkedSearchQuery, ignoreCase = true))
+                                }
+                            }
+                            val scrollState = rememberScrollState()
+                            val topAlpha by remember { derivedStateOf { (scrollState.value / 100f).coerceIn(0f, 1f) } }
+
+                            ModalBottomSheet(
+                                onDismissRequest = { showSelectionSheet = false },
+                                sheetState = sheetState,
+                                dragHandle = null,
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                                shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
+                            ) {
+                                Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.85f)) {
+                                    val headerHeight = 96.dp
+                                    
+                                    // 1. Scrollable List (Behind the header)
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .verticalScroll(scrollState)
+                                            .padding(horizontal = 24.dp)
+                                    ) {
+                                        // Large spacer to start list below the handle and buttons
+                                        Spacer(modifier = Modifier.height(headerHeight + 12.dp))
+                                        
+                                        // "None" option
+                                        LinkedSelectionItem(
+                                            title = "None",
+                                            isSelected = linkedEntryId == null,
+                                            index = 0,
+                                            total = filteredEntries.size + 1,
+                                            onClick = {
+                                                scope.launch {
+                                                    sheetState.hide()
+                                                    linkedEntryId = null
+                                                    showSelectionSheet = false
+                                                }
+                                            }
+                                        )
+                                        
+                                        filteredEntries.forEachIndexed { index, item ->
+                                            LinkedSelectionItem(
+                                                title = item.title,
+                                                isSelected = linkedEntryId == item.id,
+                                                index = index + 1,
+                                                total = filteredEntries.size + 1,
+                                                onClick = {
+                                                    scope.launch {
+                                                        sheetState.hide()
+                                                        linkedEntryId = item.id
+                                                        showSelectionSheet = false
+                                                    }
+                                                }
+                                            )
+                                        }
+                                        
+                                        if (filteredEntries.isEmpty() && linkedSearchQuery.isNotBlank()) {
+                                            Box(
+                                                modifier = Modifier.fillMaxWidth().padding(32.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text("No entries found", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(48.dp))
+                                    }
+
+                                    // 2. Fixed Header Background (Gradient starts from the very top, behind handle)
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(headerHeight + 24.dp)
+                                            .graphicsLayer(alpha = topAlpha)
+                                            .background(
+                                                brush = Brush.verticalGradient(
+                                                    colors = listOf(
+                                                        MaterialTheme.colorScheme.surfaceContainerLow,
+                                                        MaterialTheme.colorScheme.surfaceContainerLow,
+                                                        MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.8f),
+                                                        Color.Transparent
+                                                    )
+                                                )
+                                            )
+                                    )
+
+                                    // 3. Fixed Header Foreground (Handle + Buttons)
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                        // 3.1 Custom Drag Handle
+                                        Box(
+                                            modifier = Modifier.fillMaxWidth().height(28.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Surface(
+                                                modifier = Modifier.size(width = 32.dp, height = 4.dp),
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                                shape = CircleShape
+                                            ) {}
+                                        }
+                                        
+                                        // 3.2 Search & Close Buttons
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 24.dp)
+                                                .height(56.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            Surface(
+                                                onClick = {
+                                                    scope.launch {
+                                                        sheetState.hide()
+                                                        showSelectionSheet = false
+                                                    }
+                                                },
+                                                shape = CircleShape,
+                                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                                modifier = Modifier.size(56.dp)
+                                            ) {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    Icon(Icons.Rounded.Clear, contentDescription = "Close", modifier = Modifier.size(24.dp))
+                                                }
+                                            }
+                                            
+                                            OutlinedTextField(
+                                                value = linkedSearchQuery,
+                                                onValueChange = { linkedSearchQuery = it },
+                                                placeholder = { Text("Search") },
+                                                leadingIcon = { Icon(Icons.Rounded.Search, null, modifier = Modifier.size(20.dp)) },
+                                                modifier = Modifier.weight(1f).fillMaxHeight(),
+                                                singleLine = true,
+                                                shape = CircleShape,
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                                    unfocusedBorderColor = Color.Transparent,
+                                                    focusedBorderColor = Color.Transparent
+                                                )
+                                            )
+                                        }
+                                    }
+
+                                    // 4. Bottom Gradient Fade
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(48.dp)
+                                            .align(Alignment.BottomCenter)
+                                            .background(
+                                                brush = Brush.verticalGradient(
+                                                    colors = listOf(Color.Transparent, MaterialTheme.colorScheme.surfaceContainerLow)
+                                                )
+                                            )
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -1507,7 +1773,8 @@ fun EntryDialog(
                         onConfirm(
                             title.text, 
                             ((rating * 2).roundToInt() / 2.0).toFloat(), 
-                            selectedTagIds.toList()
+                            selectedTagIds.toList(),
+                            linkedEntryId
                         )
                     }
                 }
@@ -1963,6 +2230,61 @@ private fun PreviewSubEntryItem(
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(start = 12.dp)
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun LinkedSelectionItem(
+    title: String,
+    isSelected: Boolean,
+    index: Int,
+    total: Int,
+    onClick: () -> Unit
+) {
+    val topRadius = if (index == 0) 28.dp else 4.dp
+    val bottomRadius = if (index == total - 1) 28.dp else 4.dp
+    
+    val backgroundColor = if (isSelected) {
+        MaterialTheme.colorScheme.primary // Native theme color
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerHigh
+    }
+    
+    val contentColor = if (isSelected) {
+        MaterialTheme.colorScheme.onPrimary
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+
+    val shape = if (isSelected) {
+        CircleShape // Pill shaped when selected
+    } else {
+        RoundedCornerShape(topRadius, topRadius, bottomRadius, bottomRadius)
+    }
+
+    Surface(
+        onClick = onClick,
+        shape = shape,
+        color = backgroundColor,
+        contentColor = contentColor,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+            )
+            if (isSelected) {
+                Spacer(Modifier.weight(1f))
+                Icon(Icons.Rounded.Check, contentDescription = null, modifier = Modifier.size(20.dp))
             }
         }
     }
