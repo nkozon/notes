@@ -6,6 +6,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -1496,6 +1497,7 @@ fun EntryDialog(
     var showAddTagDialog by remember { mutableStateOf(false) }
 
     val focusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
 
@@ -1539,10 +1541,13 @@ fun EntryDialog(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Part of", style = MaterialTheme.typography.labelLarge)
                         val selectedLinkedEntry = allEntries.find { it.id == linkedEntryId }
-                        var showSelectionSheet by remember { mutableStateOf(false) }
+                        var showSelectionPopup by remember { mutableStateOf(false) }
 
                         Surface(
-                            onClick = { showSelectionSheet = true },
+                            onClick = { 
+                                focusManager.clearFocus()
+                                showSelectionPopup = true 
+                            },
                             shape = RoundedCornerShape(12.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant,
                             modifier = Modifier.fillMaxWidth()
@@ -1561,8 +1566,7 @@ fun EntryDialog(
                             }
                         }
 
-                        if (showSelectionSheet) {
-                            val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+                        if (showSelectionPopup) {
                             var linkedSearchQuery by remember { mutableStateOf("") }
                             val filteredEntries = remember(linkedSearchQuery, allEntries, entry) {
                                 allEntries.filter { 
@@ -1575,155 +1579,146 @@ fun EntryDialog(
                             val scrollState = rememberScrollState()
                             val topAlpha by remember { derivedStateOf { (scrollState.value / 100f).coerceIn(0f, 1f) } }
 
-                            ModalBottomSheet(
-                                onDismissRequest = { showSelectionSheet = false },
-                                sheetState = sheetState,
-                                dragHandle = null,
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                                shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp)
+                            Dialog(
+                                onDismissRequest = { showSelectionPopup = false },
+                                properties = DialogProperties(usePlatformDefaultWidth = false)
                             ) {
-                                Box(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.85f)) {
-                                    val headerHeight = 96.dp
-                                    
-                                    // 1. Scrollable List (Behind the header)
-                                    Column(
+                                var isVisible by remember { mutableStateOf(false) }
+                                LaunchedEffect(Unit) { isVisible = true }
+
+                                AnimatedVisibility(
+                                    visible = isVisible,
+                                    enter = fadeIn(animationSpec = tween(durationMillis = 400)),
+                                    exit = fadeOut(animationSpec = tween(durationMillis = 300))
+                                ) {
+                                    Surface(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .verticalScroll(scrollState)
                                             .padding(horizontal = 24.dp)
+                                            .heightIn(max = 600.dp),
+                                        shape = RoundedCornerShape(32.dp),
+                                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                        tonalElevation = 6.dp
                                     ) {
-                                        // Large spacer to start list below the handle and buttons
-                                        Spacer(modifier = Modifier.height(headerHeight + 12.dp))
-                                        
-                                        // "None" option
-                                        LinkedSelectionItem(
-                                            title = "None",
-                                            isSelected = linkedEntryId == null,
-                                            index = 0,
-                                            total = filteredEntries.size + 1,
-                                            onClick = {
-                                                scope.launch {
-                                                    sheetState.hide()
-                                                    linkedEntryId = null
-                                                    showSelectionSheet = false
+                                        Box(modifier = Modifier.fillMaxWidth()) {
+                                            val headerHeight = 80.dp
+                                            
+                                            // 1. Scrollable List
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .verticalScroll(scrollState)
+                                                    .padding(horizontal = 20.dp)
+                                            ) {
+                                                Spacer(modifier = Modifier.height(headerHeight + 8.dp))
+                                                
+                                                // "None" option
+                                                LinkedSelectionItem(
+                                                    title = "None",
+                                                    isSelected = linkedEntryId == null,
+                                                    index = 0,
+                                                    total = filteredEntries.size + 1,
+                                                    onClick = {
+                                                        linkedEntryId = null
+                                                        showSelectionPopup = false
+                                                    }
+                                                )
+                                                
+                                                filteredEntries.forEachIndexed { index, item ->
+                                                    LinkedSelectionItem(
+                                                        title = item.title,
+                                                        isSelected = linkedEntryId == item.id,
+                                                        index = index + 1,
+                                                        total = filteredEntries.size + 1,
+                                                        onClick = {
+                                                            linkedEntryId = item.id
+                                                            showSelectionPopup = false
+                                                        }
+                                                    )
                                                 }
-                                            }
-                                        )
-                                        
-                                        filteredEntries.forEachIndexed { index, item ->
-                                            LinkedSelectionItem(
-                                                title = item.title,
-                                                isSelected = linkedEntryId == item.id,
-                                                index = index + 1,
-                                                total = filteredEntries.size + 1,
-                                                onClick = {
-                                                    scope.launch {
-                                                        sheetState.hide()
-                                                        linkedEntryId = item.id
-                                                        showSelectionSheet = false
+                                                
+                                                if (filteredEntries.isEmpty() && linkedSearchQuery.isNotBlank()) {
+                                                    Box(
+                                                        modifier = Modifier.fillMaxWidth().padding(32.dp),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text("No entries found", color = MaterialTheme.colorScheme.onSurfaceVariant)
                                                     }
                                                 }
-                                            )
-                                        }
-                                        
-                                        if (filteredEntries.isEmpty() && linkedSearchQuery.isNotBlank()) {
-                                            Box(
-                                                modifier = Modifier.fillMaxWidth().padding(32.dp),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text("No entries found", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                Spacer(modifier = Modifier.height(24.dp))
                                             }
-                                        }
-                                        Spacer(modifier = Modifier.height(48.dp))
-                                    }
 
-                                    // 2. Fixed Header Background (Gradient starts from the very top, behind handle)
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(headerHeight + 24.dp)
-                                            .graphicsLayer(alpha = topAlpha)
-                                            .background(
-                                                brush = Brush.verticalGradient(
-                                                    colors = listOf(
-                                                        MaterialTheme.colorScheme.surfaceContainerLow,
-                                                        MaterialTheme.colorScheme.surfaceContainerLow,
-                                                        MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.8f),
-                                                        Color.Transparent
+                                            // 2. Fixed Header Background Gradient
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(headerHeight + 24.dp)
+                                                    .graphicsLayer(alpha = topAlpha)
+                                                    .background(
+                                                        brush = Brush.verticalGradient(
+                                                            colors = listOf(
+                                                                MaterialTheme.colorScheme.surfaceContainerLow,
+                                                                MaterialTheme.colorScheme.surfaceContainerLow,
+                                                                MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.8f),
+                                                                Color.Transparent
+                                                            )
+                                                        )
+                                                    )
+                                            )
+
+                                            // 3. Header Buttons (Close + Search)
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 20.dp)
+                                                    .height(56.dp)
+                                                    .align(Alignment.TopCenter)
+                                                    .offset(y = 20.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                            ) {
+                                                Surface(
+                                                    onClick = { showSelectionPopup = false },
+                                                    shape = CircleShape,
+                                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                                    modifier = Modifier.size(56.dp)
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Icon(Icons.Rounded.Clear, contentDescription = "Close", modifier = Modifier.size(24.dp))
+                                                    }
+                                                }
+                                                
+                                                OutlinedTextField(
+                                                    value = linkedSearchQuery,
+                                                    onValueChange = { linkedSearchQuery = it },
+                                                    placeholder = { Text("Search") },
+                                                    leadingIcon = { Icon(Icons.Rounded.Search, null, modifier = Modifier.size(20.dp)) },
+                                                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                                                    singleLine = true,
+                                                    shape = CircleShape,
+                                                    colors = OutlinedTextFieldDefaults.colors(
+                                                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                                        unfocusedBorderColor = Color.Transparent,
+                                                        focusedBorderColor = Color.Transparent
                                                     )
                                                 )
-                                            )
-                                    )
-
-                                    // 3. Fixed Header Foreground (Handle + Buttons)
-                                    Column(modifier = Modifier.fillMaxWidth()) {
-                                        // 3.1 Custom Drag Handle
-                                        Box(
-                                            modifier = Modifier.fillMaxWidth().height(28.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Surface(
-                                                modifier = Modifier.size(width = 32.dp, height = 4.dp),
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                                shape = CircleShape
-                                            ) {}
-                                        }
-                                        
-                                        // 3.2 Search & Close Buttons
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 24.dp)
-                                                .height(56.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                        ) {
-                                            Surface(
-                                                onClick = {
-                                                    scope.launch {
-                                                        sheetState.hide()
-                                                        showSelectionSheet = false
-                                                    }
-                                                },
-                                                shape = CircleShape,
-                                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                                modifier = Modifier.size(56.dp)
-                                            ) {
-                                                Box(contentAlignment = Alignment.Center) {
-                                                    Icon(Icons.Rounded.Clear, contentDescription = "Close", modifier = Modifier.size(24.dp))
-                                                }
                                             }
-                                            
-                                            OutlinedTextField(
-                                                value = linkedSearchQuery,
-                                                onValueChange = { linkedSearchQuery = it },
-                                                placeholder = { Text("Search") },
-                                                leadingIcon = { Icon(Icons.Rounded.Search, null, modifier = Modifier.size(20.dp)) },
-                                                modifier = Modifier.weight(1f).fillMaxHeight(),
-                                                singleLine = true,
-                                                shape = CircleShape,
-                                                colors = OutlinedTextFieldDefaults.colors(
-                                                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                                    unfocusedBorderColor = Color.Transparent,
-                                                    focusedBorderColor = Color.Transparent
-                                                )
+
+                                            // 4. Bottom Gradient Fade
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(32.dp)
+                                                    .align(Alignment.BottomCenter)
+                                                    .background(
+                                                        brush = Brush.verticalGradient(
+                                                            colors = listOf(Color.Transparent, MaterialTheme.colorScheme.surfaceContainerLow)
+                                                        )
+                                                    )
                                             )
                                         }
                                     }
-
-                                    // 4. Bottom Gradient Fade
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(48.dp)
-                                            .align(Alignment.BottomCenter)
-                                            .background(
-                                                brush = Brush.verticalGradient(
-                                                    colors = listOf(Color.Transparent, MaterialTheme.colorScheme.surfaceContainerLow)
-                                                )
-                                            )
-                                    )
                                 }
                             }
                         }
