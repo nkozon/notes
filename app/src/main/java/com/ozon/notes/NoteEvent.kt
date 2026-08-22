@@ -55,4 +55,5 @@ sealed interface NoteEvent {
     data class ExportNote(val noteId: String, val onDataReady: (com.ozon.notes.BackupData) -> Unit) : NoteEvent
     data class ExportList(val listId: String, val onDataReady: (com.ozon.notes.BackupData) -> Unit) : NoteEvent
     data class ImportGranular(val data: com.ozon.notes.BackupData) : NoteEvent
+    data class DeleteCompletedEntries(val listId: String) : NoteEvent
 }

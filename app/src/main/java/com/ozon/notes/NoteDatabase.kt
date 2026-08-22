@@ -234,6 +234,9 @@ interface ListDao {
     @Query("DELETE FROM list_entries WHERE listId = :listId")
     suspend fun deleteEntriesByList(listId: String)
 
+    @Query("DELETE FROM list_entries WHERE listId = :listId AND isChecked = 1")
+    suspend fun deleteCompletedEntriesByList(listId: String)
+
     @Query("UPDATE list_entries SET parentId = :parentId WHERE id = :entryId")
     suspend fun updateEntryParent(entryId: String, parentId: String?)
 

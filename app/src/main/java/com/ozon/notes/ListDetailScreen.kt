@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.rounded.Notes
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.FilterAlt
@@ -417,44 +418,45 @@ fun ListDetailScreen(
                                 checklistViewModel.onEvent(NoteEvent.SaveEntry(it.copy(isPinned = !it.isPinned)))
                             }
                         ) {
-                                val green = Color(0xFF4CAF50)
-                                val indicatorContentColor = if (currentList.type == ListType.RATING && ratingIndicatorsEnabled) {
-                                    when {
-                                        highScoreEnabled && entry.rating >= highScoreThreshold -> green
-                                        lowScoreEnabled && entry.rating <= lowScoreThreshold -> MaterialTheme.colorScheme.error
-                                        else -> null
-                                    }
-                                } else null
+                            val green = Color(0xFF4CAF50)
+                            val indicatorContentColor = if (currentList.type == ListType.RATING && ratingIndicatorsEnabled) {
+                                when {
+                                    highScoreEnabled && entry.rating >= highScoreThreshold -> green
+                                    lowScoreEnabled && entry.rating <= lowScoreThreshold -> MaterialTheme.colorScheme.error
+                                    else -> null
+                                }
+                            } else null
 
-                                ListEntryItem(
-                                    entry = entry,
-                                    listType = currentList.type,
-                                    depth = depth,
-                                    hasChildren = if (currentList.type == ListType.RATING) hasChildren else false,
-                                    isExpanded = isExpanded,
-                                    searchQuery = searchQuery,
-                                    indicatorColor = indicatorContentColor?.let { 
-                                        val baseAlpha = if (isOledMode) 0.28f else 0.12f
-                                        it.copy(alpha = baseAlpha).compositeOver(MaterialTheme.colorScheme.surface)
-                                    },
-                                    indicatorContentColor = indicatorContentColor,
-                                    tagNames = remember(allTags, entry.tagIds) { allTags.filter { it.id in entry.tagIds }.map { it.name } },
-                                    onToggleExpand = {
-                                        expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
-                                    },
-                                    onToggleCheck = { isChecked ->
-                                        checklistViewModel.onEvent(NoteEvent.SaveEntry(entry.copy(isChecked = isChecked)))
-                                    },
-                                    onClick = { editingEntry = entry },
-                                    onLongClick = { 
-                                        if (currentList.type == ListType.RATING) previewEntry = entry 
-                                        else entryForDescription = entry
-                                    },
-                                    shape = shape
-                                )
-                            }
+                            ListEntryItem(
+                                entry = entry,
+                                listType = currentList.type,
+                                depth = depth,
+                                hasChildren = if (currentList.type == ListType.RATING) hasChildren else false,
+                                isExpanded = isExpanded,
+                                searchQuery = searchQuery,
+                                indicatorColor = indicatorContentColor?.let { 
+                                    val baseAlpha = if (isOledMode) 0.28f else 0.12f
+                                    it.copy(alpha = baseAlpha).compositeOver(MaterialTheme.colorScheme.surface)
+                                },
+                                indicatorContentColor = indicatorContentColor,
+                                tagNames = remember(allTags, entry.tagIds) { allTags.filter { it.id in entry.tagIds }.map { it.name } },
+                                onToggleExpand = {
+                                    expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
+                                },
+                                onToggleCheck = { isChecked ->
+                                    val newIsPinned = if (isChecked) false else entry.isPinned
+                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(entry.copy(isChecked = isChecked, isPinned = newIsPinned)))
+                                },
+                                onClick = { editingEntry = entry },
+                                onLongClick = { 
+                                    if (currentList.type == ListType.RATING) previewEntry = entry 
+                                    else entryForDescription = entry
+                                },
+                                shape = shape
+                            )
                         }
                     }
+                }
 
                 if (isMoveToBottom && checkedEntries.isNotEmpty()) {
                     item(key = "completed_header") {
@@ -483,6 +485,28 @@ fun ListDetailScreen(
                     }
 
                     if (!isCompletedCollapsed) {
+                        item {
+                            Surface(
+                                onClick = { checklistViewModel.onEvent(NoteEvent.DeleteCompletedEntries(listId)) },
+                                shape = RoundedCornerShape(28.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(Icons.Rounded.DeleteSweep, contentDescription = null)
+                                    Spacer(Modifier.width(12.dp))
+                                    Text("Clear completed items", style = MaterialTheme.typography.titleMedium)
+                                }
+                            }
+                        }
+
                         itemsIndexed(
                             items = checkedEntries,
                             key = { _, item -> item.first.id }
@@ -514,32 +538,33 @@ fun ListDetailScreen(
                                         checklistViewModel.onEvent(NoteEvent.SaveEntry(it.copy(isPinned = !it.isPinned)))
                                     }
                                 ) {
-                                        ListEntryItem(
-                                            entry = entry,
-                                            listType = currentList.type,
-                                            depth = depth,
-                                            hasChildren = hasChildren,
-                                            isExpanded = isExpanded,
-                                            searchQuery = searchQuery,
-                                            indicatorColor = null,
-                                            indicatorContentColor = null,
-                                            tagNames = remember(allTags, entry.tagIds) { allTags.filter { it.id in entry.tagIds }.map { it.name } },
-                                            onToggleExpand = {
-                                                expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
-                                            },
-                                            onToggleCheck = { isChecked ->
-                                                checklistViewModel.onEvent(NoteEvent.SaveEntry(entry.copy(isChecked = isChecked)))
-                                            },
-                                            onClick = { editingEntry = entry },
-                                            onLongClick = {
-                                                if (currentList.type == ListType.RATING) previewEntry = entry 
-                                                else entryForDescription = entry
-                                            },
-                                            shape = shape
-                                        )
-                                    }
+                                    ListEntryItem(
+                                        entry = entry,
+                                        listType = currentList.type,
+                                        depth = depth,
+                                        hasChildren = hasChildren,
+                                        isExpanded = isExpanded,
+                                        searchQuery = searchQuery,
+                                        indicatorColor = null,
+                                        indicatorContentColor = null,
+                                        tagNames = remember(allTags, entry.tagIds) { allTags.filter { it.id in entry.tagIds }.map { it.name } },
+                                        onToggleExpand = {
+                                            expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
+                                        },
+                                        onToggleCheck = { isChecked ->
+                                            val newIsPinned = if (isChecked) false else entry.isPinned
+                                            checklistViewModel.onEvent(NoteEvent.SaveEntry(entry.copy(isChecked = isChecked, isPinned = newIsPinned)))
+                                        },
+                                        onClick = { editingEntry = entry },
+                                        onLongClick = {
+                                            if (currentList.type == ListType.RATING) previewEntry = entry 
+                                            else entryForDescription = entry
+                                        },
+                                        shape = shape
+                                    )
                                 }
                             }
+                        }
                     }
                 }
             }

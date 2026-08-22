@@ -31,6 +31,7 @@ interface NoteRepository {
     fun getEntriesForList(listId: String): Flow<List<ListEntry>>
     suspend fun saveEntry(entry: ListEntry)
     suspend fun deleteEntry(entryId: String)
+    suspend fun deleteCompletedEntries(listId: String)
 
     // --- Tags ---
     fun getTagsForList(listId: String): Flow<List<Tag>>

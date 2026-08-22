@@ -277,6 +277,11 @@ class RoomNoteRepository(
         setHasPendingChanges(true)
     }
 
+    override suspend fun deleteCompletedEntries(listId: String) {
+        database.listDao().deleteCompletedEntriesByList(listId)
+        setHasPendingChanges(true)
+    }
+
     // --- Tags ---
     override fun getTagsForList(listId: String): Flow<List<Tag>> {
         return database.tagDao().getTagsForList(listId).map { entities ->

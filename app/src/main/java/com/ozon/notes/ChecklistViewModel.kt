@@ -134,6 +134,7 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
                 }
             }
             is NoteEvent.DeleteEntry -> viewModelScope.launch { repository.deleteEntry(event.entryId) }
+            is NoteEvent.DeleteCompletedEntries -> viewModelScope.launch { repository.deleteCompletedEntries(event.listId) }
             else -> { /* Handled elsewhere */ }
         }
     }
