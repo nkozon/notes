@@ -133,6 +133,8 @@ fun DrawingNoteScreen(
     var showColorPopup by remember { mutableStateOf(false) }
     var showSelectionThicknessPopup by remember { mutableStateOf(false) }
     var showSelectionColorPopup by remember { mutableStateOf(false) }
+    var showSelectionExportDialog by remember { mutableStateOf(false) }
+    var pendingExportSelection by remember { mutableStateOf<Pair<List<com.ozon.notes.Stroke>, List<com.ozon.notes.DrawingImage>>?>(null) }
 
     var canvasSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
     var lastStylusTouchTime by remember { mutableLongStateOf(0L) }
@@ -599,24 +601,39 @@ fun DrawingNoteScreen(
     val pngLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png")) { uri ->
         uri?.let {
             coroutineScope.launch(Dispatchers.IO) {
-                context.contentResolver.openOutputStream(it)?.use { stream -> exportToPng(stream, strokes, images, canvasSize, canvasType, pageLayout, pdfInfo, pageCount) }
-                withContext(Dispatchers.Main) { Toast.makeText(context, "Exported as PNG", Toast.LENGTH_SHORT).show() }
+                val (eStrokes, eImages) = pendingExportSelection ?: (strokes to images)
+                val eCanvasType = if (pendingExportSelection != null) CanvasType.INFINITE else canvasType
+                context.contentResolver.openOutputStream(it)?.use { stream -> exportToPng(stream, eStrokes, eImages, canvasSize, eCanvasType, pageLayout, pdfInfo, pageCount) }
+                withContext(Dispatchers.Main) { 
+                    Toast.makeText(context, "Exported as PNG", Toast.LENGTH_SHORT).show() 
+                    pendingExportSelection = null
+                }
             }
         }
     }
     val pdfBitmapLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         uri?.let {
             coroutineScope.launch(Dispatchers.IO) {
-                context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, strokes, images, canvasSize, vector = false, canvasType, pageLayout, pdfInfo, pageCount) }
-                withContext(Dispatchers.Main) { Toast.makeText(context, "Exported as Bitmap PDF", Toast.LENGTH_SHORT).show() }
+                val (eStrokes, eImages) = pendingExportSelection ?: (strokes to images)
+                val eCanvasType = if (pendingExportSelection != null) CanvasType.INFINITE else canvasType
+                context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, eStrokes, eImages, canvasSize, vector = false, eCanvasType, pageLayout, pdfInfo, pageCount) }
+                withContext(Dispatchers.Main) { 
+                    Toast.makeText(context, "Exported as Bitmap PDF", Toast.LENGTH_SHORT).show() 
+                    pendingExportSelection = null
+                }
             }
         }
     }
     val pdfVectorLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         uri?.let {
             coroutineScope.launch(Dispatchers.IO) {
-                context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, strokes, images, canvasSize, vector = true, canvasType, pageLayout, pdfInfo, pageCount) }
-                withContext(Dispatchers.Main) { Toast.makeText(context, "Exported as Vector PDF", Toast.LENGTH_SHORT).show() }
+                val (eStrokes, eImages) = pendingExportSelection ?: (strokes to images)
+                val eCanvasType = if (pendingExportSelection != null) CanvasType.INFINITE else canvasType
+                context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, eStrokes, eImages, canvasSize, vector = true, eCanvasType, pageLayout, pdfInfo, pageCount) }
+                withContext(Dispatchers.Main) { 
+                    Toast.makeText(context, "Exported as Vector PDF", Toast.LENGTH_SHORT).show() 
+                    pendingExportSelection = null
+                }
             }
         }
     }
@@ -1469,12 +1486,16 @@ fun DrawingNoteScreen(
 
                     Surface(
                         modifier = Modifier
-                            .offset { IntOffset((screenX - px56).roundToInt(), yOffset.roundToInt()) }
+                            .offset { IntOffset((screenX - 72.dp.toPx().toInt()).roundToInt(), yOffset.roundToInt()) }
                             .shadow(4.dp, CircleShape).clip(CircleShape),
                         color = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
                         tonalElevation = 6.dp
                     ) {
                         Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { 
+                                pendingExportSelection = strokes.filter { it.id in selectedStrokeIds } to images.filter { it.id in selectedImageIds }
+                                showSelectionExportDialog = true 
+                            }) { Icon(Icons.Rounded.FileDownload, contentDescription = "Export Selection") }
                             IconButton(onClick = {
                                 pushToHistory()
                                 val newStrokes = strokes.filter { it.id in selectedStrokeIds }.map { s -> s.copy(id = UUID.randomUUID().toString(), points = s.points.map { DrawingPoint(it.x + 20f, it.y + 20f) }) }
@@ -1537,6 +1558,19 @@ fun DrawingNoteScreen(
                     }
                 }
             }
+        }
+    }
+
+    if (showSelectionExportDialog) {
+        pendingExportSelection?.let { selection ->
+            SelectionExportDialog(
+                strokes = selection.first,
+                images = selection.second,
+                onDismiss = { showSelectionExportDialog = false; pendingExportSelection = null },
+                onExportPng = { launchExport(pngLauncher, "png") },
+                onExportPdfBitmap = { launchExport(pdfBitmapLauncher, "pdf") },
+                onExportPdfVector = { launchExport(pdfVectorLauncher, "pdf") }
+            )
         }
     }
 }
@@ -1861,9 +1895,10 @@ private fun exportToPng(
 
     // 2. Create the final large bitmap
     // Use a scale factor but watch out for max bitmap size
-    val scale = if (totalHeight > 10000) 1f else 1.5f
-    val finalWidth = (totalWidth * scale).toInt().coerceAtMost(4096)
-    val finalHeight = (totalHeight * scale).toInt().coerceAtMost(16384) // Android max bitmap height limit is usually around here
+    // Higher scale = higher quality. 3x provides high resolution for prints/sharing.
+    val scale = if (totalHeight > 8000) 1.5f else 3.0f
+    val finalWidth = (totalWidth * scale).toInt().coerceAtMost(8192)
+    val finalHeight = (totalHeight * scale).toInt().coerceAtMost(16384) 
     
     val combinedBitmap = Bitmap.createBitmap(finalWidth, finalHeight, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(combinedBitmap)
@@ -2074,4 +2109,83 @@ private fun distanceToSegmentSq(px: Float, py: Float, x1: Float, y1: Float, x2: 
         val qy = y1 + t * dy
         (px - qx) * (px - qx) + (py - qy) * (py - qy)
     }
+}
+
+@Composable
+private fun SelectionExportDialog(
+    strokes: List<com.ozon.notes.Stroke>,
+    images: List<com.ozon.notes.DrawingImage>,
+    onDismiss: () -> Unit,
+    onExportPng: () -> Unit,
+    onExportPdfBitmap: () -> Unit,
+    onExportPdfVector: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Export Selection") },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                val bounds = remember(strokes, images) { getBoundsLocal(strokes, images) }
+                Box(
+                    modifier = Modifier
+                        .size(240.dp)
+                        .background(Color.White, RoundedCornerShape(12.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                        if (bounds.width > 0 && bounds.height > 0) {
+                            val padding = 20f
+                            val scale = minOf(size.width / (bounds.width + padding * 2), size.height / (bounds.height + padding * 2))
+                            
+                            withTransform({
+                                translate(size.width / 2f, size.height / 2f)
+                                scale(scale, scale, Offset.Zero)
+                                translate(-bounds.center.x, -bounds.center.y)
+                            }) {
+                                strokes.forEach { stroke ->
+                                    val path = Path().apply {
+                                        stroke.points.forEachIndexed { i, p ->
+                                            if (i == 0) moveTo(p.x, p.y) else lineTo(p.x, p.y)
+                                        }
+                                    }
+                                    drawPath(
+                                        path = path,
+                                        color = Color(stroke.colorArgb),
+                                        style = Stroke(
+                                            width = stroke.width,
+                                            cap = StrokeCap.Round,
+                                            join = StrokeJoin.Round
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+                Text("Select format:", style = MaterialTheme.typography.titleMedium)
+            }
+        },
+        confirmButton = {
+            Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onExportPng, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+                    Icon(Icons.Rounded.Image, null); Spacer(Modifier.width(8.dp)); Text("PNG Image")
+                }
+                Button(onClick = onExportPdfBitmap, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+                    Icon(Icons.Rounded.PictureAsPdf, null); Spacer(Modifier.width(8.dp)); Text("PDF (Bitmap)")
+                }
+                Button(onClick = onExportPdfVector, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+                    Icon(Icons.Rounded.PictureAsPdf, null); Spacer(Modifier.width(8.dp)); Text("PDF (Vector)")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
