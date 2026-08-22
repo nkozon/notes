@@ -183,7 +183,7 @@ fun SettingsScreen(
                                 SettingsToggleItem(
                                     label = when (behavior) {
                                         ChecklistBehavior.GREY_OUT -> "Grey out"
-                                        ChecklistBehavior.MOVE_TO_BOTTOM -> "Move to bottom"
+                                        ChecklistBehavior.MOVE_TO_BOTTOM -> "Sink"
                                         ChecklistBehavior.HIDE -> "Hide"
                                     },
                                     selected = checklistBehavior == behavior,

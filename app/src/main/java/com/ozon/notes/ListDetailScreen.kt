@@ -368,7 +368,7 @@ fun ListDetailScreen(
                 lastAddedId?.let { id ->
                     val index = uncheckedEntries.indexOfFirst { it.first.id == id }
                     if (index != -1) {
-                        listState.animateScrollToItem(index + if (isInlineAdding && currentList.type == ListType.CHECKLIST) 1 else 0)
+                        listState.animateScrollToItem(index)
                         lastAddedId = null
                     }
                 }
@@ -386,57 +386,6 @@ fun ListDetailScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                if (isInlineAdding && currentList.type == ListType.CHECKLIST) {
-                    item(key = "inline_add") {
-                        InlineAddEntryItem(
-                            text = inlineEntryText,
-                            onTextChange = { inlineEntryText = it },
-                            allTags = allTags,
-                            selectedTagIds = inlineSelectedTagIds,
-                            onTagToggle = { tagId ->
-                                inlineSelectedTagIds = if (inlineSelectedTagIds.contains(tagId)) {
-                                    inlineSelectedTagIds - tagId
-                                } else {
-                                    inlineSelectedTagIds + tagId
-                                }
-                            },
-                            onAddTagClick = { showInlineAddTagDialog = true },
-                            onSave = {
-                                if (inlineEntryText.isNotBlank()) {
-                                    val newEntry = ListEntry(
-                                        listId = listId, 
-                                        title = inlineEntryText,
-                                        tagIds = inlineSelectedTagIds.toList()
-                                    )
-                                    lastAddedId = newEntry.id
-                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(newEntry))
-                                }
-                                inlineEntryText = ""
-                                inlineSelectedTagIds = emptySet()
-                                isInlineAdding = false
-                            },
-                            onEnter = {
-                                if (inlineEntryText.isNotBlank()) {
-                                    val newEntry = ListEntry(
-                                        listId = listId, 
-                                        title = inlineEntryText,
-                                        tagIds = inlineSelectedTagIds.toList()
-                                    )
-                                    lastAddedId = newEntry.id
-                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(newEntry))
-                                }
-                                inlineEntryText = ""
-                                inlineSelectedTagIds = emptySet()
-                            },
-                            onCancel = {
-                                inlineEntryText = ""
-                                inlineSelectedTagIds = emptySet()
-                                isInlineAdding = false
-                            }
-                        )
-                    }
-                }
-
                 itemsIndexed(
                     items = uncheckedEntries,
                     key = { _, item -> item.first.id }
@@ -659,6 +608,76 @@ fun ListDetailScreen(
             },
             onSaveTag = { checklistViewModel.onEvent(NoteEvent.SaveTag(it)) }
         )
+    }
+
+    if (isInlineAdding && currentList.type == ListType.CHECKLIST) {
+        Dialog(
+            onDismissRequest = { 
+                inlineEntryText = ""
+                inlineSelectedTagIds = emptySet()
+                isInlineAdding = false 
+            },
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = true
+            )
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(modifier = Modifier.widthIn(max = 600.dp)) {
+                    InlineAddEntryItem(
+                        text = inlineEntryText,
+                        onTextChange = { inlineEntryText = it },
+                        allTags = allTags,
+                        selectedTagIds = inlineSelectedTagIds,
+                        onTagToggle = { tagId ->
+                            inlineSelectedTagIds = if (inlineSelectedTagIds.contains(tagId)) {
+                                inlineSelectedTagIds - tagId
+                            } else {
+                                inlineSelectedTagIds + tagId
+                            }
+                        },
+                        onAddTagClick = { showInlineAddTagDialog = true },
+                        onSave = {
+                            if (inlineEntryText.isNotBlank()) {
+                                val newEntry = ListEntry(
+                                    listId = listId, 
+                                    title = inlineEntryText,
+                                    tagIds = inlineSelectedTagIds.toList()
+                                )
+                                lastAddedId = newEntry.id
+                                checklistViewModel.onEvent(NoteEvent.SaveEntry(newEntry))
+                            }
+                            inlineEntryText = ""
+                            inlineSelectedTagIds = emptySet()
+                            isInlineAdding = false
+                        },
+                        onEnter = {
+                            if (inlineEntryText.isNotBlank()) {
+                                val newEntry = ListEntry(
+                                    listId = listId, 
+                                    title = inlineEntryText,
+                                    tagIds = inlineSelectedTagIds.toList()
+                                )
+                                lastAddedId = newEntry.id
+                                checklistViewModel.onEvent(NoteEvent.SaveEntry(newEntry))
+                            }
+                            inlineEntryText = ""
+                            inlineSelectedTagIds = emptySet()
+                        },
+                        onCancel = {
+                            inlineEntryText = ""
+                            inlineSelectedTagIds = emptySet()
+                            isInlineAdding = false
+                        }
+                    )
+                }
+            }
+        }
     }
 
     if (entryForDescription != null) {

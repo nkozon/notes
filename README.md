@@ -13,7 +13,7 @@ A modern, feature-rich Android note-taking application built with Jetpack Compos
 
 ### Versatile Note Types
 - **Rich Text Notes**: Support for bold, italic, underline, bullet points, and dynamic headings.
-- **Checklists**: Nested task management with customizable behaviors (hide completed, move to bottom, etc.).
+- **Checklists**: Nested task management with customizable behaviors (hide completed, sink, etc.).
 - **Rating Lists**: Rate items (e.g., movies, books) on a 0-10 scale with visual indicators.
 
 ### Adaptive & Modern UI
