@@ -76,6 +76,25 @@ import kotlin.math.roundToInt
 
 val SPATIAL_GRID_SIZE = 500f
 
+sealed class DrawingAction {
+    data class Add(
+        val strokes: List<com.ozon.notes.Stroke> = emptyList(),
+        val images: List<com.ozon.notes.DrawingImage> = emptyList()
+    ) : DrawingAction()
+    
+    data class Remove(
+        val strokes: List<com.ozon.notes.Stroke> = emptyList(),
+        val images: List<com.ozon.notes.DrawingImage> = emptyList()
+    ) : DrawingAction()
+    
+    data class Transform(
+        val oldStrokes: List<com.ozon.notes.Stroke> = emptyList(),
+        val newStrokes: List<com.ozon.notes.Stroke> = emptyList(),
+        val oldImages: List<com.ozon.notes.DrawingImage> = emptyList(),
+        val newImages: List<com.ozon.notes.DrawingImage> = emptyList()
+    ) : DrawingAction()
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DrawingNoteScreen(
@@ -102,8 +121,10 @@ fun DrawingNoteScreen(
     var title by remember { mutableStateOf("") }
     var strokes by remember { mutableStateOf(listOf<com.ozon.notes.Stroke>()) }
     var images by remember { mutableStateOf(listOf<com.ozon.notes.DrawingImage>()) }
-    var undoStack by remember { mutableStateOf(listOf<Pair<List<com.ozon.notes.Stroke>, List<com.ozon.notes.DrawingImage>>>()) }
-    var redoStack by remember { mutableStateOf(listOf<Pair<List<com.ozon.notes.Stroke>, List<com.ozon.notes.DrawingImage>>>()) }
+    var undoStack by remember { mutableStateOf(listOf<DrawingAction>()) }
+    var redoStack by remember { mutableStateOf(listOf<DrawingAction>()) }
+    val gestureRemovedStrokes = remember { mutableStateListOf<com.ozon.notes.Stroke>() }
+    val gestureRemovedImages = remember { mutableStateListOf<com.ozon.notes.DrawingImage>() }
     
     var canvasType by remember { mutableStateOf(CanvasType.INFINITE) }
     var pageLayout by remember { mutableStateOf(PageLayout()) }
@@ -464,13 +485,45 @@ fun DrawingNoteScreen(
         }
     }
 
-    fun pushToHistory() {
-        val current = strokes to images
-        // Only push if different from last state in stack to avoid duplicates
-        if (undoStack.lastOrNull() != current) {
-            undoStack = (undoStack + current).takeLast(50)
-            redoStack = emptyList()
+    fun recordAction(action: DrawingAction) {
+        undoStack = (undoStack + action).takeLast(100)
+        redoStack = emptyList()
+    }
+
+    fun applyAction(action: DrawingAction, isUndo: Boolean) {
+        when (action) {
+            is DrawingAction.Add -> {
+                if (isUndo) {
+                    val strokeIds = action.strokes.map { it.id }.toSet()
+                    val imageIds = action.images.map { it.id }.toSet()
+                    strokes = strokes.filter { it.id !in strokeIds }
+                    images = images.filter { it.id !in imageIds }
+                } else {
+                    strokes = strokes + action.strokes
+                    images = images + action.images
+                }
+            }
+            is DrawingAction.Remove -> {
+                if (isUndo) {
+                    strokes = strokes + action.strokes
+                    images = images + action.images
+                } else {
+                    val strokeIds = action.strokes.map { it.id }.toSet()
+                    val imageIds = action.images.map { it.id }.toSet()
+                    strokes = strokes.filter { it.id !in strokeIds }
+                    images = images.filter { it.id !in imageIds }
+                }
+            }
+            is DrawingAction.Transform -> {
+                val replacementStrokes = (if (isUndo) action.oldStrokes else action.newStrokes).associateBy { it.id }
+                val replacementImages = (if (isUndo) action.oldImages else action.newImages).associateBy { it.id }
+                strokes = strokes.map { replacementStrokes[it.id] ?: it }
+                images = images.map { replacementImages[it.id] ?: it }
+            }
         }
+        lodCaches.forEach { it.clear() }
+        strokeBoundsMap = emptyMap()
+        isDirty = true
     }
 
     fun saveDrawing() {
@@ -691,8 +744,8 @@ fun DrawingNoteScreen(
                     offset = DrawingPoint(worldCenter.x - (w/2), worldCenter.y - (h/2)),
                     scale = DrawingPoint(w, h)
                 )
-                pushToHistory()
                 images = images + newImage
+                recordAction(DrawingAction.Add(images = listOf(newImage)))
                 selectedImageIds = setOf(newImage.id)
                 selectedStrokeIds = emptySet()
                 isDirty = true
@@ -720,7 +773,6 @@ fun DrawingNoteScreen(
 
     fun handlePaste() {
         clipboardStrokes?.let { clipboard ->
-            pushToHistory()
             val b = getBounds(clipboard, emptyList())
             val screenCenter = Offset(canvasSize.width / 2f, canvasSize.height / 2f)
             val worldCenter = (screenCenter - canvasOffset) / canvasScale
@@ -728,6 +780,7 @@ fun DrawingNoteScreen(
             val offsetY = worldCenter.y - b.center.y
             val pasted = clipboard.map { s -> s.copy(id = UUID.randomUUID().toString(), points = s.points.map { DrawingPoint(it.x + offsetX, it.y + offsetY) }) }
             strokes = strokes + pasted
+            recordAction(DrawingAction.Add(strokes = pasted))
             selectedStrokeIds = pasted.map { it.id }.toSet()
             isDirty = true
         }
@@ -1024,7 +1077,9 @@ fun DrawingNoteScreen(
                                 val effectiveSlop = if (dragMode == DragMode.DRAW || dragMode == DragMode.LASSO || isStylus) 0.1f else touchSlop
                                 var hasMovedPastSlop = false
                                 var lastPosition = startPos
-                                var historyPushedByGesture = false
+                                
+                                gestureRemovedStrokes.clear()
+                                gestureRemovedImages.clear()
                                 
                                 while (true) {
                                     val event = awaitPointerEvent()
@@ -1041,19 +1096,34 @@ fun DrawingNoteScreen(
                                     if (change.changedToUp()) {
                                         if (hasMovedPastSlop && currentPathPoints.size > 1 && dragMode == DragMode.DRAW) {
                                             if (currentWorkingTool != DrawingTool.ERASER) {
-                                                pushToHistory()
-                                                strokes = updatedStrokes + com.ozon.notes.Stroke(
+                                                val newStroke = com.ozon.notes.Stroke(
                                                     points = currentPathPoints.toList(),
                                                     colorArgb = selectedPenColor.toArgb(),
                                                     width = penThickness,
                                                     tool = currentWorkingTool
                                                 )
+                                                strokes = updatedStrokes + newStroke
+                                                recordAction(DrawingAction.Add(strokes = listOf(newStroke)))
                                                 isDirty = true
                                             }
                                             currentPathPoints.clear()
                                         }
+                                        if (gestureRemovedStrokes.isNotEmpty() || gestureRemovedImages.isNotEmpty()) {
+                                            recordAction(DrawingAction.Remove(
+                                                strokes = gestureRemovedStrokes.toList(),
+                                                images = gestureRemovedImages.toList()
+                                            ))
+                                        }
                                         if (dragMode == DragMode.MOVE || dragMode.name.startsWith("RESIZE")) {
                                             if (strokes != strokesAtStart || images != imagesAtStart) {
+                                                val oldS = strokesAtStart.filter { it.id in selectedStrokesAtStart }
+                                                val newS = strokes.filter { it.id in selectedStrokesAtStart }
+                                                val oldI = imagesAtStart.filter { it.id in selectedImagesAtStart }
+                                                val newI = images.filter { it.id in selectedImagesAtStart }
+                                                recordAction(DrawingAction.Transform(
+                                                    oldStrokes = oldS, newStrokes = newS,
+                                                    oldImages = oldI, newImages = newI
+                                                ))
                                                 isDirty = true
                                             }
                                             currentPathPoints.clear()
@@ -1066,12 +1136,14 @@ fun DrawingNoteScreen(
                                     if (newTool != currentWorkingTool && dragMode == DragMode.DRAW && hasMovedPastSlop) {
                                         if (currentPathPoints.size > 1) {
                                             if (currentWorkingTool != DrawingTool.ERASER) {
-                                                strokes = updatedStrokes + com.ozon.notes.Stroke(
+                                                val newStroke = com.ozon.notes.Stroke(
                                                     points = currentPathPoints.toList(),
                                                     colorArgb = selectedPenColor.toArgb(),
                                                     width = penThickness,
                                                     tool = currentWorkingTool
                                                 )
+                                                strokes = updatedStrokes + newStroke
+                                                recordAction(DrawingAction.Add(strokes = listOf(newStroke)))
                                                 isDirty = true
                                             }
                                             val lastPt = currentPathPoints.last()
@@ -1094,10 +1166,6 @@ fun DrawingNoteScreen(
                                         when (dragMode) {
                                             DragMode.PAN -> canvasOffset += dragDelta
                                             DragMode.MOVE -> {
-                                                if (!historyPushedByGesture) {
-                                                    pushToHistory()
-                                                    historyPushedByGesture = true
-                                                }
                                                 val totalMove = (currentPos - startPos) / updatedCanvasScale
                                                 strokes = strokesAtStart.map { s -> if (s.id in selectedStrokesAtStart) s.copy(points = s.points.map { DrawingPoint(it.x + totalMove.x, it.y + totalMove.y) }) else s }
                                                 images = imagesAtStart.map { img -> if (img.id in selectedImagesAtStart) img.copy(offset = DrawingPoint(img.offset.x + totalMove.x, img.offset.y + totalMove.y)) else img }
@@ -1105,10 +1173,6 @@ fun DrawingNoteScreen(
                                             }
                                             DragMode.RESIZE_TL, DragMode.RESIZE_TR, DragMode.RESIZE_BL, DragMode.RESIZE_BR -> {
                                                 if (bStart != null) {
-                                                    if (!historyPushedByGesture) {
-                                                        pushToHistory()
-                                                        historyPushedByGesture = true
-                                                    }
                                                     val pivot = when (dragMode) {
                                                         DragMode.RESIZE_TL -> Offset(bStart.right, bStart.bottom)
                                                         DragMode.RESIZE_TR -> Offset(bStart.left, bStart.bottom)
@@ -1221,10 +1285,7 @@ fun DrawingNoteScreen(
                                                     }
                                                     
                                                     if (toErase.isNotEmpty()) {
-                                                        if (!historyPushedByGesture) {
-                                                            pushToHistory()
-                                                            historyPushedByGesture = true
-                                                        }
+                                                        gestureRemovedStrokes.addAll(toErase)
                                                         strokes = strokes.filterNot { it in toErase }
                                                         isDirty = true
                                                     }
@@ -1505,29 +1566,19 @@ fun DrawingNoteScreen(
                     undoEnabled = undoStack.isNotEmpty(),
                     onUndo = { 
                         if (undoStack.isNotEmpty()) { 
-                            val current = strokes to images
-                            redoStack = (redoStack + current).takeLast(50)
-                            val last = undoStack.last()
+                            val action = undoStack.last()
                             undoStack = undoStack.dropLast(1)
-                            strokes = last.first
-                            images = last.second
-                            lodCaches.forEach { it.clear() }
-                            strokeBoundsMap = emptyMap()
-                            isDirty = true
+                            redoStack = (redoStack + action).takeLast(100)
+                            applyAction(action, isUndo = true)
                         } 
                     },
                     redoEnabled = redoStack.isNotEmpty(),
                     onRedo = { 
                         if (redoStack.isNotEmpty()) { 
-                            val current = strokes to images
-                            undoStack = (undoStack + current).takeLast(50)
-                            val last = redoStack.last()
+                            val action = redoStack.last()
                             redoStack = redoStack.dropLast(1)
-                            strokes = last.first
-                            images = last.second
-                            lodCaches.forEach { it.clear() }
-                            strokeBoundsMap = emptyMap()
-                            isDirty = true
+                            undoStack = (undoStack + action).takeLast(100)
+                            applyAction(action, isUndo = false)
                         } 
                     },
                     pasteEnabled = clipboardStrokes != null,
@@ -1559,20 +1610,22 @@ fun DrawingNoteScreen(
                                 showSelectionExportDialog = true 
                             }) { Icon(Icons.Rounded.FileDownload, contentDescription = "Export Selection") }
                             IconButton(onClick = {
-                                pushToHistory()
                                 val newStrokes = strokes.filter { it.id in selectedStrokeIds }.map { s -> s.copy(id = UUID.randomUUID().toString(), points = s.points.map { DrawingPoint(it.x + 20f, it.y + 20f) }) }
                                 val newImages = images.filter { it.id in selectedImageIds }.map { img -> img.copy(id = UUID.randomUUID().toString(), offset = DrawingPoint(img.offset.x + 20f, img.offset.y + 20f)) }
                                 strokes = strokes + newStrokes
                                 images = images + newImages
+                                recordAction(DrawingAction.Add(strokes = newStrokes, images = newImages))
                                 selectedStrokeIds = newStrokes.map { it.id }.toSet()
                                 selectedImageIds = newImages.map { it.id }.toSet()
                                 isDirty = true
                                 Toast.makeText(context, "Duplicated", Toast.LENGTH_SHORT).show()
                             }) { Icon(Icons.Rounded.ContentCopy, contentDescription = "Duplicate") }
                             IconButton(onClick = { 
-                                pushToHistory()
+                                val removedS = strokes.filter { it.id in selectedStrokeIds }
+                                val removedI = images.filter { it.id in selectedImageIds }
                                 strokes = strokes.filterNot { it.id in selectedStrokeIds }
                                 images = images.filterNot { it.id in selectedImageIds }
+                                recordAction(DrawingAction.Remove(strokes = removedS, images = removedI))
                                 selectedStrokeIds = emptySet(); selectedImageIds = emptySet()
                                 showSelectionThicknessPopup = false; showSelectionColorPopup = false
                                 isDirty = true
@@ -1596,8 +1649,10 @@ fun DrawingNoteScreen(
                             ColorPopup(
                                 selectedColor = Color(strokes.find { it.id in selectedStrokeIds }?.colorArgb ?: Color.Black.toArgb()),
                                 onColorChange = { newColor ->
-                                    pushToHistory()
+                                    val oldS = strokes.filter { it.id in selectedStrokeIds }
+                                    val newS = oldS.map { it.copy(colorArgb = newColor.toArgb()) }
                                     strokes = strokes.map { s -> if (s.id in selectedStrokeIds) s.copy(colorArgb = newColor.toArgb()) else s }
+                                    recordAction(DrawingAction.Transform(oldStrokes = oldS, newStrokes = newS))
                                     showSelectionColorPopup = false
                                     isDirty = true
                                 },
@@ -1608,8 +1663,10 @@ fun DrawingNoteScreen(
                             ThicknessPopup(
                                 thickness = strokes.find { it.id in selectedStrokeIds }?.width ?: 2.5f,
                                 onThicknessChange = { newWidth -> 
-                                    pushToHistory()
+                                    val oldS = strokes.filter { it.id in selectedStrokeIds }
+                                    val newS = oldS.map { it.copy(width = newWidth) }
                                     strokes = strokes.map { s -> if (s.id in selectedStrokeIds) s.copy(width = newWidth) else s }
+                                    recordAction(DrawingAction.Transform(oldStrokes = oldS, newStrokes = newS))
                                     isDirty = true
                                 },
                                 color = Color(strokes.find { it.id in selectedStrokeIds }?.colorArgb ?: Color.Black.toArgb()),
