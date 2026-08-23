@@ -44,6 +44,13 @@ fun BackupRestoreScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val json = remember {
+        Json {
+            ignoreUnknownKeys = true
+            coerceInputValues = true
+            encodeDefaults = true
+        }
+    }
     
     val lastBackupTime by viewModel.lastBackupTimeState.collectAsStateWithLifecycle()
     val autoBackupEnabled by viewModel.autoBackupEnabled.collectAsStateWithLifecycle()
@@ -64,9 +71,9 @@ fun BackupRestoreScreen(
                     val currentTime = System.currentTimeMillis()
                     val success = withContext(Dispatchers.IO) {
                         try {
-                            val json = Json.encodeToString(data)
+                            val jsonString = json.encodeToString(data)
                             context.contentResolver.openOutputStream(it)?.use { outputStream ->
-                                outputStream.write(json.toByteArray())
+                                outputStream.write(jsonString.toByteArray())
                             }
                             true
                         } catch (e: Exception) {
@@ -109,7 +116,7 @@ fun BackupRestoreScreen(
                     try {
                         context.contentResolver.openInputStream(fileUri)?.use { inputStream ->
                             val jsonString = inputStream.bufferedReader().use { reader -> reader.readText() }
-                            val data = Json.decodeFromString<BackupData>(jsonString)
+                            val data = json.decodeFromString<BackupData>(jsonString)
                             viewModel.onEvent(NoteEvent.RestoreData(data))
                         }
                         true
