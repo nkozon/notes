@@ -25,6 +25,11 @@ A modern, feature-rich Android note-taking application built with Jetpack Compos
 - **Exporting**: Export drawings as high-quality PNGs or PDFs (Vector and Bitmap).
 - **Reactive UI**: State-driven UI updates using Kotlin Coroutines and Flow.
 
+## Attributions
+- **TMDb**: This product uses the TMDB API but is not endorsed or certified by TMDB. [themoviedb.org](https://www.themoviedb.org)
+
+  <img src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_short-8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c.svg" width="100" alt="TMDb Logo">
+
 ## Build Requirements
 - Android Studio Ladybug (or newer)
 - Android SDK 30+ (Min SDK) / 36 (Target SDK)
