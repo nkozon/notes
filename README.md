@@ -5,22 +5,19 @@ A modern, feature-rich Android note-taking application built with Jetpack Compos
 ## Features
 
 ### Advanced Drawing
-- **Precision Canvas**: Near-zero latency drawing optimized for styluses.
-- **S Pen Integration**: Full support for S Pen side-button (hold to erase) and dedicated eraser tips.
-- **Object-Based Erasing**: Erase entire strokes with ease.
+- **Stylus Integration**: Full support for S Pen (and other passive styluses) side-button (hold to erase) and dedicated eraser tips.
 - **Variable Tools**: Pen (with thickness/color control), Eraser, Lasso selection, and Hand/Pan tool.
-- **Color Selection**: Preset colors and a full HSV custom color picker.
+- **Color Selection**: Preset colors and a full HSV custom color picker. Also change color of lasso-selected strokes.
 
 ### Versatile Note Types
 - **Rich Text Notes**: Support for bold, italic, underline, bullet points, and dynamic headings.
 - **Checklists**: Nested task management with customizable behaviors (hide completed, sink, etc.).
-- **Rating Lists**: Rate items (e.g., movies, books) on a 0-10 scale with visual indicators.
+- **Rating Lists**: Rate items (e.g. movies, books) on a 0-10 scale with visual indicators.
+- **Upcoming Lists**: Track upcoming items (e.g. upcoming movies) and get notified when the time comes.
 
 ### Adaptive & Modern UI
-- **Split-Screen Layout**: Custom resizable dual-pane interface for tablets and foldables.
-- **Material 3**: Full implementation of Material You with dynamic color support.
-- **Theming**: Seamless switching between Light, Dark, and System themes.
-- **Typography**: Uses **Google Sans Flex** variable font with custom "Roundness" axes for a modern look.
+- **Dual-pane Layout**: Custom resizable dual-pane interface for tablets and foldables.
+- **Material 3 & Themes**: Full implementation of Material You with dynamic color support, custom theming and the Google Sans Flex font.
 
 ### Technical Highlights
 - **Architecture**: Clean MVVM (Model-View-ViewModel) with Repository pattern.

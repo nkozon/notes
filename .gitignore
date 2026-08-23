@@ -15,6 +15,7 @@
 local.properties
 .artifacts
 app
+.kotlin
 
 # Log/OS Files
 *.log

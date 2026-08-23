@@ -50,6 +50,11 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.LinkOff
 import androidx.compose.material3.*
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -94,8 +99,6 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
-import android.app.DatePickerDialog
-import android.app.TimePickerDialog
 import android.content.Context
 import androidx.compose.ui.platform.LocalContext
 
@@ -1822,6 +1825,9 @@ fun EntryDialog(
     var dueDate by remember { mutableStateOf(entry?.dueDate) }
     var remindMe by remember { mutableStateOf(entry?.remindMe ?: false) }
 
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
+
     val context = LocalContext.current
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -1868,22 +1874,7 @@ fun EntryDialog(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Surface(
-                                onClick = {
-                                    val calendar = Calendar.getInstance()
-                                    dueDate?.let { calendar.timeInMillis = it }
-                                    DatePickerDialog(
-                                        context,
-                                        { _, year, month, day ->
-                                            val newCal = Calendar.getInstance()
-                                            dueDate?.let { newCal.timeInMillis = it }
-                                            newCal.set(year, month, day)
-                                            dueDate = newCal.timeInMillis
-                                        },
-                                        calendar.get(Calendar.YEAR),
-                                        calendar.get(Calendar.MONTH),
-                                        calendar.get(Calendar.DAY_OF_MONTH)
-                                    ).show()
-                                },
+                                onClick = { showDatePicker = true },
                                 shape = RoundedCornerShape(12.dp),
                                 color = MaterialTheme.colorScheme.surfaceVariant,
                                 modifier = Modifier.weight(1f)
@@ -1935,24 +1926,7 @@ fun EntryDialog(
                             
                             if (remindMe) {
                                 Surface(
-                                    onClick = {
-                                        val calendar = Calendar.getInstance()
-                                        dueDate?.let { calendar.timeInMillis = it }
-                                        TimePickerDialog(
-                                            context,
-                                            { _, hour, minute ->
-                                                val newCal = Calendar.getInstance()
-                                                dueDate?.let { newCal.timeInMillis = it }
-                                                newCal.set(Calendar.HOUR_OF_DAY, hour)
-                                                newCal.set(Calendar.MINUTE, minute)
-                                                newCal.set(Calendar.SECOND, 0)
-                                                dueDate = newCal.timeInMillis
-                                            },
-                                            calendar.get(Calendar.HOUR_OF_DAY),
-                                            calendar.get(Calendar.MINUTE),
-                                            true
-                                        ).show()
-                                    },
+                                    onClick = { showTimePicker = true },
                                     shape = RoundedCornerShape(12.dp),
                                     color = MaterialTheme.colorScheme.surfaceVariant,
                                     modifier = Modifier.fillMaxWidth()
@@ -2229,6 +2203,75 @@ fun EntryDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
+
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = dueDate ?: System.currentTimeMillis()
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val selectedDate = datePickerState.selectedDateMillis
+                        if (selectedDate != null) {
+                            val calendar = Calendar.getInstance()
+                            dueDate?.let { calendar.timeInMillis = it }
+                            val timePartCal = Calendar.getInstance().apply { timeInMillis = selectedDate }
+                            calendar.set(Calendar.YEAR, timePartCal.get(Calendar.YEAR))
+                            calendar.set(Calendar.MONTH, timePartCal.get(Calendar.MONTH))
+                            calendar.set(Calendar.DAY_OF_MONTH, timePartCal.get(Calendar.DAY_OF_MONTH))
+                            dueDate = calendar.timeInMillis
+                        }
+                        showDatePicker = false
+                    }
+                ) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
+    if (showTimePicker) {
+        val calendar = Calendar.getInstance()
+        dueDate?.let { calendar.timeInMillis = it }
+        val timePickerState = rememberTimePickerState(
+            initialHour = calendar.get(Calendar.HOUR_OF_DAY),
+            initialMinute = calendar.get(Calendar.MINUTE),
+            is24Hour = true
+        )
+        
+        AlertDialog(
+            onDismissRequest = { showTimePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val newCal = Calendar.getInstance()
+                        dueDate?.let { newCal.timeInMillis = it }
+                        newCal.set(Calendar.HOUR_OF_DAY, timePickerState.hour)
+                        newCal.set(Calendar.MINUTE, timePickerState.minute)
+                        newCal.set(Calendar.SECOND, 0)
+                        dueDate = newCal.timeInMillis
+                        showTimePicker = false
+                    }
+                ) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTimePicker = false }) { Text("Cancel") }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    TimePicker(state = timePickerState)
+                }
+            }
+        )
+    }
 
     if (showAddTagDialog) {
         var newTagName by remember { mutableStateOf("") }
