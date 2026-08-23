@@ -76,6 +76,16 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
     val lowScoreThreshold: StateFlow<Float> = repository.getLowScoreThreshold()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 4.0f)
 
+    val moviePostersEnabled: StateFlow<Boolean> = repository.getMoviePostersEnabled()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    private val _posterCacheSize = MutableStateFlow(0L)
+    val posterCacheSize = _posterCacheSize.asStateFlow()
+
+    fun updatePosterCacheSize() {
+        _posterCacheSize.value = repository.getPosterCacheSize()
+    }
+
     val forceStylusOnly: StateFlow<Boolean> = repository.getForceStylusOnly()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
@@ -106,6 +116,11 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
             is NoteEvent.UpdateHighScoreThreshold -> viewModelScope.launch { repository.setHighScoreThreshold(event.threshold) }
             is NoteEvent.UpdateLowScoreEnabled -> viewModelScope.launch { repository.setLowScoreEnabled(event.enabled) }
             is NoteEvent.UpdateLowScoreThreshold -> viewModelScope.launch { repository.setLowScoreThreshold(event.threshold) }
+            is NoteEvent.UpdateMoviePostersEnabled -> viewModelScope.launch { repository.setMoviePostersEnabled(event.enabled) }
+            is NoteEvent.ClearPosterCache -> viewModelScope.launch { 
+                repository.clearPosterCache()
+                updatePosterCacheSize()
+            }
             is NoteEvent.UpdateForceStylusOnly -> viewModelScope.launch { repository.setForceStylusOnly(event.enabled) }
             is NoteEvent.UpdateLastDrawingThickness -> viewModelScope.launch { repository.setLastDrawingThickness(event.thickness) }
             is NoteEvent.UpdateSmoothingStrength -> viewModelScope.launch { repository.setSmoothingStrength(event.strength) }

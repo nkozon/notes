@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -20,6 +22,14 @@ android {
         versionCode = 22
         versionName = "1.9.1"
 
+        val localProperties = Properties()
+        val localPropertiesFile = rootProject.file("local.properties")
+        if (localPropertiesFile.exists()) {
+            localProperties.load(localPropertiesFile.inputStream())
+        }
+        val tmdbApiKey = localProperties.getProperty("TMDB_API_KEY") ?: "YOUR_API_KEY_HERE"
+        buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -40,6 +50,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -78,4 +89,9 @@ dependencies {
     
     val workVersion = "2.11.2"
     implementation("androidx.work:work-runtime-ktx:$workVersion")
+
+    implementation(libs.coil.compose)
+    implementation(libs.retrofit)
+    implementation(libs.retrofit.converter.serialization)
+    implementation(libs.okhttp.logging)
 }

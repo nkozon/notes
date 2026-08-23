@@ -97,6 +97,7 @@ fun ListEntryEntity.toDomain(tagIds: List<String>): ListEntry {
         rating = rating,
         isPinned = isPinned,
         description = description,
+        tmdbPosterPath = tmdbPosterPath,
         timestamp = timestamp,
         dueDate = dueDate,
         remindMe = remindMe
@@ -118,6 +119,7 @@ fun ListEntry.toEntity(): ListEntryEntity {
         rating = rating,
         isPinned = isPinned,
         description = description,
+        tmdbPosterPath = tmdbPosterPath,
         timestamp = timestamp,
         dueDate = dueDate,
         remindMe = remindMe

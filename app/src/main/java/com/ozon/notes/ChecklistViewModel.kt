@@ -184,6 +184,8 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
 
     suspend fun getEntryDescription(entryId: String): String? = repository.getEntryDescription(entryId)
 
+    suspend fun searchTmdb(query: String): List<TmdbMovie> = repository.searchTmdb(query)
+
     companion object {
         fun provideFactory(repository: NoteRepository): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {

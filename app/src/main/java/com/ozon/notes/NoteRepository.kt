@@ -22,6 +22,7 @@ interface NoteRepository {
     // --- Lists ---
     fun getAllLists(): Flow<List<NoteList>>
     fun getAllListsWithCounts(): Flow<List<NoteListWithCounts>>
+    suspend fun getListById(id: String): NoteList?
     suspend fun saveList(list: NoteList)
     suspend fun togglePinList(listId: String)
     suspend fun deleteList(listId: String)
@@ -85,6 +86,13 @@ interface NoteRepository {
     // --- Rating Indicators ---
     fun getRatingIndicatorsEnabled(): Flow<Boolean>
     suspend fun setRatingIndicatorsEnabled(enabled: Boolean)
+
+    // --- Movie Posters ---
+    fun getMoviePostersEnabled(): Flow<Boolean>
+    suspend fun setMoviePostersEnabled(enabled: Boolean)
+    suspend fun searchTmdb(query: String): List<TmdbMovie>
+    suspend fun clearPosterCache()
+    fun getPosterCacheSize(): Long
     fun getHighScoreEnabled(): Flow<Boolean>
     suspend fun setHighScoreEnabled(enabled: Boolean)
     fun getHighScoreThreshold(): Flow<Float>
@@ -168,7 +176,8 @@ object AppContainer {
             NoteDatabase.MIGRATION_17_18,
             NoteDatabase.MIGRATION_18_19,
             NoteDatabase.MIGRATION_19_20,
-            NoteDatabase.MIGRATION_20_21
+            NoteDatabase.MIGRATION_20_21,
+            NoteDatabase.MIGRATION_21_22
         )
             .fallbackToDestructiveMigration()
             .build().also { database = it }

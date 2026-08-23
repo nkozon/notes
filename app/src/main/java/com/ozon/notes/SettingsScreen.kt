@@ -60,6 +60,10 @@ fun SettingsScreen(
     val highScoreThreshold by viewModel.highScoreThreshold.collectAsStateWithLifecycle()
     val lowScoreEnabled by viewModel.lowScoreEnabled.collectAsStateWithLifecycle()
     val lowScoreThreshold by viewModel.lowScoreThreshold.collectAsStateWithLifecycle()
+    
+    val moviePostersEnabled by viewModel.moviePostersEnabled.collectAsStateWithLifecycle()
+    val posterCacheSize by viewModel.posterCacheSize.collectAsStateWithLifecycle()
+
     val forceStylusOnly by viewModel.forceStylusOnly.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
 
@@ -70,6 +74,10 @@ fun SettingsScreen(
         if (updateState is UpdateState.UpdateAvailable) {
             showUpdateDialog = updateState as UpdateState.UpdateAvailable
         }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.updatePosterCacheSize()
     }
 
     Scaffold(
@@ -235,6 +243,60 @@ fun SettingsScreen(
                     index = 2,
                     total = 3
                 )
+            }
+
+            // Movie Posters Section
+            SettingsSection(title = "Movie Posters") {
+                SettingsItemContainer(index = 0, total = 2) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Grab Movie Posters",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                text = "Auto-fetch posters for rating lists",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = moviePostersEnabled,
+                            onCheckedChange = { viewModel.onEvent(NoteEvent.UpdateMoviePostersEnabled(it)) }
+                        )
+                    }
+                }
+
+                SettingsItemContainer(index = 1, total = 2, onClick = { viewModel.onEvent(NoteEvent.ClearPosterCache) }) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("Clear Poster Cache", style = MaterialTheme.typography.titleMedium)
+                            val sizeMb = (posterCacheSize / (1024f * 1024f))
+                            Text(
+                                text = "Current usage: ${"%.2f".format(sizeMb)} MB",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Rounded.DeleteSweep,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
             }
 
             // Drawing Section

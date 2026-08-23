@@ -43,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.scale
+import coil.compose.AsyncImage
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.SubdirectoryArrowRight
@@ -131,6 +132,7 @@ fun ListDetailScreen(
     val highScoreThreshold by settingsViewModel.highScoreThreshold.collectAsStateWithLifecycle()
     val lowScoreEnabled by settingsViewModel.lowScoreEnabled.collectAsStateWithLifecycle()
     val lowScoreThreshold by settingsViewModel.lowScoreThreshold.collectAsStateWithLifecycle()
+    val moviePostersEnabled by settingsViewModel.moviePostersEnabled.collectAsStateWithLifecycle()
 
     val currentList = list
     val searchQuery by checklistViewModel.searchQuery.collectAsStateWithLifecycle()
@@ -142,6 +144,7 @@ fun ListDetailScreen(
     var editingEntry by remember { mutableStateOf<ListEntry?>(null) }
     var entryForDescription by remember { mutableStateOf<ListEntry?>(null) }
     var previewEntry by remember { mutableStateOf<ListEntry?>(null) }
+    var entryForPosterSearch by remember { mutableStateOf<ListEntry?>(null) }
     var entryToDelete by remember { mutableStateOf<ListEntry?>(null) }
     var parentForNewSubentry by remember { mutableStateOf<ListEntry?>(null) }
     var showAddEntryDialog by remember { mutableStateOf(false) }
@@ -157,6 +160,19 @@ fun ListDetailScreen(
             val entry = entries.find { it.id == initialEntryId }
             if (entry != null && editingEntry == null) {
                 editingEntry = entry
+            }
+        }
+    }
+
+    LaunchedEffect(previewEntry) {
+        val entry = previewEntry
+        if (entry != null && entry.tmdbPosterPath.isNullOrBlank() && moviePostersEnabled && currentList?.type == ListType.RATING) {
+            val results = checklistViewModel.searchTmdb(entry.title)
+            val bestMatch = results.find { it.posterPath != null }
+            if (bestMatch != null) {
+                val updatedEntry = entry.copy(tmdbPosterPath = bestMatch.posterPath)
+                checklistViewModel.onEvent(NoteEvent.SaveEntry(updatedEntry))
+                previewEntry = updatedEntry
             }
         }
     }
@@ -767,6 +783,24 @@ fun ListDetailScreen(
         }
     }
 
+    if (entryForPosterSearch != null) {
+        entryForPosterSearch?.let { entry ->
+            PosterSelectionDialog(
+                entry = entry,
+                onDismiss = { entryForPosterSearch = null },
+                onConfirm = { posterPath ->
+                    checklistViewModel.onEvent(NoteEvent.SaveEntry(entry.copy(tmdbPosterPath = posterPath)))
+                    entryForPosterSearch = null
+                    // Update preview entry if it's the same one
+                    if (previewEntry?.id == entry.id) {
+                        previewEntry = entry.copy(tmdbPosterPath = posterPath)
+                    }
+                },
+                viewModel = checklistViewModel
+            )
+        }
+    }
+
     if (showAddEntryDialog) {
         EntryDialog(
             listId = listId,
@@ -1005,25 +1039,17 @@ fun ListDetailScreen(
                         // Tablet Design: Side artwork + Persistent content on the right
                         Row(
                             modifier = Modifier.fillMaxSize(),
-                            horizontalArrangement = Arrangement.spacedBy(0.dp)
+                            horizontalArrangement = Arrangement.spacedBy(24.dp)
                         ) {
                             // Left: Artwork (Poster ratio, padded)
-                            Box(
+                            PosterArtwork(
+                                entry = entry,
+                                iconSize = 80.dp,
+                                onManualSearch = { entryForPosterSearch = entry },
                                 modifier = Modifier
-                                    .padding(24.dp)
+                                    .padding(start = 24.dp, top = 24.dp, bottom = 4.dp)
                                     .width(240.dp)
-                                    .aspectRatio(2f / 3f)
-                                    .clip(RoundedCornerShape(24.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Movie,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(80.dp),
-                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                                )
-                            }
+                            )
 
                             // Right: Persistent content box
                             Box(
@@ -1199,22 +1225,14 @@ fun ListDetailScreen(
                                     .verticalScroll(scrollState)
                             ) {
                                 // Artwork (Poster ratio, padded)
-                                Box(
+                                PosterArtwork(
+                                    entry = entry,
+                                    iconSize = 100.dp,
+                                    onManualSearch = { entryForPosterSearch = entry },
                                     modifier = Modifier
-                                        .padding(24.dp)
+                                        .padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = 4.dp)
                                         .fillMaxWidth()
-                                        .aspectRatio(2f / 3f)
-                                        .clip(RoundedCornerShape(24.dp))
-                                        .background(MaterialTheme.colorScheme.surfaceContainerHigh),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Movie,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(100.dp),
-                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                                    )
-                                }
+                                )
 
                                 Column(
                                     modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
@@ -2800,6 +2818,58 @@ fun InlineAddEntryItem(
     }
 }
 
+@Composable
+private fun PosterArtwork(
+    entry: ListEntry,
+    iconSize: androidx.compose.ui.unit.Dp,
+    onManualSearch: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .aspectRatio(2f / 3f)
+                .clip(RoundedCornerShape(24.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            contentAlignment = Alignment.Center
+        ) {
+            if (entry.tmdbPosterPath != null) {
+                AsyncImage(
+                    model = TmdbConfig.IMAGE_BASE_URL + entry.tmdbPosterPath,
+                    contentDescription = "Poster for ${entry.title}",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Rounded.Movie,
+                    contentDescription = null,
+                    modifier = Modifier.size(iconSize),
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                )
+            }
+        }
+        
+        TextButton(
+            onClick = onManualSearch,
+            modifier = Modifier
+                .padding(top = 0.dp)
+                .height(32.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+        ) {
+            Text(
+                text = "Change Poster",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PreviewSubEntryItem(
@@ -2866,6 +2936,108 @@ private fun PreviewSubEntryItem(
             }
         }
     }
+}
+
+@Composable
+fun PosterSelectionDialog(
+    entry: ListEntry,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+    viewModel: ChecklistViewModel
+) {
+    var query by remember { mutableStateOf(entry.title) }
+    var results by remember { mutableStateOf<List<TmdbMovie>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(false) }
+
+    LaunchedEffect(query) {
+        if (query.length > 1) {
+            isLoading = true
+            results = viewModel.searchTmdb(query)
+            isLoading = false
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Search Movie Poster") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Movie/Series Title") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    trailingIcon = {
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = { query = "" }) {
+                                Icon(Icons.Rounded.Clear, contentDescription = null)
+                            }
+                        }
+                    }
+                )
+                
+                Spacer(Modifier.height(16.dp))
+                
+                if (isLoading) {
+                    Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                } else if (results.isEmpty() && query.length > 1) {
+                    Box(modifier = Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                        Text("No results found", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.heightIn(max = 400.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(results) { movie ->
+                            Surface(
+                                onClick = { movie.posterPath?.let { onConfirm(it) } },
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                enabled = movie.posterPath != null
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(8.dp).fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(60.dp, 90.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (movie.posterPath != null) {
+                                            AsyncImage(
+                                                model = TmdbConfig.IMAGE_BASE_URL + movie.posterPath,
+                                                contentDescription = null,
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                            )
+                                        } else {
+                                            Icon(Icons.Rounded.Movie, contentDescription = null, tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                                        }
+                                    }
+                                    Spacer(Modifier.width(16.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(movie.displayTitle, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        Text(movie.displayDate, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable

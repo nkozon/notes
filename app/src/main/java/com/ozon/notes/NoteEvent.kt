@@ -41,6 +41,8 @@ sealed interface NoteEvent {
     data class UpdateHighScoreThreshold(val threshold: Float) : NoteEvent
     data class UpdateLowScoreEnabled(val enabled: Boolean) : NoteEvent
     data class UpdateLowScoreThreshold(val threshold: Float) : NoteEvent
+    data class UpdateMoviePostersEnabled(val enabled: Boolean) : NoteEvent
+    data object ClearPosterCache : NoteEvent
     data class UpdateSplitFraction(val fraction: Float) : NoteEvent
     data object ToggleSidePanel : NoteEvent
     data class SetSidePanelVisible(val visible: Boolean) : NoteEvent

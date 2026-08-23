@@ -150,6 +150,7 @@ data class ListEntry(
     val rating: Float = 0f,
     val isPinned: Boolean = false,
     val description: String? = null,
+    val tmdbPosterPath: String? = null,
     val timestamp: Long = System.currentTimeMillis(),
     val dueDate: Long? = null,
     val remindMe: Boolean = false

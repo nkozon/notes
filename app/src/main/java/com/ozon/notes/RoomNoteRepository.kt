@@ -10,6 +10,11 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
+import okhttp3.MediaType.Companion.toMediaType
+import retrofit2.Retrofit
+import retrofit2.converter.kotlinx.serialization.asConverterFactory
+import coil.Coil
+import coil.imageLoader
 
 class RoomNoteRepository(
     private val context: Context,
@@ -209,6 +214,10 @@ class RoomNoteRepository(
         return database.listDao().getAllLists().map { entities ->
             entities.map { it.toDomain() }
         }
+    }
+
+    override suspend fun getListById(id: String): NoteList? {
+        return database.listDao().getListById(id)?.toDomain()
     }
 
     override fun getAllListsWithCounts(): Flow<List<NoteListWithCounts>> {
@@ -750,6 +759,42 @@ class RoomNoteRepository(
         val stringValue = presets.joinToString(",")
         prefs.edit().putString("drawing_thickness_presets", stringValue).apply()
         _drawingThicknessPresets.value = presets
+    }
+
+    // --- Movie Posters ---
+    private val _moviePostersEnabled = MutableStateFlow(prefs.getBoolean("movie_posters_enabled", true))
+    override fun getMoviePostersEnabled(): Flow<Boolean> = _moviePostersEnabled
+    override suspend fun setMoviePostersEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("movie_posters_enabled", enabled).apply()
+        _moviePostersEnabled.value = enabled
+    }
+
+    private val tmdbService: TmdbApiService by lazy {
+        val json = Json { ignoreUnknownKeys = true }
+        Retrofit.Builder()
+            .baseUrl(TmdbConfig.BASE_URL)
+            .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+            .build()
+            .create(TmdbApiService::class.java)
+    }
+
+    override suspend fun searchTmdb(query: String): List<TmdbMovie> = withContext(Dispatchers.IO) {
+        try {
+            tmdbService.searchMulti(query).results
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    override suspend fun clearPosterCache() {
+        withContext(Dispatchers.IO) {
+            context.imageLoader.diskCache?.clear()
+            context.imageLoader.memoryCache?.clear()
+        }
+    }
+
+    override fun getPosterCacheSize(): Long {
+        return context.imageLoader.diskCache?.size ?: 0L
     }
 
     private val _toolbarAnchor = MutableStateFlow(
