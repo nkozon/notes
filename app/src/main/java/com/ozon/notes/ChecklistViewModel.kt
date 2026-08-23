@@ -72,7 +72,7 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
         val tags = args[7] as List<Tag>
 
         val currentList = allLists.find { it.id == listId }
-        val isChecklist = currentList?.type == ListType.CHECKLIST
+        val isChecklist = currentList?.type == ListType.CHECKLIST || currentList?.type == ListType.UPCOMING
         
         ChecklistFilterParams(listId, sortOrder, query, tagIds, filterMode, behavior, isChecklist, tags)
     }.flatMapLatest { params ->
@@ -148,11 +148,24 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
                 }
                 viewModelScope.launch { 
                     repository.saveEntry(event.entry)
+                    
+                    // Handle notifications
+                    if (event.entry.remindMe) {
+                        NotificationHelper.scheduleNotification(repository.getContext(), event.entry)
+                    } else {
+                        NotificationHelper.cancelNotification(repository.getContext(), event.entry.id)
+                    }
+
                     // Keep in pending for a short while to ensure Room has emitted the change
                     _pendingEntries.update { current -> current.filter { it.id != event.entry.id } }
                 }
             }
-            is NoteEvent.DeleteEntry -> viewModelScope.launch { repository.deleteEntry(event.entryId) }
+            is NoteEvent.DeleteEntry -> {
+                viewModelScope.launch { 
+                    repository.deleteEntry(event.entryId)
+                    NotificationHelper.cancelNotification(repository.getContext(), event.entryId)
+                }
+            }
             is NoteEvent.DeleteCompletedEntries -> viewModelScope.launch { repository.deleteCompletedEntries(event.listId) }
             else -> { /* Handled elsewhere */ }
         }

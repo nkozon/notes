@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.automirrored.rounded.Notes
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Delete
@@ -27,6 +28,9 @@ import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.FilterAlt
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Notes
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Event
+import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -45,7 +49,6 @@ import androidx.compose.material.icons.rounded.SubdirectoryArrowRight
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.LinkOff
-import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.*
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.*
@@ -81,7 +84,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import java.util.Calendar
+import java.util.Date
+import java.text.SimpleDateFormat
+import java.util.Locale
 import kotlin.math.roundToInt
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
+import android.content.Context
+import androidx.compose.ui.platform.LocalContext
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -90,6 +106,7 @@ fun ListDetailScreen(
     checklistViewModel: ChecklistViewModel,
     settingsViewModel: SettingsViewModel,
     isTabletUi: Boolean = false,
+    initialEntryId: String? = null,
     onNavigateUp: () -> Unit
 ) {
     LaunchedEffect(listId) {
@@ -131,6 +148,15 @@ fun ListDetailScreen(
     var showInlineAddTagDialog by remember { mutableStateOf(false) }
     var lastAddedId by remember { mutableStateOf<String?>(null) }
     var expandedEntries by remember { mutableStateOf(setOf<String>()) }
+
+    LaunchedEffect(entries, initialEntryId) {
+        if (initialEntryId != null && entries.isNotEmpty()) {
+            val entry = entries.find { it.id == initialEntryId }
+            if (entry != null && editingEntry == null) {
+                editingEntry = entry
+            }
+        }
+    }
 
     var isCompletedCollapsed by remember { mutableStateOf(true) }
     var isSearchActive by remember { mutableStateOf(false) }
@@ -303,7 +329,7 @@ fun ListDetailScreen(
                                     onOrderSelected = { checklistViewModel.onEvent(NoteEvent.UpdateListSortOrder(it)) },
                                     availableOrders = ListSortOrder.entries.filter { order ->
                                         val isNotNewOld = order != ListSortOrder.NEWEST && order != ListSortOrder.OLDEST
-                                        if (currentList.type == ListType.CHECKLIST) {
+                                        if (currentList.type == ListType.CHECKLIST || currentList.type == ListType.UPCOMING) {
                                             isNotNewOld && order != ListSortOrder.RATING_LOW_TO_HIGH && order != ListSortOrder.RATING_HIGH_TO_LOW
                                         } else isNotNewOld
                                     }
@@ -336,40 +362,74 @@ fun ListDetailScreen(
         ) {
             val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-            // constructing the hierarchical view for the list.
+            val currentTime = remember { System.currentTimeMillis() }
             val hierarchicalEntries = remember(entries, expandedEntries, checklistBehavior, currentList.type, searchQuery) {
-                val fullList = mutableListOf<Triple<ListEntry, Int, Boolean>>()
-                val entriesByParent = entries.groupBy { it.parentId }
-                
-                fun addAll(parentId: String?, depth: Int) {
-                    entriesByParent[parentId]?.forEach { entry ->
-                        if (currentList.type == ListType.CHECKLIST && checklistBehavior == ChecklistBehavior.HIDE && entry.isChecked) {
-                            // Skip hidden entries
-                        } else {
-                            val hasChildren = entriesByParent.containsKey(entry.id)
-                            fullList.add(Triple(entry, depth, hasChildren))
-                            // Auto-expand everything if searching, otherwise respect user toggle
-                            if (expandedEntries.contains(entry.id) || searchQuery.isNotBlank()) {
-                                addAll(entry.id, depth + 1)
+                if (currentList.type == ListType.UPCOMING) {
+                    emptyList() // We handle UPCOMING separately below
+                } else {
+                    val fullList = mutableListOf<Triple<ListEntry, Int, Boolean>>()
+                    val entriesByParent = entries.groupBy { it.parentId }
+                    
+                    fun addAll(parentId: String?, depth: Int) {
+                        entriesByParent[parentId]?.forEach { entry ->
+                            if (currentList.type == ListType.CHECKLIST && checklistBehavior == ChecklistBehavior.HIDE && entry.isChecked) {
+                                // Skip hidden entries
+                            } else {
+                                val hasChildren = entriesByParent.containsKey(entry.id)
+                                fullList.add(Triple(entry, depth, hasChildren))
+                                // Auto-expand everything if searching, otherwise respect user toggle
+                                if (expandedEntries.contains(entry.id) || searchQuery.isNotBlank()) {
+                                    addAll(entry.id, depth + 1)
+                                }
                             }
                         }
                     }
+                    addAll(null, 0)
+                    fullList
                 }
-                addAll(null, 0)
-                fullList
             }
 
             val isMoveToBottom = currentList.type == ListType.CHECKLIST && checklistBehavior == ChecklistBehavior.MOVE_TO_BOTTOM
-            val checkedEntries = remember(hierarchicalEntries, isMoveToBottom) {
-                if (isMoveToBottom) hierarchicalEntries.filter { it.first.isChecked } else emptyList()
+            val isUpcomingList = currentList.type == ListType.UPCOMING
+            val isUpcomingMoveToBottom = isUpcomingList && checklistBehavior == ChecklistBehavior.MOVE_TO_BOTTOM
+            
+            val currentEntries = remember(entries, isUpcomingList, currentTime, isUpcomingMoveToBottom) {
+                if (isUpcomingList) {
+                    entries.filter { 
+                        val isCurrent = it.dueDate != null && it.dueDate <= currentTime
+                        if (isUpcomingMoveToBottom) isCurrent && !it.isChecked else isCurrent
+                    }.sortedByDescending { it.dueDate }.map { Triple(it, 0, false) }
+                } else emptyList()
             }
-            val uncheckedEntries = remember(hierarchicalEntries, isMoveToBottom) {
-                if (isMoveToBottom) hierarchicalEntries.filter { !it.first.isChecked } else hierarchicalEntries
+            val upcomingEntries = remember(entries, isUpcomingList, currentTime, isUpcomingMoveToBottom) {
+                if (isUpcomingList) {
+                    entries.filter { 
+                        val isUpcoming = it.dueDate == null || it.dueDate > currentTime
+                        if (isUpcomingMoveToBottom) isUpcoming && !it.isChecked else isUpcoming
+                    }.sortedBy { it.dueDate ?: Long.MAX_VALUE }.map { Triple(it, 0, false) }
+                } else emptyList()
+            }
+            val completedUpcomingEntries = remember(entries, isUpcomingList, isUpcomingMoveToBottom) {
+                if (isUpcomingList && isUpcomingMoveToBottom) {
+                    entries.filter { it.isChecked }.map { Triple(it, 0, false) }
+                } else emptyList()
+            }
+
+            val checkedEntries = remember(hierarchicalEntries, isMoveToBottom, isUpcomingList) {
+                if (isUpcomingList) emptyList()
+                else if (isMoveToBottom) hierarchicalEntries.filter { it.first.isChecked } 
+                else emptyList()
+            }
+            val uncheckedEntries = remember(hierarchicalEntries, isMoveToBottom, isUpcomingList) {
+                if (isUpcomingList) emptyList()
+                else if (isMoveToBottom) hierarchicalEntries.filter { !it.first.isChecked } 
+                else hierarchicalEntries
             }
 
             LaunchedEffect(entries) {
                 lastAddedId?.let { id ->
-                    val index = uncheckedEntries.indexOfFirst { it.first.id == id }
+                    val listToSearch = if (isUpcomingList) (currentEntries + upcomingEntries) else uncheckedEntries
+                    val index = listToSearch.indexOfFirst { it.first.id == id }
                     if (index != -1) {
                         listState.animateScrollToItem(index)
                         lastAddedId = null
@@ -389,185 +449,284 @@ fun ListDetailScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                itemsIndexed(
-                    items = uncheckedEntries,
-                    key = { _, item -> item.first.id }
-                ) { index, item ->
-                    val entry = item.first
-                    val depth = item.second
-                    val hasChildren = item.third
-                    val isExpanded = expandedEntries.contains(entry.id)
-                    
-                    val isFirstItemInList = index == 0
-                    val isLastItemInList = index == uncheckedEntries.size - 1
-
-                    val topRadius = if (isFirstItemInList) 28.dp else 4.dp
-                    val bottomRadius = if (isLastItemInList) 28.dp else 4.dp
-
-                    val topRadiusAnimated by animateDpAsState(targetValue = topRadius, label = "topRadius")
-                    val bottomRadiusAnimated by animateDpAsState(targetValue = bottomRadius, label = "bottomRadius")
-
-                    val shape = RoundedCornerShape(topRadiusAnimated, topRadiusAnimated, bottomRadiusAnimated, bottomRadiusAnimated)
-
-                    Box(modifier = Modifier.animateItem()) {
-                        SwipeToDismissWrapper(
-                            entry = entry,
-                            listType = currentList.type,
-                            shape = shape,
-                            onDelete = { entryToDelete = it },
-                            onAddSub = { parentForNewSubentry = it },
-                            onTogglePin = { 
-                                checklistViewModel.onEvent(NoteEvent.SaveEntry(it.copy(isPinned = !it.isPinned)))
-                            }
-                        ) {
-                            val green = Color(0xFF4CAF50)
-                            val indicatorContentColor = if (currentList.type == ListType.RATING && ratingIndicatorsEnabled) {
-                                when {
-                                    highScoreEnabled && entry.rating >= highScoreThreshold -> green
-                                    lowScoreEnabled && entry.rating <= lowScoreThreshold -> MaterialTheme.colorScheme.error
-                                    else -> null
-                                }
-                            } else null
-
-                            ListEntryItem(
-                                entry = entry,
-                                listType = currentList.type,
-                                depth = depth,
-                                hasChildren = if (currentList.type == ListType.RATING) hasChildren else false,
-                                isExpanded = isExpanded,
-                                searchQuery = searchQuery,
-                                indicatorColor = indicatorContentColor?.let { 
-                                    val baseAlpha = if (isOledMode) 0.28f else 0.12f
-                                    it.copy(alpha = baseAlpha).compositeOver(MaterialTheme.colorScheme.surface)
-                                },
-                                indicatorContentColor = indicatorContentColor,
-                                tagNames = remember(allTags, entry.tagIds) { 
-                                    allTags.filter { it.id in entry.tagIds }.map { it.name }
-                                },
-                                onToggleExpand = {
-                                    expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
-                                },
-                                onToggleCheck = { isChecked ->
-                                    val newIsPinned = if (isChecked) false else entry.isPinned
-                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(entry.copy(isChecked = isChecked, isPinned = newIsPinned)))
-                                },
-                                onClick = { editingEntry = entry },
-                                onLongClick = { 
-                                    if (currentList.type == ListType.RATING) previewEntry = entry 
-                                    else entryForDescription = entry
-                                },
-                                shape = shape
+                if (isUpcomingList) {
+                    // CURRENT SECTION
+                    if (currentEntries.isNotEmpty()) {
+                        item(key = "current_header") {
+                            Text(
+                                "Current",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(start = 16.dp, bottom = 4.dp, top = 8.dp)
+                            )
+                        }
+                        itemsIndexed(currentEntries, key = { _, it -> it.first.id }) { index, item ->
+                            UpcomingEntryItem(
+                                scope = this,
+                                item = item,
+                                index = index,
+                                total = currentEntries.size,
+                                currentList = currentList,
+                                allTags = allTags,
+                                checklistViewModel = checklistViewModel,
+                                showCheckbox = true,
+                                onEdit = { editingEntry = it },
+                                onDelete = { entryToDelete = it }
                             )
                         }
                     }
-                }
 
-                if (isMoveToBottom && checkedEntries.isNotEmpty()) {
-                    item(key = "completed_header") {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { isCompletedCollapsed = !isCompletedCollapsed }
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                    // UPCOMING SECTION
+                    if (upcomingEntries.isNotEmpty()) {
+                        item(key = "upcoming_header") {
                             Text(
-                                text = "Completed (${checkedEntries.size})",
+                                "Upcoming",
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                fontStyle = FontStyle.Italic,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.padding(start = 16.dp, bottom = 4.dp, top = 16.dp)
                             )
-                            Icon(
-                                imageVector = if (isCompletedCollapsed) Icons.Rounded.ExpandMore else Icons.Rounded.ExpandLess,
-                                contentDescription = if (isCompletedCollapsed) "Expand" else "Collapse",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                modifier = Modifier.size(20.dp)
+                        }
+                        itemsIndexed(upcomingEntries, key = { _, it -> it.first.id }) { index, item ->
+                            UpcomingEntryItem(
+                                scope = this,
+                                item = item,
+                                index = index,
+                                total = upcomingEntries.size,
+                                currentList = currentList,
+                                allTags = allTags,
+                                checklistViewModel = checklistViewModel,
+                                showCheckbox = false,
+                                onEdit = { editingEntry = it },
+                                onDelete = { entryToDelete = it }
                             )
                         }
                     }
 
-                    if (!isCompletedCollapsed) {
-                        item {
-                            Surface(
-                                onClick = { checklistViewModel.onEvent(NoteEvent.DeleteCompletedEntries(listId)) },
-                                shape = RoundedCornerShape(28.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    // COMPLETED SECTION for UPCOMING
+                    if (isUpcomingMoveToBottom && completedUpcomingEntries.isNotEmpty()) {
+                        item(key = "completed_header") {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 8.dp)
+                                    .clickable { isCompletedCollapsed = !isCompletedCollapsed }
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(16.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(Icons.Rounded.DeleteSweep, contentDescription = null)
-                                    Spacer(Modifier.width(12.dp))
-                                    Text("Clear completed items", style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    text = "Completed (${completedUpcomingEntries.size})",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    fontStyle = FontStyle.Italic,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Icon(
+                                    imageVector = if (isCompletedCollapsed) Icons.Rounded.ExpandMore else Icons.Rounded.ExpandLess,
+                                    contentDescription = if (isCompletedCollapsed) "Expand" else "Collapse",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                        
+                        if (!isCompletedCollapsed) {
+                            itemsIndexed(completedUpcomingEntries, key = { _, it -> it.first.id }) { index, item ->
+                                UpcomingEntryItem(
+                                    scope = this,
+                                    item = item,
+                                    index = index,
+                                    total = completedUpcomingEntries.size,
+                                    currentList = currentList,
+                                    allTags = allTags,
+                                    checklistViewModel = checklistViewModel,
+                                    showCheckbox = true,
+                                    onEdit = { editingEntry = it },
+                                    onDelete = { entryToDelete = it }
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    itemsIndexed(
+                        items = uncheckedEntries,
+                        key = { _, item -> item.first.id }
+                    ) { index, item ->
+                        val entry = item.first
+                        val depth = item.second
+                        val hasChildren = item.third
+                        val isExpanded = expandedEntries.contains(entry.id)
+                        
+                        val isFirstItemInList = index == 0
+                        val isLastItemInList = index == uncheckedEntries.size - 1
+
+                        val topRadius = if (isFirstItemInList) 28.dp else 4.dp
+                        val bottomRadius = if (isLastItemInList) 28.dp else 4.dp
+
+                        val topRadiusAnimated by animateDpAsState(targetValue = topRadius, label = "topRadius")
+                        val bottomRadiusAnimated by animateDpAsState(targetValue = bottomRadius, label = "bottomRadius")
+
+                        val shape = RoundedCornerShape(topRadiusAnimated, topRadiusAnimated, bottomRadiusAnimated, bottomRadiusAnimated)
+
+                        Box(modifier = Modifier.animateItem()) {
+                            SwipeToDismissWrapper(
+                                entry = entry,
+                                listType = currentList.type,
+                                shape = shape,
+                                onDelete = { entryToDelete = it },
+                                onAddSub = { parentForNewSubentry = it },
+                                onTogglePin = { 
+                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(it.copy(isPinned = !it.isPinned)))
                                 }
+                            ) {
+                                val green = Color(0xFF4CAF50)
+                                val indicatorContentColor = if (currentList.type == ListType.RATING && ratingIndicatorsEnabled) {
+                                    when {
+                                        highScoreEnabled && entry.rating >= highScoreThreshold -> green
+                                        lowScoreEnabled && entry.rating <= lowScoreThreshold -> MaterialTheme.colorScheme.error
+                                        else -> null
+                                    }
+                                } else null
+
+                                ListEntryItem(
+                                    entry = entry,
+                                    listType = currentList.type,
+                                    depth = depth,
+                                    hasChildren = if (currentList.type == ListType.RATING) hasChildren else false,
+                                    isExpanded = isExpanded,
+                                    searchQuery = searchQuery,
+                                    indicatorColor = indicatorContentColor?.let { 
+                                        val baseAlpha = if (isOledMode) 0.28f else 0.12f
+                                        it.copy(alpha = baseAlpha).compositeOver(MaterialTheme.colorScheme.surface)
+                                    },
+                                    indicatorContentColor = indicatorContentColor,
+                                    tagNames = remember(allTags, entry.tagIds) { 
+                                        allTags.filter { it.id in entry.tagIds }.map { it.name }
+                                    },
+                                    onToggleExpand = {
+                                        expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
+                                    },
+                                    onToggleCheck = { isChecked ->
+                                        val newIsPinned = if (isChecked) false else entry.isPinned
+                                        checklistViewModel.onEvent(NoteEvent.SaveEntry(entry.copy(isChecked = isChecked, isPinned = newIsPinned)))
+                                    },
+                                    onClick = { editingEntry = entry },
+                                    onLongClick = { 
+                                        if (currentList.type == ListType.RATING) previewEntry = entry 
+                                        else entryForDescription = entry
+                                    },
+                                    shape = shape
+                                )
+                            }
+                        }
+                    }
+
+                    if (isMoveToBottom && checkedEntries.isNotEmpty()) {
+                        item(key = "completed_header") {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { isCompletedCollapsed = !isCompletedCollapsed }
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Completed (${checkedEntries.size})",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    fontStyle = FontStyle.Italic,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Icon(
+                                    imageVector = if (isCompletedCollapsed) Icons.Rounded.ExpandMore else Icons.Rounded.ExpandLess,
+                                    contentDescription = if (isCompletedCollapsed) "Expand" else "Collapse",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(20.dp)
+                                )
                             }
                         }
 
-                        itemsIndexed(
-                            items = checkedEntries,
-                            key = { _, item -> item.first.id }
-                        ) { index, item ->
-                            val entry = item.first
-                            val depth = item.second
-                            val hasChildren = item.third
-                            val isExpanded = expandedEntries.contains(entry.id)
-                            
-                            val isFirst = index == 0
-                            val isLast = index == checkedEntries.size - 1
-
-                            val topRadius = if (isFirst) 28.dp else 4.dp
-                            val bottomRadius = if (isLast) 28.dp else 4.dp
-
-                            val topRadiusAnimated by animateDpAsState(targetValue = topRadius, label = "topStart")
-                            val bottomRadiusAnimated by animateDpAsState(targetValue = bottomRadius, label = "bottomStart")
-
-                            val shape = RoundedCornerShape(topRadiusAnimated, topRadiusAnimated, bottomRadiusAnimated, bottomRadiusAnimated)
-
-                            Box(modifier = Modifier.animateItem()) {
-                                SwipeToDismissWrapper(
-                                    entry = entry,
-                                    listType = currentList.type,
-                                    shape = shape,
-                                    onDelete = { entryToDelete = it },
-                                    onAddSub = { parentForNewSubentry = it },
-                                    onTogglePin = {
-                                        checklistViewModel.onEvent(NoteEvent.SaveEntry(it.copy(isPinned = !it.isPinned)))
-                                    }
+                        if (!isCompletedCollapsed) {
+                            item {
+                                Surface(
+                                    onClick = { checklistViewModel.onEvent(NoteEvent.DeleteCompletedEntries(listId)) },
+                                    shape = RoundedCornerShape(28.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp)
                                 ) {
-                                    ListEntryItem(
+                                    Row(
+                                        modifier = Modifier.padding(16.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(Icons.Rounded.DeleteSweep, contentDescription = null)
+                                        Spacer(Modifier.width(12.dp))
+                                        Text("Clear completed items", style = MaterialTheme.typography.titleMedium)
+                                    }
+                                }
+                            }
+
+                            itemsIndexed(
+                                items = checkedEntries,
+                                key = { _, item -> item.first.id }
+                            ) { index, item ->
+                                val entry = item.first
+                                val depth = item.second
+                                val hasChildren = item.third
+                                val isExpanded = expandedEntries.contains(entry.id)
+                                
+                                val isFirst = index == 0
+                                val isLast = index == checkedEntries.size - 1
+
+                                val topRadius = if (isFirst) 28.dp else 4.dp
+                                val bottomRadius = if (isLast) 28.dp else 4.dp
+
+                                val topRadiusAnimated by animateDpAsState(targetValue = topRadius, label = "topStart")
+                                val bottomRadiusAnimated by animateDpAsState(targetValue = bottomRadius, label = "bottomStart")
+
+                                val shape = RoundedCornerShape(topRadiusAnimated, topRadiusAnimated, bottomRadiusAnimated, bottomRadiusAnimated)
+
+                                Box(modifier = Modifier.animateItem()) {
+                                    SwipeToDismissWrapper(
                                         entry = entry,
                                         listType = currentList.type,
-                                        depth = depth,
-                                        hasChildren = hasChildren,
-                                        isExpanded = isExpanded,
-                                        searchQuery = searchQuery,
-                                        indicatorColor = null,
-                                        indicatorContentColor = null,
-                                        tagNames = remember(allTags, entry.tagIds) { 
-                                            allTags.filter { it.id in entry.tagIds }.map { it.name }
-                                        },
-                                        onToggleExpand = {
-                                            expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
-                                        },
-                                        onToggleCheck = { isChecked ->
-                                            val newIsPinned = if (isChecked) false else entry.isPinned
-                                            checklistViewModel.onEvent(NoteEvent.SaveEntry(entry.copy(isChecked = isChecked, isPinned = newIsPinned)))
-                                        },
-                                        onClick = { editingEntry = entry },
-                                        onLongClick = {
-                                            if (currentList.type == ListType.RATING) previewEntry = entry 
-                                            else entryForDescription = entry
-                                        },
-                                        shape = shape
-                                    )
+                                        shape = shape,
+                                        onDelete = { entryToDelete = it },
+                                        onAddSub = { parentForNewSubentry = it },
+                                        onTogglePin = {
+                                            checklistViewModel.onEvent(NoteEvent.SaveEntry(it.copy(isPinned = !it.isPinned)))
+                                        }
+                                    ) {
+                                        ListEntryItem(
+                                            entry = entry,
+                                            listType = currentList.type,
+                                            depth = depth,
+                                            hasChildren = hasChildren,
+                                            isExpanded = isExpanded,
+                                            searchQuery = searchQuery,
+                                            indicatorColor = null,
+                                            indicatorContentColor = null,
+                                            tagNames = remember(allTags, entry.tagIds) { 
+                                                allTags.filter { it.id in entry.tagIds }.map { it.name }
+                                            },
+                                            onToggleExpand = {
+                                                expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
+                                            },
+                                            onToggleCheck = { isChecked ->
+                                                val newIsPinned = if (isChecked) false else entry.isPinned
+                                                checklistViewModel.onEvent(NoteEvent.SaveEntry(entry.copy(isChecked = isChecked, isPinned = newIsPinned)))
+                                            },
+                                            onClick = { editingEntry = entry },
+                                            onLongClick = {
+                                                if (currentList.type == ListType.RATING) previewEntry = entry 
+                                                else entryForDescription = entry
+                                            },
+                                            shape = shape
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -590,9 +749,9 @@ fun ListDetailScreen(
             allTags = allTags,
             allEntries = entries,
             onDismiss = { showAddEntryDialog = false },
-            onConfirm = { title, rating, tagIds, linkedId ->
+            onConfirm = { title, rating, tagIds, linkedId, dueDate, remindMe ->
                 checklistViewModel.onEvent(NoteEvent.SaveEntry(
-                    ListEntry(listId = listId, title = title, rating = rating, tagIds = tagIds, linkedEntryId = linkedId)
+                    ListEntry(listId = listId, title = title, rating = rating, tagIds = tagIds, linkedEntryId = linkedId, dueDate = dueDate, remindMe = remindMe)
                 ))
                 showAddEntryDialog = false
             },
@@ -608,10 +767,10 @@ fun ListDetailScreen(
             allTags = allTags,
             allEntries = entries,
             onDismiss = { parentForNewSubentry = null },
-            onConfirm = { title, rating, tagIds, linkedId ->
+            onConfirm = { title, rating, tagIds, linkedId, dueDate, remindMe ->
                 parentForNewSubentry?.let { parent ->
                     checklistViewModel.onEvent(NoteEvent.SaveEntry(
-                        ListEntry(listId = listId, parentId = parent.id, title = title, rating = rating, tagIds = tagIds, linkedEntryId = linkedId)
+                        ListEntry(listId = listId, parentId = parent.id, title = title, rating = rating, tagIds = tagIds, linkedEntryId = linkedId, dueDate = dueDate, remindMe = remindMe)
                     ))
                     expandedEntries = expandedEntries + parent.id
                 }
@@ -629,10 +788,10 @@ fun ListDetailScreen(
             allTags = allTags,
             allEntries = entries,
             onDismiss = { editingEntry = null },
-            onConfirm = { title, rating, tagIds, linkedId ->
+            onConfirm = { title, rating, tagIds, linkedId, dueDate, remindMe ->
                 editingEntry?.let {
                     checklistViewModel.onEvent(NoteEvent.SaveEntry(
-                        it.copy(title = title, rating = rating, tagIds = tagIds, linkedEntryId = linkedId)
+                        it.copy(title = title, rating = rating, tagIds = tagIds, linkedEntryId = linkedId, dueDate = dueDate, remindMe = remindMe)
                     ))
                 }
                 editingEntry = null
@@ -1193,6 +1352,68 @@ fun ListDetailScreen(
     }
 }
 
+@Composable
+private fun UpcomingEntryItem(
+    scope: androidx.compose.foundation.lazy.LazyItemScope,
+    item: Triple<ListEntry, Int, Boolean>,
+    index: Int,
+    total: Int,
+    currentList: NoteList,
+    allTags: List<Tag>,
+    checklistViewModel: ChecklistViewModel,
+    showCheckbox: Boolean,
+    onEdit: (ListEntry) -> Unit,
+    onDelete: (ListEntry) -> Unit
+) {
+    val entry = item.first
+    val isFirst = index == 0
+    val isLast = index == total - 1
+
+    val topRadius = if (isFirst) 28.dp else 4.dp
+    val bottomRadius = if (isLast) 28.dp else 4.dp
+
+    val topRadiusAnimated by animateDpAsState(targetValue = topRadius, label = "topRadius")
+    val bottomRadiusAnimated by animateDpAsState(targetValue = bottomRadius, label = "bottomRadius")
+
+    val shape = RoundedCornerShape(topRadiusAnimated, topRadiusAnimated, bottomRadiusAnimated, bottomRadiusAnimated)
+
+    with(scope) {
+        Box(modifier = Modifier.animateItem()) {
+            SwipeToDismissWrapper(
+                entry = entry,
+                listType = currentList.type,
+                shape = shape,
+                onDelete = { onDelete(it) },
+                onAddSub = { },
+                onTogglePin = { 
+                    checklistViewModel.onEvent(NoteEvent.SaveEntry(it.copy(isPinned = !it.isPinned)))
+                }
+            ) {
+                ListEntryItem(
+                    entry = entry,
+                    listType = currentList.type,
+                    depth = 0,
+                    hasChildren = false,
+                    isExpanded = false,
+                    searchQuery = "",
+                    indicatorColor = null,
+                    indicatorContentColor = null,
+                    tagNames = remember(allTags, entry.tagIds) { 
+                        allTags.filter { it.id in entry.tagIds }.map { it.name }
+                    },
+                    showCheckbox = showCheckbox,
+                    onToggleCheck = { isChecked ->
+                        checklistViewModel.onEvent(NoteEvent.SaveEntry(entry.copy(isChecked = isChecked)))
+                    },
+                    onClick = { onEdit(entry) },
+                    onLongClick = { },
+                    shape = shape
+                )
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SwipeToDismissWrapper(
@@ -1327,6 +1548,7 @@ fun ListEntryItem(
     indicatorColor: Color? = null,
     indicatorContentColor: Color? = null,
     tagNames: List<String> = emptyList(),
+    showCheckbox: Boolean = listType == ListType.CHECKLIST,
     onToggleExpand: () -> Unit = {},
     onToggleCheck: (Boolean) -> Unit,
     onClick: () -> Unit,
@@ -1402,6 +1624,35 @@ fun ListEntryItem(
                                 )
                             }
                         }
+                        
+                        if (entry.dueDate != null) {
+                            val isPastDue = entry.dueDate < System.currentTimeMillis()
+                            val dateFormat = remember { SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()) }
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Event,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(12.dp),
+                                    tint = if (isPastDue && !entry.isChecked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = dateFormat.format(Date(entry.dueDate)),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isPastDue && !entry.isChecked) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                )
+                                if (entry.remindMe) {
+                                    Spacer(Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = Icons.Rounded.Notifications,
+                                        contentDescription = "Notification enabled",
+                                        modifier = Modifier.size(12.dp),
+                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                                    )
+                                }
+                            }
+                        }
+
                         if (tagNames.isNotEmpty()) {
                             FlowRow(
                                 modifier = Modifier.padding(top = 4.dp),
@@ -1425,7 +1676,7 @@ fun ListEntryItem(
                         }
                     }
                 },
-                leadingContent = if (listType == ListType.CHECKLIST) {
+                leadingContent = if (showCheckbox) {
                     {
                         CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
                             Checkbox(
@@ -1530,7 +1781,7 @@ fun EntryDialog(
     allEntries: List<ListEntry> = emptyList(),
     titlePrefix: String? = null,
     onDismiss: () -> Unit,
-    onConfirm: (String, Float, List<String>, String?) -> Unit,
+    onConfirm: (String, Float, List<String>, String?, Long?, Boolean) -> Unit,
     onSaveTag: (Tag) -> Unit
 ) {
     var title by remember { 
@@ -1545,6 +1796,17 @@ fun EntryDialog(
     var selectedTagIds by remember { mutableStateOf(entry?.tagIds?.toSet() ?: emptySet()) }
     var linkedEntryId by remember { mutableStateOf(entry?.linkedEntryId) }
     var showAddTagDialog by remember { mutableStateOf(false) }
+    
+    var dueDate by remember { mutableStateOf(entry?.dueDate) }
+    var remindMe by remember { mutableStateOf(entry?.remindMe ?: false) }
+
+    val context = LocalContext.current
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { isGranted ->
+            remindMe = isGranted
+        }
+    )
 
     val focusRequester = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
@@ -1574,6 +1836,116 @@ fun EntryDialog(
                     keyboardController?.show()
                 }
                 
+                if (listType == ListType.UPCOMING) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Due Date", style = MaterialTheme.typography.labelLarge)
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Surface(
+                                onClick = {
+                                    val calendar = Calendar.getInstance()
+                                    dueDate?.let { calendar.timeInMillis = it }
+                                    DatePickerDialog(
+                                        context,
+                                        { _, year, month, day ->
+                                            val newCal = Calendar.getInstance()
+                                            dueDate?.let { newCal.timeInMillis = it }
+                                            newCal.set(year, month, day)
+                                            dueDate = newCal.timeInMillis
+                                        },
+                                        calendar.get(Calendar.YEAR),
+                                        calendar.get(Calendar.MONTH),
+                                        calendar.get(Calendar.DAY_OF_MONTH)
+                                    ).show()
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text(
+                                    text = dueDate?.let { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date(it)) } ?: "Select Date",
+                                    modifier = Modifier.padding(12.dp),
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                            
+                            if (dueDate != null) {
+                                IconButton(onClick = { 
+                                    dueDate = null
+                                    remindMe = false
+                                }) {
+                                    Icon(Icons.Rounded.Clear, contentDescription = "Clear Date")
+                                }
+                            }
+                        }
+
+                        if (dueDate != null) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Notify me", style = MaterialTheme.typography.bodyMedium)
+                                Switch(
+                                    checked = remindMe,
+                                    onCheckedChange = { enabled ->
+                                        if (enabled) {
+                                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+                                                    remindMe = true
+                                                } else {
+                                                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                                    // Note: remindMe will be set in the launcher callback
+                                                }
+                                            } else {
+                                                remindMe = true
+                                            }
+                                        } else {
+                                            remindMe = false
+                                        }
+                                    }
+                                )
+                            }
+                            
+                            if (remindMe) {
+                                Surface(
+                                    onClick = {
+                                        val calendar = Calendar.getInstance()
+                                        dueDate?.let { calendar.timeInMillis = it }
+                                        TimePickerDialog(
+                                            context,
+                                            { _, hour, minute ->
+                                                val newCal = Calendar.getInstance()
+                                                dueDate?.let { newCal.timeInMillis = it }
+                                                newCal.set(Calendar.HOUR_OF_DAY, hour)
+                                                newCal.set(Calendar.MINUTE, minute)
+                                                newCal.set(Calendar.SECOND, 0)
+                                                dueDate = newCal.timeInMillis
+                                            },
+                                            calendar.get(Calendar.HOUR_OF_DAY),
+                                            calendar.get(Calendar.MINUTE),
+                                            true
+                                        ).show()
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = dueDate?.let { SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(it)) } ?: "Select Time",
+                                        modifier = Modifier.padding(12.dp),
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if (listType == ListType.RATING) {
                     Column {
                         val displayRating = ((rating * 2).roundToInt() / 2.0).toFloat()
@@ -1823,7 +2195,9 @@ fun EntryDialog(
                             title.text, 
                             ((rating * 2).roundToInt() / 2.0).toFloat(), 
                             selectedTagIds.toList(),
-                            linkedEntryId
+                            linkedEntryId,
+                            dueDate,
+                            remindMe
                         )
                     }
                 }

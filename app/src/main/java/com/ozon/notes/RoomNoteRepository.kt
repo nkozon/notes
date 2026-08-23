@@ -505,6 +505,11 @@ class RoomNoteRepository(
             if (crossRefs.isNotEmpty()) {
                 database.entryTagCrossRefDao().insertAll(crossRefs)
             }
+
+            // Pass 4: Schedule Notifications for restored entries
+            entriesToRestore.filter { it.remindMe }.forEach { entry ->
+                NotificationHelper.scheduleNotification(context, entry)
+            }
         }
         setHasPendingChanges(true)
     }

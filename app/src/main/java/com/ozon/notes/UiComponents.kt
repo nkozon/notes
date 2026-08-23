@@ -16,6 +16,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.rounded.Event
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -395,7 +396,11 @@ fun ListCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = if (list.type == ListType.CHECKLIST) "Checklist" else "Rating List",
+                        text = when(list.type) {
+                            ListType.CHECKLIST -> "Checklist"
+                            ListType.RATING -> "Rating List"
+                            ListType.UPCOMING -> "Upcoming List"
+                        },
                         style = MaterialTheme.typography.bodySmall
                     )
                     if (showCounts) {
@@ -405,7 +410,7 @@ fun ListCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                         )
                         Text(
-                            text = if (list.type == ListType.CHECKLIST) {
+                            text = if (list.type == ListType.CHECKLIST || list.type == ListType.UPCOMING) {
                                 val total = entryCount + subEntryCount
                                 val unchecked = total - checkedCount
                                 "$unchecked entries, $checkedCount checked"
@@ -427,7 +432,11 @@ fun ListCard(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = if (list.type == ListType.CHECKLIST) Icons.AutoMirrored.Rounded.List else Icons.Rounded.Star,
+                        imageVector = when(list.type) {
+                            ListType.CHECKLIST -> Icons.AutoMirrored.Rounded.List
+                            ListType.RATING -> Icons.Rounded.Star
+                            ListType.UPCOMING -> Icons.Rounded.Event
+                        },
                         contentDescription = null,
                         modifier = Modifier.size(24.dp),
                         tint = MaterialTheme.colorScheme.primary

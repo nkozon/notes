@@ -10,7 +10,11 @@ import kotlinx.serialization.json.Json
  * without breaking the UI logic, and vice versa.
  */
 
-private val json = Json { ignoreUnknownKeys = true }
+private val json = Json { 
+    ignoreUnknownKeys = true
+    coerceInputValues = true
+    encodeDefaults = true
+}
 
 // --- Note Mappers ---
 
@@ -93,7 +97,9 @@ fun ListEntryEntity.toDomain(tagIds: List<String>): ListEntry {
         rating = rating,
         isPinned = isPinned,
         description = description,
-        timestamp = timestamp
+        timestamp = timestamp,
+        dueDate = dueDate,
+        remindMe = remindMe
     )
 }
 
@@ -112,7 +118,9 @@ fun ListEntry.toEntity(): ListEntryEntity {
         rating = rating,
         isPinned = isPinned,
         description = description,
-        timestamp = timestamp
+        timestamp = timestamp,
+        dueDate = dueDate,
+        remindMe = remindMe
     )
 }
 

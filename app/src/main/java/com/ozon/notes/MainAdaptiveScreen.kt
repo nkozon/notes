@@ -32,7 +32,9 @@ import androidx.navigation.compose.rememberNavController
 fun MainAdaptiveScreen(
     notesViewModel: NotesViewModel,
     settingsViewModel: SettingsViewModel,
-    checklistViewModel: ChecklistViewModel
+    checklistViewModel: ChecklistViewModel,
+    initialListId: String? = null,
+    rescheduleEntryId: String? = null
 ) {
     val tabletMode by settingsViewModel.tabletModeState.collectAsStateWithLifecycle()
     val standardDirective = calculatePaneScaffoldDirective(currentWindowAdaptiveInfo())
@@ -49,9 +51,9 @@ fun MainAdaptiveScreen(
                                navigator.scaffoldValue[ListDetailPaneScaffoldRole.List] == PaneAdaptedValue.Expanded
 
     if (!isShowingSplitScreen) {
-        MobileNavHost(notesViewModel, settingsViewModel, checklistViewModel)
+        MobileNavHost(notesViewModel, settingsViewModel, checklistViewModel, initialListId, rescheduleEntryId)
     } else {
-        TabletSplitScreen(notesViewModel, settingsViewModel, checklistViewModel)
+        TabletSplitScreen(notesViewModel, settingsViewModel, checklistViewModel, initialListId, rescheduleEntryId)
     }
 }
 
@@ -59,9 +61,18 @@ fun MainAdaptiveScreen(
 private fun MobileNavHost(
     notesViewModel: NotesViewModel,
     settingsViewModel: SettingsViewModel,
-    checklistViewModel: ChecklistViewModel
+    checklistViewModel: ChecklistViewModel,
+    initialListId: String? = null,
+    rescheduleEntryId: String? = null
 ) {
     val navController = rememberNavController()
+
+    LaunchedEffect(initialListId, rescheduleEntryId) {
+        if (initialListId != null) {
+            val route = if (rescheduleEntryId != null) "listDetail/$initialListId?entryId=$rescheduleEntryId" else "listDetail/$initialListId"
+            navController.navigate(route)
+        }
+    }
     NavHost(
         navController = navController,
         startDestination = "notes",
@@ -118,9 +129,10 @@ private fun MobileNavHost(
                 onNavigateUp = { navController.popBackStack() }
             )
         }
-        composable("listDetail/{listId}") { backStackEntry ->
+        composable("listDetail/{listId}?entryId={entryId}") { backStackEntry ->
             ListDetailScreen(
                 listId = backStackEntry.arguments?.getString("listId") ?: return@composable,
+                initialEntryId = backStackEntry.arguments?.getString("entryId"),
                 checklistViewModel = checklistViewModel,
                 settingsViewModel = settingsViewModel,
                 onNavigateUp = { navController.popBackStack() }
@@ -141,10 +153,20 @@ private fun MobileNavHost(
 private fun TabletSplitScreen(
     notesViewModel: NotesViewModel,
     settingsViewModel: SettingsViewModel,
-    checklistViewModel: ChecklistViewModel
+    checklistViewModel: ChecklistViewModel,
+    initialListId: String? = null,
+    rescheduleEntryId: String? = null
 ) {
-    var currentDetailRoute by remember { mutableStateOf<DetailRoute?>(null) }
+    var currentDetailRoute by remember { 
+        mutableStateOf<DetailRoute?>(initialListId?.let { DetailRoute.List(it, rescheduleEntryId) }) 
+    }
     val splitFraction by notesViewModel.splitFractionState.collectAsStateWithLifecycle()
+
+    LaunchedEffect(rescheduleEntryId, initialListId) {
+        if (rescheduleEntryId != null && initialListId != null) {
+            currentDetailRoute = DetailRoute.List(initialListId, rescheduleEntryId)
+        }
+    }
     val isSidePanelVisible by notesViewModel.isSidePanelVisible.collectAsStateWithLifecycle()
     
     // Auto-close detail pane if the selected item is deleted
@@ -317,6 +339,7 @@ private fun DetailPaneContent(
         is DetailRoute.List -> {
             ListDetailScreen(
                 listId = route.id,
+                initialEntryId = route.initialEntryId,
                 checklistViewModel = checklistViewModel,
                 settingsViewModel = settingsViewModel,
                 isTabletUi = true,

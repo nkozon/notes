@@ -69,7 +69,9 @@ data class ListEntryEntity(
     val rating: Float,
     val isPinned: Boolean = false,
     val description: String? = null,
-    val timestamp: Long
+    val timestamp: Long,
+    val dueDate: Long? = null,
+    val remindMe: Boolean = false
 )
 
 @Entity(
@@ -292,7 +294,7 @@ interface EntryTagCrossRefDao {
 
 @Database(
     entities = [NoteEntity::class, NoteListEntity::class, ListEntryEntity::class, TagEntity::class, EntryTagCrossRef::class],
-    version = 20, 
+    version = 21, 
     exportSchema = false
 )
 abstract class NoteDatabase : RoomDatabase() {
@@ -302,6 +304,12 @@ abstract class NoteDatabase : RoomDatabase() {
     abstract fun entryTagCrossRefDao(): EntryTagCrossRefDao
 
     companion object {
+        val MIGRATION_20_21 = object : androidx.room.migration.Migration(20, 21) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `list_entries` ADD COLUMN `dueDate` INTEGER")
+                db.execSQL("ALTER TABLE `list_entries` ADD COLUMN `remindMe` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
         val MIGRATION_19_20 = object : androidx.room.migration.Migration(19, 20) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `tags` ADD COLUMN `position` INTEGER NOT NULL DEFAULT 0")

@@ -809,6 +809,23 @@ private fun CreateListDialog(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Rating List")
                         }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .selectable(
+                                    selected = listType == ListType.UPCOMING,
+                                    onClick = { listType = ListType.UPCOMING }
+                                )
+                                .padding(vertical = 4.dp)
+                        ) {
+                            RadioButton(
+                                selected = listType == ListType.UPCOMING,
+                                onClick = null
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Upcoming List")
+                        }
                     }
                 }
             },

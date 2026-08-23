@@ -40,7 +40,7 @@ enum class NoteType {
 sealed class DetailRoute {
     data class Note(val id: String?) : DetailRoute()
     data class Drawing(val id: String?) : DetailRoute()
-    data class List(val id: String) : DetailRoute()
+    data class List(val id: String, val initialEntryId: String? = null) : DetailRoute()
     data object BackupRestore : DetailRoute()
     data object GranularBackup : DetailRoute()
     data object Settings : DetailRoute()
@@ -106,7 +106,7 @@ enum class DrawingTool {
 
 @Serializable
 enum class ListType {
-    CHECKLIST, RATING
+    CHECKLIST, RATING, UPCOMING
 }
 
 @androidx.compose.runtime.Immutable
@@ -150,7 +150,9 @@ data class ListEntry(
     val rating: Float = 0f,
     val isPinned: Boolean = false,
     val description: String? = null,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val dueDate: Long? = null,
+    val remindMe: Boolean = false
 )
 
 enum class ListSortOrder {
