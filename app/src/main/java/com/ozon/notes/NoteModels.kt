@@ -45,6 +45,7 @@ sealed class DetailRoute {
     data object GranularBackup : DetailRoute()
     data object Settings : DetailRoute()
     data object Theme : DetailRoute()
+    data object MoviePosters : DetailRoute()
     data object About : DetailRoute()
 }
 

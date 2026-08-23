@@ -100,6 +100,7 @@ private fun MobileNavHost(
             SettingsScreen(
                 viewModel = settingsViewModel,
                 onNavigateToTheme = { navController.navigate("theme") },
+                onNavigateToMoviePosters = { navController.navigate("moviePosters") },
                 onNavigateToBackupRestore = { navController.navigate("backupRestore") },
                 onNavigateToGranularBackup = { navController.navigate("granularBackup") },
                 onNavigateToAbout = { navController.navigate("about") },
@@ -108,6 +109,9 @@ private fun MobileNavHost(
         }
         composable("theme") {
             ThemeScreen(viewModel = settingsViewModel, onNavigateUp = { navController.popBackStack() })
+        }
+        composable("moviePosters") {
+            MoviePostersScreen(viewModel = settingsViewModel, onNavigateUp = { navController.popBackStack() })
         }
         composable("backupRestore") {
             BackupRestoreScreen(viewModel = settingsViewModel, onNavigateUp = { navController.popBackStack() })
@@ -261,6 +265,7 @@ private fun TabletSplitScreen(
                             },
                             onNavigateToSettings = { currentDetailRoute = DetailRoute.Settings },
                             onNavigateToTheme = { currentDetailRoute = DetailRoute.Theme },
+                            onNavigateToMoviePosters = { currentDetailRoute = DetailRoute.MoviePosters },
                             onNavigateToBackup = { currentDetailRoute = DetailRoute.BackupRestore },
                             onNavigateToGranularBackup = { currentDetailRoute = DetailRoute.GranularBackup },
                             onNavigateToAbout = { currentDetailRoute = DetailRoute.About }
@@ -319,6 +324,7 @@ private fun DetailPaneContent(
     onClose: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToTheme: () -> Unit,
+    onNavigateToMoviePosters: () -> Unit,
     onNavigateToBackup: () -> Unit,
     onNavigateToGranularBackup: () -> Unit,
     onNavigateToAbout: () -> Unit
@@ -350,6 +356,7 @@ private fun DetailPaneContent(
             SettingsScreen(
                 viewModel = settingsViewModel,
                 onNavigateToTheme = onNavigateToTheme,
+                onNavigateToMoviePosters = onNavigateToMoviePosters,
                 onNavigateToBackupRestore = onNavigateToBackup,
                 onNavigateToGranularBackup = onNavigateToGranularBackup,
                 onNavigateToAbout = onNavigateToAbout,
@@ -358,6 +365,9 @@ private fun DetailPaneContent(
         }
         is DetailRoute.Theme -> {
             ThemeScreen(viewModel = settingsViewModel, onNavigateUp = onNavigateToSettings)
+        }
+        is DetailRoute.MoviePosters -> {
+            MoviePostersScreen(viewModel = settingsViewModel, onNavigateUp = onNavigateToSettings)
         }
         is DetailRoute.BackupRestore -> {
             BackupRestoreScreen(viewModel = settingsViewModel, onNavigateUp = onNavigateToSettings)

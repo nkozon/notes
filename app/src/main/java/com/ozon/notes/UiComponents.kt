@@ -580,3 +580,27 @@ fun SectionHeader(
         }
     }
 }
+
+@Composable
+fun SettingsItemContainer(
+    index: Int,
+    total: Int,
+    onClick: (() -> Unit)? = null,
+    content: @Composable () -> Unit
+) {
+    val topRadius = if (index == 0) 28.dp else 4.dp
+    val bottomRadius = if (index == total - 1) 28.dp else 4.dp
+    val shape = RoundedCornerShape(topRadius, topRadius, bottomRadius, bottomRadius)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .animateContentSize(animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing))
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+    ) {
+        content()
+    }
+}

@@ -44,6 +44,7 @@ import kotlin.math.roundToInt
 fun SettingsScreen(
     viewModel: SettingsViewModel,
     onNavigateToTheme: () -> Unit,
+    onNavigateToMoviePosters: () -> Unit,
     onNavigateToBackupRestore: () -> Unit,
     onNavigateToGranularBackup: () -> Unit,
     onNavigateToAbout: () -> Unit,
@@ -179,7 +180,7 @@ fun SettingsScreen(
 
             // List Preferences Section
             SettingsSection(title = "List Preferences") {
-                SettingsItemContainer(index = 0, total = 3) {
+                SettingsItemContainer(index = 0, total = 4) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text("Checklist Behavior", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(12.dp))
@@ -203,7 +204,7 @@ fun SettingsScreen(
                     }
                 }
 
-                SettingsItemContainer(index = 1, total = 3) {
+                SettingsItemContainer(index = 1, total = 4) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -241,39 +242,10 @@ fun SettingsScreen(
                     lowThreshold = lowScoreThreshold,
                     onLowThresholdChange = { viewModel.onEvent(NoteEvent.UpdateLowScoreThreshold(it)) },
                     index = 2,
-                    total = 3
+                    total = 4
                 )
-            }
 
-            // Movie Posters Section
-            SettingsSection(title = "Movie Posters") {
-                SettingsItemContainer(index = 0, total = 2) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Grab Movie Posters",
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                text = "Auto-fetch posters for rating lists",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = moviePostersEnabled,
-                            onCheckedChange = { viewModel.onEvent(NoteEvent.UpdateMoviePostersEnabled(it)) }
-                        )
-                    }
-                }
-
-                SettingsItemContainer(index = 1, total = 2, onClick = { viewModel.onEvent(NoteEvent.ClearPosterCache) }) {
+                SettingsItemContainer(index = 3, total = 4, onClick = onNavigateToMoviePosters) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -282,18 +254,17 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column {
-                            Text("Clear Poster Cache", style = MaterialTheme.typography.titleMedium)
-                            val sizeMb = (posterCacheSize / (1024f * 1024f))
+                            Text("Movie Posters", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                text = "Current usage: ${"%.2f".format(sizeMb)} MB",
+                                text = "Configure automatic poster fetching",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                         Icon(
-                            imageVector = Icons.Rounded.DeleteSweep,
+                            imageVector = Icons.Rounded.Movie,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.error
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
@@ -712,30 +683,6 @@ fun SettingsSection(
             color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)
         )
-        content()
-    }
-}
-
-@Composable
-fun SettingsItemContainer(
-    index: Int,
-    total: Int,
-    onClick: (() -> Unit)? = null,
-    content: @Composable () -> Unit
-) {
-    val topRadius = if (index == 0) 28.dp else 4.dp
-    val bottomRadius = if (index == total - 1) 28.dp else 4.dp
-    val shape = RoundedCornerShape(topRadius, topRadius, bottomRadius, bottomRadius)
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp)
-            .animateContentSize(animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing))
-            .clip(shape)
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-    ) {
         content()
     }
 }

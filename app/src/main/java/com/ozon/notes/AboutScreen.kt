@@ -7,6 +7,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Public
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -145,6 +146,66 @@ fun AboutScreen(
                     }
                 }
             }
+
+            Spacer(modifier = Modifier.height(48.dp))
+
+            // Attributions Section
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "Attributions",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 8.dp, bottom = 12.dp)
+                )
+
+                SettingsItemContainer(
+                    index = 0,
+                    total = 1,
+                    onClick = { uriHandler.openUri("https://www.themoviedb.org") }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(24.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                painter = painterResource(id = R.drawable.tmdb_logo),
+                                contentDescription = "TMDb Logo",
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "TMDb",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                text = "This product uses the TMDB API but is not endorsed or certified by TMDB.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
+
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.OpenInNew,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
         }
 
         SystemBarGradients(
