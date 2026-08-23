@@ -58,6 +58,7 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
@@ -73,6 +74,8 @@ import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.roundToInt
 
+val SPATIAL_GRID_SIZE = 500f
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DrawingNoteScreen(
@@ -83,6 +86,7 @@ fun DrawingNoteScreen(
     onNavigateUp: () -> Unit
 ) {
     val context = LocalContext.current
+    val focusManager = LocalFocusManager.current
     val isSidePanelVisible by notesViewModel.isSidePanelVisible.collectAsStateWithLifecycle()
     val forceStylusOnly by notesViewModel.forceStylusOnly.collectAsStateWithLifecycle()
     val lastDrawingColor by notesViewModel.lastDrawingColor.collectAsStateWithLifecycle()
@@ -331,17 +335,20 @@ fun DrawingNoteScreen(
     val updatedForceStylus by rememberUpdatedState(forceStylusOnly)
 
     var strokeBoundsMap by remember { mutableStateOf<Map<String, Rect>>(emptyMap()) }
+    var spatialIndex by remember { mutableStateOf<Map<Pair<Int, Int>, List<String>>>(emptyMap()) }
+    var strokeMap by remember { mutableStateOf<Map<String, com.ozon.notes.Stroke>>(emptyMap()) }
+    
     // Reference cache to detect if points changed for an ID
     val strokeRefCache = remember { java.util.concurrent.ConcurrentHashMap<String, com.ozon.notes.Stroke>() }
     
     LaunchedEffect(strokes) {
         withContext(Dispatchers.Default) {
-            val currentMap = strokeBoundsMap
-            val newMap = strokes.associate { stroke ->
+            val currentBounds = strokeBoundsMap
+            val newBounds = strokes.associate { stroke ->
                 val lastStroke = strokeRefCache[stroke.id]
                 // If it's the exact same object reference, the points definitely haven't changed
-                if (lastStroke === stroke && currentMap.containsKey(stroke.id)) {
-                    stroke.id to currentMap[stroke.id]!!
+                if (lastStroke === stroke && currentBounds.containsKey(stroke.id)) {
+                    stroke.id to currentBounds[stroke.id]!!
                 } else {
                     strokeRefCache[stroke.id] = stroke
                     val hw = stroke.width / 2f
@@ -353,7 +360,23 @@ fun DrawingNoteScreen(
                     stroke.id to Rect(minX, minY, maxX, maxY)
                 }
             }
-            strokeBoundsMap = newMap
+            
+            val newIndex = mutableMapOf<Pair<Int, Int>, MutableList<String>>()
+            newBounds.forEach { (id, rect) ->
+                val minGX = (rect.left / SPATIAL_GRID_SIZE).toInt()
+                val maxGX = (rect.right / SPATIAL_GRID_SIZE).toInt()
+                val minGY = (rect.top / SPATIAL_GRID_SIZE).toInt()
+                val maxGY = (rect.bottom / SPATIAL_GRID_SIZE).toInt()
+                for (gx in minGX..maxGX) {
+                    for (gy in minGY..maxGY) {
+                        newIndex.getOrPut(gx to gy) { mutableListOf() }.add(id)
+                    }
+                }
+            }
+            
+            strokeBoundsMap = newBounds
+            spatialIndex = newIndex
+            strokeMap = strokes.associateBy { it.id }
         }
     }
 
@@ -896,6 +919,7 @@ fun DrawingNoteScreen(
                     .pointerInput(Unit) {
                         awaitEachGesture {
                             awaitFirstDown(requireUnconsumed = false)
+                            focusManager.clearFocus()
                             do {
                                 val event = awaitPointerEvent()
                                 if (event.changes.size >= 2) {
@@ -921,6 +945,7 @@ fun DrawingNoteScreen(
                                 if (firstEvent.changes.size > 1) continue
                                 
                                 val down = firstEvent.changes.find { it.changedToDown() } ?: continue
+                                focusManager.clearFocus()
                                 
                                 val isStylus = down.type == PointerType.Stylus || down.type == PointerType.Eraser
                                 val isEraserType = down.type == PointerType.Eraser
@@ -1150,7 +1175,19 @@ fun DrawingNoteScreen(
                                                     val oldStrokesSize = strokes.size
                                                     val eraserRadius = eraserThickness / 2f
                                                     
-                                                    val toErase = strokes.filter { stroke ->
+                                                    val minGX = (eraseRect.left / SPATIAL_GRID_SIZE).toInt()
+                                                    val maxGX = (eraseRect.right / SPATIAL_GRID_SIZE).toInt()
+                                                    val minGY = (eraseRect.top / SPATIAL_GRID_SIZE).toInt()
+                                                    val maxGY = (eraseRect.bottom / SPATIAL_GRID_SIZE).toInt()
+                                                    
+                                                    val candidateIds = mutableSetOf<String>()
+                                                    for (gx in minGX..maxGX) {
+                                                        for (gy in minGY..maxGY) {
+                                                            spatialIndex[gx to gy]?.let { candidateIds.addAll(it) }
+                                                        }
+                                                    }
+
+                                                    val toErase = candidateIds.mapNotNull { strokeMap[it] }.filter { stroke ->
                                                         if (stroke.tool == DrawingTool.ERASER) {
                                                             false
                                                         } else {
@@ -1231,13 +1268,38 @@ fun DrawingNoteScreen(
                                         lassoPath.computeBounds(b, true)
                                         region.setPath(lassoPath, android.graphics.Region(b.left.toInt(), b.top.toInt(), b.right.toInt(), b.bottom.toInt()))
                                         
+                                        val minGX = (b.left / (scaleFactor * SPATIAL_GRID_SIZE)).toInt()
+                                        val maxGX = (b.right / (scaleFactor * SPATIAL_GRID_SIZE)).toInt()
+                                        val minGY = (b.top / (scaleFactor * SPATIAL_GRID_SIZE)).toInt()
+                                        val maxGY = (b.bottom / (scaleFactor * SPATIAL_GRID_SIZE)).toInt()
+                                        
+                                        val candidateIds = mutableSetOf<String>()
+                                        for (gx in minGX..maxGX) {
+                                            for (gy in minGY..maxGY) {
+                                                spatialIndex[gx to gy]?.let { candidateIds.addAll(it) }
+                                            }
+                                        }
+
                                         val newIds = mutableSetOf<String>()
-                                        val penStrokes = updatedStrokes.filter { it.tool != DrawingTool.ERASER && it.points.any { pt -> region.contains((pt.x * scaleFactor).toInt(), (pt.y * scaleFactor).toInt()) } }
+                                        val penStrokes = candidateIds.mapNotNull { strokeMap[it] }.filter { it.tool != DrawingTool.ERASER && it.points.any { pt -> region.contains((pt.x * scaleFactor).toInt(), (pt.y * scaleFactor).toInt()) } }
                                         penStrokes.forEach { newIds.add(it.id) }
                                         
                                         if (newIds.isNotEmpty()) {
                                             val selBounds = getBounds(penStrokes, emptyList())
-                                            updatedStrokes.filter { it.tool == DrawingTool.ERASER }.forEach { eraser -> if (eraser.points.any { pt -> selBounds.contains(Offset(pt.x, pt.y)) }) newIds.add(eraser.id) }
+                                            
+                                            val minEGX = (selBounds.left / SPATIAL_GRID_SIZE).toInt()
+                                            val maxEGX = (selBounds.right / SPATIAL_GRID_SIZE).toInt()
+                                            val minEGY = (selBounds.top / SPATIAL_GRID_SIZE).toInt()
+                                            val maxEGY = (selBounds.bottom / SPATIAL_GRID_SIZE).toInt()
+                                            
+                                            val eraserCandidates = mutableSetOf<String>()
+                                            for (gx in minEGX..maxEGX) {
+                                                for (gy in minEGY..maxEGY) {
+                                                    spatialIndex[gx to gy]?.let { eraserCandidates.addAll(it) }
+                                                }
+                                            }
+                                            
+                                            eraserCandidates.mapNotNull { strokeMap[it] }.filter { it.tool == DrawingTool.ERASER }.forEach { eraser -> if (eraser.points.any { pt -> selBounds.contains(Offset(pt.x, pt.y)) }) newIds.add(eraser.id) }
                                         }
                                         
                                         selectedStrokeIds = newIds
