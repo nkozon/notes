@@ -13,6 +13,7 @@ sealed interface NoteEvent {
     data class DeleteEntry(val entryId: String) : NoteEvent
     data class SaveTag(val tag: Tag) : NoteEvent
     data class DeleteTag(val tagId: String) : NoteEvent
+    data class ReorderTags(val listId: String, val orderedTagIds: List<String>) : NoteEvent
     data class ToggleFilterTag(val tagId: String) : NoteEvent
     data object ClearFilterTags : NoteEvent
     data class UpdateTagFilterMode(val mode: TagFilterMode) : NoteEvent
@@ -45,6 +46,8 @@ sealed interface NoteEvent {
     data class SetSidePanelVisible(val visible: Boolean) : NoteEvent
     data class UpdateForceStylusOnly(val enabled: Boolean) : NoteEvent
     data class UpdateLastDrawingColor(val color: Int) : NoteEvent
+    data class UpdateLastDrawingThickness(val thickness: Float) : NoteEvent
+    data class UpdateDrawingThicknessPresets(val presets: List<Float>) : NoteEvent
     data class UpdateToolbarAnchor(val anchor: ToolbarAnchor) : NoteEvent
     data class UpdateSmoothingStrength(val strength: SmoothingStrength) : NoteEvent
     data object TriggerAutoBackup : NoteEvent

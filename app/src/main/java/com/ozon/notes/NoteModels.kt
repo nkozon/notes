@@ -133,7 +133,8 @@ data class Tag(
     val id: String = UUID.randomUUID().toString(),
     val listId: String,
     val name: String,
-    val colorArgb: Int? = null
+    val colorArgb: Int? = null,
+    val position: Int = 0
 )
 
 @androidx.compose.runtime.Immutable

@@ -92,6 +92,12 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
     val lastDrawingColor: StateFlow<Int> = repository.getLastDrawingColor()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), android.graphics.Color.BLACK)
 
+    val lastDrawingThickness: StateFlow<Float> = repository.getLastDrawingThickness()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 2.5f)
+
+    val drawingThicknessPresets: StateFlow<List<Float>> = repository.getDrawingThicknessPresets()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), listOf(2f, 5f, 10f, 20f, 40f))
+
     val toolbarAnchor: StateFlow<ToolbarAnchor> = repository.getToolbarAnchor()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ToolbarAnchor.BOTTOM)
 
@@ -224,6 +230,8 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
             is NoteEvent.UpdateSplitFraction -> viewModelScope.launch { repository.setSplitFraction(event.fraction) }
             is NoteEvent.UpdateForceStylusOnly -> viewModelScope.launch { repository.setForceStylusOnly(event.enabled) }
             is NoteEvent.UpdateLastDrawingColor -> viewModelScope.launch { repository.setLastDrawingColor(event.color) }
+            is NoteEvent.UpdateLastDrawingThickness -> viewModelScope.launch { repository.setLastDrawingThickness(event.thickness) }
+            is NoteEvent.UpdateDrawingThicknessPresets -> viewModelScope.launch { repository.setDrawingThicknessPresets(event.presets) }
             is NoteEvent.UpdateToolbarAnchor -> viewModelScope.launch { repository.setToolbarAnchor(event.anchor) }
             is NoteEvent.UpdateSmoothingStrength -> viewModelScope.launch { repository.setSmoothingStrength(event.strength) }
             is NoteEvent.ToggleSidePanel -> {

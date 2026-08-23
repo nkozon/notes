@@ -23,8 +23,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -62,8 +64,8 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -109,6 +111,8 @@ fun DrawingNoteScreen(
     val isSidePanelVisible by notesViewModel.isSidePanelVisible.collectAsStateWithLifecycle()
     val forceStylusOnly by notesViewModel.forceStylusOnly.collectAsStateWithLifecycle()
     val lastDrawingColor by notesViewModel.lastDrawingColor.collectAsStateWithLifecycle()
+    val lastDrawingThickness by notesViewModel.lastDrawingThickness.collectAsStateWithLifecycle()
+    val thicknessPresets by notesViewModel.drawingThicknessPresets.collectAsStateWithLifecycle()
     val smoothingStrength by settingsViewModel.smoothingStrength.collectAsStateWithLifecycle()
     val savedToolbarAnchor by notesViewModel.toolbarAnchor.collectAsStateWithLifecycle()
     val appTheme by settingsViewModel.themeState.collectAsStateWithLifecycle()
@@ -150,7 +154,7 @@ fun DrawingNoteScreen(
 
     var canvasOffset by remember { mutableStateOf(Offset.Zero) }
     var canvasScale by remember { mutableFloatStateOf(1f) }
-    var penThickness by remember { mutableFloatStateOf(2.5f) }
+    var penThickness by remember { mutableFloatStateOf(lastDrawingThickness) }
     var eraserThickness by remember { mutableFloatStateOf(20f) }
     var selectedPenColor by remember { mutableStateOf(Color(lastDrawingColor)) }
     
@@ -1552,7 +1556,10 @@ fun DrawingNoteScreen(
                     isCollapsed = isToolbarCollapsed,
                     onToggleCollapse = { isToolbarCollapsed = it },
                     penThickness = penThickness,
-                    onPenThicknessChange = { penThickness = it },
+                    onPenThicknessChange = { 
+                        penThickness = it
+                        notesViewModel.onEvent(NoteEvent.UpdateLastDrawingThickness(it))
+                    },
                     eraserThickness = eraserThickness,
                     onEraserThicknessChange = { eraserThickness = it },
                     showThicknessPopup = showThicknessPopup,
@@ -1584,7 +1591,11 @@ fun DrawingNoteScreen(
                     pasteEnabled = clipboardStrokes != null,
                     onPaste = { handlePaste() },
                     canvasScale = canvasScale,
-                    onResetZoom = { canvasScale = 1f; canvasOffset = Offset.Zero }
+                    onResetZoom = { canvasScale = 1f; canvasOffset = Offset.Zero },
+                    thicknessPresets = thicknessPresets,
+                    onThicknessPresetsChange = { 
+                        notesViewModel.onEvent(NoteEvent.UpdateDrawingThicknessPresets(it))
+                    }
                 )
 
                 selectionBounds?.let { bounds ->
@@ -1701,7 +1712,8 @@ fun DrawingToolbar(
     eraserThickness: Float, onEraserThicknessChange: (Float) -> Unit, showThicknessPopup: Boolean,
     selectedPenColor: Color, onPenColorChange: (Color) -> Unit, showColorPopup: Boolean, onToggleColorPopup: (Boolean) -> Unit,
     undoEnabled: Boolean, onUndo: () -> Unit, redoEnabled: Boolean, onRedo: () -> Unit, pasteEnabled: Boolean, onPaste: () -> Unit,
-    canvasScale: Float, onResetZoom: () -> Unit
+    canvasScale: Float, onResetZoom: () -> Unit,
+    thicknessPresets: List<Float> = emptyList(), onThicknessPresetsChange: (List<Float>) -> Unit = {}
 ) {
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
     var predictedAnchor by remember { mutableStateOf<ToolbarAnchor?>(null) }
@@ -1780,6 +1792,12 @@ fun DrawingToolbar(
                     thickness = if (currentTool == DrawingTool.PEN) penThickness else eraserThickness, 
                     onThicknessChange = if (currentTool == DrawingTool.PEN) onPenThicknessChange else onEraserThicknessChange, 
                     color = if (currentTool == DrawingTool.PEN) selectedPenColor else Color.LightGray,
+                    presets = thicknessPresets,
+                    onPresetLongClick = { index ->
+                        val current = if (currentTool == DrawingTool.PEN) penThickness else eraserThickness
+                        val newPresets = thicknessPresets.toMutableList().apply { set(index, current) }
+                        onThicknessPresetsChange(newPresets)
+                    },
                     min = 0.5f,
                     max = 50f
                 )
@@ -1948,13 +1966,82 @@ fun ColorCircle(color: Color, isSelected: Boolean, onClick: () -> Unit) {
     Box(modifier = Modifier.size(34.dp).clip(CircleShape).background(color).border(width = if (isSelected) 3.dp else 1.dp, color = if (isSelected) MaterialTheme.colorScheme.primary else Color.LightGray.copy(alpha = 0.5f), shape = CircleShape).clickable { onClick() })
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ThicknessPopup(thickness: Float, onThicknessChange: (Float) -> Unit, color: Color, min: Float = 0.5f, max: Float = 50f) {
-    Surface(modifier = Modifier.width(200.dp).shadow(4.dp, RoundedCornerShape(16.dp)), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp)) {
+fun ThicknessPopup(
+    thickness: Float, 
+    onThicknessChange: (Float) -> Unit, 
+    color: Color, 
+    presets: List<Float> = listOf(2f, 5f, 10f, 20f, 40f),
+    onPresetLongClick: (Int) -> Unit = {},
+    min: Float = 0.5f, 
+    max: Float = 50f
+) {
+    Surface(modifier = Modifier.width(300.dp).shadow(4.dp, RoundedCornerShape(16.dp)), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp)) {
         Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(modifier = Modifier.size(100.dp, 40.dp).background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { Box(modifier = Modifier.height((thickness / 4f).dp).fillMaxWidth(0.8f).background(color, CircleShape)) }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(160.dp, 60.dp)
+                        .background(Color.White, CircleShape)
+                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .height((thickness / 2.5f).coerceIn(1f, 44f).dp)
+                            .fillMaxWidth(0.7f)
+                            .background(color, CircleShape)
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = "%.1f".format(thickness),
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.width(60.dp),
+                    textAlign = TextAlign.End
+                )
+            }
             Spacer(Modifier.height(12.dp))
-            Slider(value = thickness, onValueChange = onThicknessChange, valueRange = min..max)
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                IconButton(onClick = { onThicknessChange((thickness - 0.1f).coerceIn(min, max)) }) {
+                    Icon(Icons.Rounded.Remove, contentDescription = "Decrease", tint = MaterialTheme.colorScheme.primary)
+                }
+                Slider(value = thickness, onValueChange = onThicknessChange, valueRange = min..max, modifier = Modifier.weight(1f))
+                IconButton(onClick = { onThicknessChange((thickness + 0.1f).coerceIn(min, max)) }) {
+                    Icon(Icons.Rounded.Add, contentDescription = "Increase", tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                presets.forEachIndexed { index, preset ->
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(if (kotlin.math.abs(thickness - preset) < 0.01f) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
+                                .combinedClickable(
+                                    onClick = { onThicknessChange(preset) },
+                                    onLongClick = { onPresetLongClick(index) }
+                                )
+                                .padding(6.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(modifier = Modifier.size((preset / 4f).coerceIn(2f, 24f).dp).background(color, CircleShape))
+                        }
+                        Text(
+                            text = if (preset % 1f == 0f) preset.toInt().toString() else "%.1f".format(preset),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+                }
+            }
         }
     }
 }

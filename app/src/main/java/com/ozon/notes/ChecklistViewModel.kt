@@ -121,8 +121,27 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
             is NoteEvent.ClearFilterTags -> _selectedFilterTagIds.value = emptySet()
             is NoteEvent.UpdateTagFilterMode -> _tagFilterMode.value = event.mode
             is NoteEvent.SaveList -> viewModelScope.launch { repository.saveList(event.list) }
-            is NoteEvent.SaveTag -> viewModelScope.launch { repository.saveTag(event.tag) }
+            is NoteEvent.SaveTag -> {
+                viewModelScope.launch {
+                    val tagToSave = if (event.tag.position == 0) {
+                        val currentTags = allTags.value
+                        val maxPosition = currentTags.maxByOrNull { it.position }?.position ?: 0
+                        event.tag.copy(position = maxPosition + 1)
+                    } else event.tag
+                    repository.saveTag(tagToSave)
+                }
+            }
             is NoteEvent.DeleteTag -> viewModelScope.launch { repository.deleteTag(event.tagId) }
+            is NoteEvent.ReorderTags -> {
+                viewModelScope.launch {
+                    val currentTags = allTags.value
+                    val updatedTags = currentTags.map { tag ->
+                        val newPosition = event.orderedTagIds.indexOf(tag.id)
+                        if (newPosition != -1) tag.copy(position = newPosition) else tag
+                    }
+                    repository.saveTags(updatedTags)
+                }
+            }
             is NoteEvent.SaveEntry -> {
                 _pendingEntries.update { current -> 
                     current.filter { it.id != event.entry.id } + event.entry 

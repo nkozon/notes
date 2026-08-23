@@ -223,7 +223,9 @@ fun ListDetailScreen(
                                     filterMode = tagFilterMode,
                                     onTagToggle = { checklistViewModel.onEvent(NoteEvent.ToggleFilterTag(it)) },
                                     onModeToggle = { checklistViewModel.onEvent(NoteEvent.UpdateTagFilterMode(it)) },
-                                    onClearAll = { checklistViewModel.onEvent(NoteEvent.ClearFilterTags) }
+                                    onClearAll = { checklistViewModel.onEvent(NoteEvent.ClearFilterTags) },
+                                    onReorderTags = { checklistViewModel.onEvent(NoteEvent.ReorderTags(listId, it)) },
+                                    onDeleteTag = { checklistViewModel.onEvent(NoteEvent.DeleteTag(it)) }
                                 )
                                 LaunchedEffect(Unit) {
                                     dummyFocusRequester.requestFocus()
@@ -439,7 +441,9 @@ fun ListDetailScreen(
                                     it.copy(alpha = baseAlpha).compositeOver(MaterialTheme.colorScheme.surface)
                                 },
                                 indicatorContentColor = indicatorContentColor,
-                                tagNames = remember(allTags, entry.tagIds) { allTags.filter { it.id in entry.tagIds }.map { it.name } },
+                                tagNames = remember(allTags, entry.tagIds) { 
+                                    allTags.filter { it.id in entry.tagIds }.map { it.name }
+                                },
                                 onToggleExpand = {
                                     expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
                                 },
@@ -547,7 +551,9 @@ fun ListDetailScreen(
                                         searchQuery = searchQuery,
                                         indicatorColor = null,
                                         indicatorContentColor = null,
-                                        tagNames = remember(allTags, entry.tagIds) { allTags.filter { it.id in entry.tagIds }.map { it.name } },
+                                        tagNames = remember(allTags, entry.tagIds) { 
+                                            allTags.filter { it.id in entry.tagIds }.map { it.name }
+                                        },
                                         onToggleExpand = {
                                             expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
                                         },
@@ -1787,17 +1793,21 @@ fun EntryDialog(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        allTags.forEach { tag ->
-                            val isSelected = selectedTagIds.contains(tag.id)
+                        // Selected tags in their specific order
+                        selectedTagIds.forEach { tagId ->
+                            allTags.find { it.id == tagId }?.let { tag ->
+                                FilterChip(
+                                    selected = true,
+                                    onClick = { selectedTagIds = selectedTagIds - tagId },
+                                    label = { Text(tag.name) }
+                                )
+                            }
+                        }
+                        // Unselected tags in global order
+                        allTags.filter { it.id !in selectedTagIds }.forEach { tag ->
                             FilterChip(
-                                selected = isSelected,
-                                onClick = {
-                                    selectedTagIds = if (isSelected) {
-                                        selectedTagIds - tag.id
-                                    } else {
-                                        selectedTagIds + tag.id
-                                    }
-                                },
+                                selected = false,
+                                onClick = { selectedTagIds = selectedTagIds + tag.id },
                                 label = { Text(tag.name) }
                             )
                         }
@@ -1916,9 +1926,12 @@ fun TagFilterDropdown(
     filterMode: TagFilterMode,
     onTagToggle: (String) -> Unit,
     onModeToggle: (TagFilterMode) -> Unit,
-    onClearAll: () -> Unit
+    onClearAll: () -> Unit,
+    onReorderTags: (List<String>) -> Unit = {},
+    onDeleteTag: (String) -> Unit = {}
 ) {
     var expanded by remember { mutableStateOf(false) }
+    var showManageTagsDialog by remember { mutableStateOf(false) }
     
     Box {
         IconButton(onClick = { expanded = true }) {
@@ -2049,9 +2062,138 @@ fun TagFilterDropdown(
                         }
                     }
                 }
+
+                if (allTags.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Surface(
+                        onClick = {
+                            expanded = false
+                            showManageTagsDialog = true
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        contentColor = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.AutoMirrored.Rounded.Sort, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text("Manage Tags", style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
             }
         }
     }
+
+    if (showManageTagsDialog) {
+        ManageTagsDialog(
+            tags = allTags,
+            onDismiss = { showManageTagsDialog = false },
+            onReorder = onReorderTags,
+            onDelete = onDeleteTag
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ManageTagsDialog(
+    tags: List<Tag>,
+    onDismiss: () -> Unit,
+    onReorder: (List<String>) -> Unit,
+    onDelete: (String) -> Unit
+) {
+    var currentTags by remember { mutableStateOf(tags) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Manage Tags") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 400.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                currentTags.forEachIndexed { index, tag ->
+                    val isFirst = index == 0
+                    val isLast = index == currentTags.size - 1
+                    
+                    val shape = when {
+                        currentTags.size == 1 -> RoundedCornerShape(24.dp)
+                        isFirst -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
+                        isLast -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
+                        else -> RoundedCornerShape(4.dp)
+                    }
+
+                    Surface(
+                        shape = shape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(tag.name, style = MaterialTheme.typography.titleMedium)
+                            }
+                            
+                            IconButton(
+                                onClick = {
+                                    if (index > 0) {
+                                        val newList = currentTags.toMutableList()
+                                        val temp = newList[index]
+                                        newList[index] = newList[index - 1]
+                                        newList[index - 1] = temp
+                                        currentTags = newList
+                                        onReorder(newList.map { it.id })
+                                    }
+                                },
+                                enabled = index > 0
+                            ) {
+                                Icon(Icons.Rounded.ExpandLess, contentDescription = "Move Up")
+                            }
+                            
+                            IconButton(
+                                onClick = {
+                                    if (index < currentTags.size - 1) {
+                                        val newList = currentTags.toMutableList()
+                                        val temp = newList[index]
+                                        newList[index] = newList[index + 1]
+                                        newList[index + 1] = temp
+                                        currentTags = newList
+                                        onReorder(newList.map { it.id })
+                                    }
+                                },
+                                enabled = index < currentTags.size - 1
+                            ) {
+                                Icon(Icons.Rounded.ExpandMore, contentDescription = "Move Down")
+                            }
+
+                            IconButton(
+                                onClick = { 
+                                    onDelete(tag.id)
+                                    currentTags = currentTags.filter { it.id != tag.id }
+                                },
+                                colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                            ) {
+                                Icon(Icons.Rounded.Delete, contentDescription = "Delete Tag")
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Done") }
+        }
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -2168,24 +2310,37 @@ fun InlineAddEntryItem(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                allTags.forEach { tag ->
-                    val isSelected = selectedTagIds.contains(tag.id)
+                // Selected tags in their specific order
+                selectedTagIds.forEach { tagId ->
+                    allTags.find { it.id == tagId }?.let { tag ->
+                        InputChip(
+                            selected = true,
+                            onClick = { onTagToggle(tagId) },
+                            label = { Text(tag.name) },
+                            shape = CircleShape,
+                            colors = InputChipDefaults.inputChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                            ),
+                            border = null
+                        )
+                    }
+                }
+                // Unselected tags in global order
+                allTags.filter { it.id !in selectedTagIds }.forEach { tag ->
                     InputChip(
-                        selected = isSelected,
+                        selected = false,
                         onClick = { onTagToggle(tag.id) },
                         label = { Text(tag.name) },
                         shape = CircleShape,
                         colors = InputChipDefaults.inputChipColors(
                             containerColor = Color.Transparent,
-                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
                             labelColor = MaterialTheme.colorScheme.onSurfaceVariant
                         ),
                         border = InputChipDefaults.inputChipBorder(
                             enabled = true,
-                            selected = isSelected,
+                            selected = false,
                             borderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-                            selectedBorderColor = Color.Transparent,
                             borderWidth = 1.dp
                         )
                     )

@@ -36,6 +36,7 @@ interface NoteRepository {
     // --- Tags ---
     fun getTagsForList(listId: String): Flow<List<Tag>>
     suspend fun saveTag(tag: Tag)
+    suspend fun saveTags(tags: List<Tag>)
     suspend fun deleteTag(tagId: String)
 
     suspend fun clearAllData()
@@ -102,6 +103,10 @@ interface NoteRepository {
     suspend fun setForceStylusOnly(enabled: Boolean)
     fun getLastDrawingColor(): Flow<Int>
     suspend fun setLastDrawingColor(color: Int)
+    fun getLastDrawingThickness(): Flow<Float>
+    suspend fun setLastDrawingThickness(thickness: Float)
+    fun getDrawingThicknessPresets(): Flow<List<Float>>
+    suspend fun setDrawingThicknessPresets(presets: List<Float>)
     fun getToolbarAnchor(): Flow<ToolbarAnchor>
     suspend fun setToolbarAnchor(anchor: ToolbarAnchor)
     fun getSmoothingStrength(): Flow<SmoothingStrength>
@@ -161,7 +166,8 @@ object AppContainer {
             NoteDatabase.MIGRATION_15_16,
             NoteDatabase.MIGRATION_16_17,
             NoteDatabase.MIGRATION_17_18,
-            NoteDatabase.MIGRATION_18_19
+            NoteDatabase.MIGRATION_18_19,
+            NoteDatabase.MIGRATION_19_20
         )
             .fallbackToDestructiveMigration()
             .build().also { database = it }

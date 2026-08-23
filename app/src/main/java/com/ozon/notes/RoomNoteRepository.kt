@@ -294,6 +294,11 @@ class RoomNoteRepository(
         setHasPendingChanges(true)
     }
 
+    override suspend fun saveTags(tags: List<Tag>) {
+        database.tagDao().upsertTags(tags.map { it.toEntity() })
+        setHasPendingChanges(true)
+    }
+
     override suspend fun deleteTag(tagId: String) {
         database.tagDao().deleteTag(tagId)
         setHasPendingChanges(true)
@@ -665,6 +670,11 @@ class RoomNoteRepository(
     private val _splitFraction = MutableStateFlow(prefs.getFloat("split_fraction", 0.35f))
     private val _forceStylusOnly = MutableStateFlow(prefs.getBoolean("force_stylus_only", false))
     private val _lastDrawingColor = MutableStateFlow(prefs.getInt("last_drawing_color", android.graphics.Color.BLACK))
+    private val _lastDrawingThickness = MutableStateFlow(prefs.getFloat("last_drawing_thickness", 2.5f))
+    private val _drawingThicknessPresets = MutableStateFlow(
+        prefs.getString("drawing_thickness_presets", "2.0,5.0,10.0,20.0,40.0")
+            ?.split(",")?.mapNotNull { it.toFloatOrNull() } ?: listOf(2f, 5f, 10f, 20f, 40f)
+    )
 
     override fun getRatingIndicatorsEnabled(): Flow<Boolean> = _ratingIndicatorsEnabled
     override suspend fun setRatingIndicatorsEnabled(enabled: Boolean) {
@@ -712,6 +722,19 @@ class RoomNoteRepository(
     override suspend fun setLastDrawingColor(color: Int) {
         prefs.edit().putInt("last_drawing_color", color).apply()
         _lastDrawingColor.value = color
+    }
+
+    override fun getLastDrawingThickness(): Flow<Float> = _lastDrawingThickness
+    override suspend fun setLastDrawingThickness(thickness: Float) {
+        prefs.edit().putFloat("last_drawing_thickness", thickness).apply()
+        _lastDrawingThickness.value = thickness
+    }
+
+    override fun getDrawingThicknessPresets(): Flow<List<Float>> = _drawingThicknessPresets
+    override suspend fun setDrawingThicknessPresets(presets: List<Float>) {
+        val stringValue = presets.joinToString(",")
+        prefs.edit().putString("drawing_thickness_presets", stringValue).apply()
+        _drawingThicknessPresets.value = presets
     }
 
     private val _toolbarAnchor = MutableStateFlow(

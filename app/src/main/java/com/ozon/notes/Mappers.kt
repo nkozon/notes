@@ -123,7 +123,8 @@ fun TagEntity.toDomain(): Tag {
         id = id,
         listId = listId,
         name = name,
-        colorArgb = colorArgb
+        colorArgb = colorArgb,
+        position = position
     )
 }
 
@@ -132,6 +133,7 @@ fun Tag.toEntity(): TagEntity {
         id = id,
         listId = listId,
         name = name,
-        colorArgb = colorArgb
+        colorArgb = colorArgb,
+        position = position
     )
 }

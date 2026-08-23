@@ -190,14 +190,18 @@ class GetFilteredEntriesUseCase {
                     if (res == 0) b.timestamp.compareTo(a.timestamp) else res
                 }
                 ListSortOrder.TAG_ALPHABETICAL -> {
-                    val aTag = a.tagIds.firstOrNull()?.let { tagMap[it] } ?: ""
-                    val bTag = b.tagIds.firstOrNull()?.let { tagMap[it] } ?: ""
+                    val aSortedTags = a.tagIds.mapNotNull { id -> allTags.find { it.id == id } }.sortedBy { it.position }
+                    val bSortedTags = b.tagIds.mapNotNull { id -> allTags.find { it.id == id } }.sortedBy { it.position }
+                    val aTag = aSortedTags.firstOrNull()?.name ?: ""
+                    val bTag = bSortedTags.firstOrNull()?.name ?: ""
                     val res = aTag.compareTo(bTag, ignoreCase = true)
                     if (res == 0) a.title.compareTo(b.title, ignoreCase = true) else res
                 }
                 ListSortOrder.TAG_REVERSE_ALPHABETICAL -> {
-                    val aTag = a.tagIds.firstOrNull()?.let { tagMap[it] } ?: ""
-                    val bTag = b.tagIds.firstOrNull()?.let { tagMap[it] } ?: ""
+                    val aSortedTags = a.tagIds.mapNotNull { id -> allTags.find { it.id == id } }.sortedBy { it.position }
+                    val bSortedTags = b.tagIds.mapNotNull { id -> allTags.find { it.id == id } }.sortedBy { it.position }
+                    val aTag = aSortedTags.firstOrNull()?.name ?: ""
+                    val bTag = bSortedTags.firstOrNull()?.name ?: ""
                     val res = bTag.compareTo(aTag, ignoreCase = true)
                     if (res == 0) a.title.compareTo(b.title, ignoreCase = true) else res
                 }

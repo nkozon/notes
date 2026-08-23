@@ -112,7 +112,8 @@ data class TagEntity(
     @PrimaryKey val id: String,
     val listId: String,
     val name: String,
-    val colorArgb: Int? = null
+    val colorArgb: Int? = null,
+    val position: Int = 0
 )
 
 // --- WRAPPERS FOR OPTIMIZED QUERIES ---
@@ -256,7 +257,7 @@ interface ListDao {
 
 @Dao
 interface TagDao {
-    @Query("SELECT * FROM tags WHERE listId = :listId ORDER BY name ASC")
+    @Query("SELECT * FROM tags WHERE listId = :listId ORDER BY position ASC, name ASC")
     fun getTagsForList(listId: String): Flow<List<TagEntity>>
 
     @Query("SELECT * FROM tags")
@@ -291,7 +292,7 @@ interface EntryTagCrossRefDao {
 
 @Database(
     entities = [NoteEntity::class, NoteListEntity::class, ListEntryEntity::class, TagEntity::class, EntryTagCrossRef::class],
-    version = 19, 
+    version = 20, 
     exportSchema = false
 )
 abstract class NoteDatabase : RoomDatabase() {
@@ -301,6 +302,11 @@ abstract class NoteDatabase : RoomDatabase() {
     abstract fun entryTagCrossRefDao(): EntryTagCrossRefDao
 
     companion object {
+        val MIGRATION_19_20 = object : androidx.room.migration.Migration(19, 20) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `tags` ADD COLUMN `position` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
         val MIGRATION_18_19 = object : androidx.room.migration.Migration(18, 19) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 // 1. Create the new table with the correct schema (including foreign keys and no default values as expected by Room)
