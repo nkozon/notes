@@ -278,7 +278,17 @@ class RoomNoteRepository(
     }
 
     override suspend fun deleteCompletedEntries(listId: String) {
-        database.listDao().deleteCompletedEntriesByList(listId)
+        withContext(Dispatchers.IO) {
+            val entries = database.listDao().getEntriesForListSync(listId)
+            val completedIds = entries.filter { it.isChecked }.map { it.id }
+            
+            database.listDao().deleteCompletedEntriesByList(listId)
+            
+            completedIds.forEach { id ->
+                NotificationHelper.cancelNotification(context, id)
+                deleteFile("${id}.desc")
+            }
+        }
         setHasPendingChanges(true)
     }
 

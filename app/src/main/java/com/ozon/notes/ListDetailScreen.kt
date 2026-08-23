@@ -530,6 +530,28 @@ fun ListDetailScreen(
                         }
                         
                         if (!isCompletedCollapsed) {
+                            item {
+                                Surface(
+                                    onClick = { checklistViewModel.onEvent(NoteEvent.DeleteCompletedEntries(listId)) },
+                                    shape = RoundedCornerShape(28.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(16.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(Icons.Rounded.DeleteSweep, contentDescription = null)
+                                        Spacer(Modifier.width(12.dp))
+                                        Text("Clear completed items", style = MaterialTheme.typography.titleMedium)
+                                    }
+                                }
+                            }
+
                             itemsIndexed(completedUpcomingEntries, key = { _, it -> it.first.id }) { index, item ->
                                 UpcomingEntryItem(
                                     scope = this,
