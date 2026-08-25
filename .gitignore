@@ -9,13 +9,18 @@
 /.idea/assetWizardSettings.xml
 .DS_Store
 /build
+app/build
+app/release
+app/build.gradle.kts
+app/proguard-rules.pro
 /captures
 .externalNativeBuild
 .cxx
 local.properties
 .artifacts
-app
 .kotlin
+package.json
+package-lock.json
 
 # Log/OS Files
 *.log
