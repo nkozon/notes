@@ -22,12 +22,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.lerp
 import androidx.compose.ui.unit.dp
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ozon.notes.ui.theme.GoogleSansFlexRounded
 import kotlinx.coroutines.Dispatchers
@@ -61,15 +65,14 @@ fun SettingsScreen(
     val highScoreThreshold by viewModel.highScoreThreshold.collectAsStateWithLifecycle()
     val lowScoreEnabled by viewModel.lowScoreEnabled.collectAsStateWithLifecycle()
     val lowScoreThreshold by viewModel.lowScoreThreshold.collectAsStateWithLifecycle()
-    
-    val moviePostersEnabled by viewModel.moviePostersEnabled.collectAsStateWithLifecycle()
-    val posterCacheSize by viewModel.posterCacheSize.collectAsStateWithLifecycle()
 
     val forceStylusOnly by viewModel.forceStylusOnly.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
 
     var showClearDataDialog by remember { mutableStateOf(false) }
     var showUpdateDialog by remember { mutableStateOf<UpdateState.UpdateAvailable?>(null) }
+
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     LaunchedEffect(updateState) {
         if (updateState is UpdateState.UpdateAvailable) {
@@ -84,32 +87,15 @@ fun SettingsScreen(
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            TopAppBar(
-                title = { 
-                    Text(
-                        text = "Settings", 
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(start = 16.dp)
-                    ) 
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    scrolledContainerColor = Color.Transparent
-                ),
-                navigationIcon = {
-                    Box(modifier = Modifier.padding(start = 16.dp)) {
-                        CircleIconButton(
-                            onClick = onNavigateUp,
-                            icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "Back"
-                        )
-                    }
-                }
+            CollapsingTitleLayout(
+                title = "Settings",
+                onNavigateUp = onNavigateUp,
+                scrollBehavior = scrollBehavior
             )
         }
     ) { padding ->
-        val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val scrollState = rememberScrollState()
         val topAlpha by remember {
@@ -118,15 +104,16 @@ fun SettingsScreen(
             }
         }
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(horizontal = 16.dp)
-                .padding(top = topPadding + 64.dp, bottom = bottomPadding + 16.dp)
-                .animateContentSize(animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing)),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
-        ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = 16.dp)
+                    .padding(top = padding.calculateTopPadding(), bottom = bottomPadding + 16.dp)
+                    .animateContentSize(animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing)),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
             // Appearance Section
             SettingsSection(title = "Appearance") {
                 SettingsItemContainer(index = 0, total = 2, onClick = onNavigateToTheme) {
@@ -433,12 +420,13 @@ fun SettingsScreen(
             }
             
             Spacer(modifier = Modifier.height(16.dp))
-        }
+            }
 
-        SystemBarGradients(
-            modifier = Modifier.zIndex(1f),
-            topAlpha = topAlpha
-        )
+            SystemBarGradients(
+                modifier = Modifier.zIndex(1f),
+                topAlpha = topAlpha
+            )
+        }
     }
 
     if (showClearDataDialog) {

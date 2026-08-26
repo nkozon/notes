@@ -15,9 +15,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.lerp
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -37,38 +40,22 @@ fun MoviePostersScreen(
         viewModel.updatePosterCacheSize()
     }
 
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Movie Posters",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(start = 16.dp)
-                    )
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    scrolledContainerColor = Color.Transparent
-                ),
-                navigationIcon = {
-                    Box(modifier = Modifier.padding(start = 16.dp)) {
-                        CircleIconButton(
-                            onClick = onNavigateUp,
-                            icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "Back"
-                        )
-                    }
-                }
+            CollapsingTitleLayout(
+                title = "Movie Posters",
+                onNavigateUp = onNavigateUp,
+                scrollBehavior = scrollBehavior
             )
         }
-    ) { _ ->
-        val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    ) { padding ->
         val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val scrollState = rememberScrollState()
-
         val topAlpha by remember {
             derivedStateOf {
                 (scrollState.value / 100f).coerceIn(0f, 1f)
@@ -82,7 +69,7 @@ fun MoviePostersScreen(
                     .verticalScroll(scrollState)
                     .padding(horizontal = 16.dp)
                     .padding(
-                        top = topPadding + 64.dp,
+                        top = padding.calculateTopPadding(),
                         bottom = bottomPadding + 16.dp
                     )
                     .animateContentSize(
@@ -217,9 +204,7 @@ fun MoviePostersScreen(
             }
 
             SystemBarGradients(
-                modifier = Modifier
-                    .zIndex(1f)
-                    .align(Alignment.TopCenter),
+                modifier = Modifier.zIndex(1f),
                 topAlpha = topAlpha
             )
         }

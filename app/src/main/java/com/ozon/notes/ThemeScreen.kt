@@ -24,10 +24,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.lerp
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -43,6 +46,8 @@ fun ThemeScreen(
     val useDynamicColor by viewModel.useDynamicColorState.collectAsStateWithLifecycle()
     val isOledMode by viewModel.isOledModeState.collectAsStateWithLifecycle()
 
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
     val presetColors = listOf(
         Color(0xFF6750A4), // Purple
         Color(0xFF006C4C), // Green
@@ -57,32 +62,15 @@ fun ThemeScreen(
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            TopAppBar(
-                title = { 
-                    Text(
-                        text = "Theme Settings", 
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(start = 16.dp)
-                    ) 
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    scrolledContainerColor = Color.Transparent
-                ),
-                navigationIcon = {
-                    Box(modifier = Modifier.padding(start = 16.dp)) {
-                        CircleIconButton(
-                            onClick = onNavigateUp,
-                            icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "Back"
-                        )
-                    }
-                }
+            CollapsingTitleLayout(
+                title = "Theme Settings",
+                onNavigateUp = onNavigateUp,
+                scrollBehavior = scrollBehavior
             )
         }
     ) { padding ->
-        val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val scrollState = rememberScrollState()
         val topAlpha by remember {
@@ -91,73 +79,40 @@ fun ThemeScreen(
             }
         }
 
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(horizontal = 16.dp)
-                .padding(top = topPadding + 64.dp, bottom = bottomPadding + 16.dp)
-                .animateContentSize(animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing)),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
-        ) {
-            // Mode Section
-            SettingsSection(title = "Mode") {
-                Column {
-                    SettingsItemContainer(index = 0, total = 2) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text("App Theme", style = MaterialTheme.typography.titleMedium)
-                            Spacer(Modifier.height(12.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                AppTheme.entries.forEach { appTheme ->
-                                    ThemeModeItem(
-                                        label = appTheme.name.lowercase().replaceFirstChar { it.uppercase() },
-                                        selected = theme == appTheme,
-                                        onClick = { viewModel.onEvent(NoteEvent.UpdateTheme(appTheme)) },
-                                        modifier = Modifier.weight(1f)
-                                    )
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = 16.dp)
+                    .padding(top = padding.calculateTopPadding(), bottom = bottomPadding + 16.dp)
+                    .animateContentSize(animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing)),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                // Mode Section
+                SettingsSection(title = "Mode") {
+                    Column {
+                        SettingsItemContainer(index = 0, total = 2) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text("App Theme", style = MaterialTheme.typography.titleMedium)
+                                Spacer(Modifier.height(12.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    AppTheme.entries.forEach { appTheme ->
+                                        ThemeModeItem(
+                                            label = appTheme.name.lowercase().replaceFirstChar { it.uppercase() },
+                                            selected = theme == appTheme,
+                                            onClick = { viewModel.onEvent(NoteEvent.UpdateTheme(appTheme)) },
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    SettingsItemContainer(index = 1, total = 2) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("OLED Mode", style = MaterialTheme.typography.titleMedium)
-                                Text(
-                                    "Pure black background in dark theme",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Switch(
-                                checked = isOledMode,
-                                onCheckedChange = { viewModel.onEvent(NoteEvent.UpdateIsOledMode(it)) }
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Custom Colors Section
-            SettingsSection(title = "Custom Colors") {
-                val showDynamicColor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-                val showCustomColors = !useDynamicColor || !showDynamicColor
-                val customPrimaryColor by viewModel.customPrimaryColorState.collectAsStateWithLifecycle()
-                val customSecondaryColor by viewModel.customSecondaryColorState.collectAsStateWithLifecycle()
-
-                Column {
-                    if (showDynamicColor) {
-                        SettingsItemContainer(index = 0, total = if (showCustomColors) 2 else 1) {
+                        SettingsItemContainer(index = 1, total = 2) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -166,60 +121,95 @@ fun ThemeScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text("Dynamic Color", style = MaterialTheme.typography.titleMedium)
+                                    Text("OLED Mode", style = MaterialTheme.typography.titleMedium)
                                     Text(
-                                        "Use system accent color",
+                                        "Pure black background in dark theme",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                                 Switch(
-                                    checked = useDynamicColor,
-                                    onCheckedChange = { viewModel.onEvent(NoteEvent.UpdateUseDynamicColor(it)) }
-                                )
-                            }
-                        }
-                    }
-
-                    AnimatedVisibility(
-                        visible = showCustomColors,
-                        enter = expandVertically() + fadeIn(),
-                        exit = shrinkVertically() + fadeOut()
-                    ) {
-                        SettingsItemContainer(index = if (showDynamicColor) 1 else 0, total = if (showDynamicColor) 2 else 1) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                // Primary Color Selection
-                                Text("Primary Color", style = MaterialTheme.typography.titleMedium)
-                                Text("App background and card color (will be automatically dimmed)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Spacer(Modifier.height(12.dp))
-                                ColorPickerRow(
-                                    selectedColor = customPrimaryColor,
-                                    presetColors = presetColors,
-                                    onColorSelected = { viewModel.onEvent(NoteEvent.UpdateCustomPrimaryColor(it)) }
-                                )
-
-                                Spacer(Modifier.height(24.dp))
-
-                                // Secondary (Accent) Color Selection
-                                Text("Secondary (Accent) Color", style = MaterialTheme.typography.titleMedium)
-                                Text("Color for interactive elements like toggles and buttons", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Spacer(Modifier.height(12.dp))
-                                ColorPickerRow(
-                                    selectedColor = customSecondaryColor,
-                                    presetColors = presetColors,
-                                    onColorSelected = { viewModel.onEvent(NoteEvent.UpdateCustomSecondaryColor(it)) }
+                                    checked = isOledMode,
+                                    onCheckedChange = { viewModel.onEvent(NoteEvent.UpdateIsOledMode(it)) }
                                 )
                             }
                         }
                     }
                 }
-            }
-        }
 
-        SystemBarGradients(
-            modifier = Modifier.zIndex(1f),
-            topAlpha = topAlpha
-        )
+                // Custom Colors Section
+                SettingsSection(title = "Custom Colors") {
+                    val showDynamicColor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                    val showCustomColors = !useDynamicColor || !showDynamicColor
+                    val customPrimaryColor by viewModel.customPrimaryColorState.collectAsStateWithLifecycle()
+                    val customSecondaryColor by viewModel.customSecondaryColorState.collectAsStateWithLifecycle()
+
+                    Column {
+                        if (showDynamicColor) {
+                            SettingsItemContainer(index = 0, total = if (showCustomColors) 2 else 1) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Dynamic Color", style = MaterialTheme.typography.titleMedium)
+                                        Text(
+                                            "Use system accent color",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Switch(
+                                        checked = useDynamicColor,
+                                        onCheckedChange = { viewModel.onEvent(NoteEvent.UpdateUseDynamicColor(it)) }
+                                    )
+                                }
+                            }
+                        }
+
+                        AnimatedVisibility(
+                            visible = showCustomColors,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
+                            SettingsItemContainer(index = if (showDynamicColor) 1 else 0, total = if (showDynamicColor) 2 else 1) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    // Primary Color Selection
+                                    Text("Primary Color", style = MaterialTheme.typography.titleMedium)
+                                    Text("App background and card color (will be automatically dimmed)", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Spacer(Modifier.height(12.dp))
+                                    ColorPickerRow(
+                                        selectedColor = customPrimaryColor,
+                                        presetColors = presetColors,
+                                        onColorSelected = { viewModel.onEvent(NoteEvent.UpdateCustomPrimaryColor(it)) }
+                                    )
+
+                                    Spacer(Modifier.height(24.dp))
+
+                                    // Secondary (Accent) Color Selection
+                                    Text("Secondary (Accent) Color", style = MaterialTheme.typography.titleMedium)
+                                    Text("Color for interactive elements like toggles and buttons", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Spacer(Modifier.height(12.dp))
+                                    ColorPickerRow(
+                                        selectedColor = customSecondaryColor,
+                                        presetColors = presetColors,
+                                        onColorSelected = { viewModel.onEvent(NoteEvent.UpdateCustomSecondaryColor(it)) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            SystemBarGradients(
+                modifier = Modifier.zIndex(1f),
+                topAlpha = topAlpha
+            )
+        }
     }
 }
 

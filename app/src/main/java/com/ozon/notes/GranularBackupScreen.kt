@@ -5,11 +5,14 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -19,9 +22,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.lerp
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -54,6 +60,8 @@ fun GranularBackupScreen(
     val notes by notesViewModel.notesState.collectAsStateWithLifecycle()
     val lists by notesViewModel.listsState.collectAsStateWithLifecycle()
     
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
     var pendingExportData by remember { mutableStateOf<BackupData?>(null) }
     
     val exportLauncher = rememberLauncherForActivityResult(
@@ -112,141 +120,134 @@ fun GranularBackupScreen(
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            TopAppBar(
-                title = { 
-                    Text(
-                        text = "Granular Backup", 
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(start = 16.dp)
-                    ) 
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    scrolledContainerColor = Color.Transparent
-                ),
-                navigationIcon = {
-                    Box(modifier = Modifier.padding(start = 16.dp)) {
-                        CircleIconButton(
-                            onClick = onNavigateUp,
-                            icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "Back"
-                        )
-                    }
-                }
+            CollapsingTitleLayout(
+                title = "Granular Backup",
+                onNavigateUp = onNavigateUp,
+                scrollBehavior = scrollBehavior
             )
         }
     ) { padding ->
-        val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                start = 16.dp, 
-                top = topPadding + 64.dp, 
-                end = 16.dp, 
-                bottom = bottomPadding + 16.dp
-            )
-        ) {
-            item {
-                Surface(
-                    onClick = { importLauncher.launch(arrayOf("application/json")) },
-                    shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(Icons.Rounded.FileUpload, contentDescription = null)
-                        Spacer(Modifier.width(12.dp))
-                        Text("Import Backup File", style = MaterialTheme.typography.titleMedium)
-                    }
-                }
-                
-                Text(
-                    text = "Select an item to export as a separate file. Importing will add the items to your existing collection without overwriting.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 24.dp)
-                )
-            }
-
-            if (notes.isNotEmpty()) {
-                item {
-                    Text(
-                        text = "Notes",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)
-                    )
-                }
-                
-                itemsIndexed(notes, key = { _, n -> "note_${n.id}" }) { index, note ->
-                    GranularItemRow(
-                        title = note.title.ifBlank { "Untitled Note" },
-                        subtitle = if (note.type == NoteType.DRAWING) "Drawing" else "Text Note",
-                        icon = if (note.type == NoteType.DRAWING) Icons.Rounded.Brush else Icons.Rounded.Description,
-                        index = index,
-                        total = notes.size,
-                        onClick = {
-                            settingsViewModel.onEvent(NoteEvent.ExportNote(note.id) { data ->
-                                pendingExportData = data
-                                val safeTitle = note.title.take(15).replace(Regex("[^a-zA-Z0-9]"), "_")
-                                exportLauncher.launch("note_${safeTitle}.json")
-                            })
-                        }
-                    )
-                }
-                
-                item { Spacer(Modifier.height(24.dp)) }
-            }
-
-            if (lists.isNotEmpty()) {
-                item {
-                    Text(
-                        text = "Lists",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)
-                    )
-                }
-
-                itemsIndexed(lists, key = { _, l -> "list_${l.id}" }) { index, list ->
-                    GranularItemRow(
-                        title = list.title,
-                        subtitle = when (list.type) {
-                            ListType.CHECKLIST -> "Checklist"
-                            ListType.RATING -> "Rating List"
-                            ListType.UPCOMING -> "Upcoming List"
-                        },
-                        icon = when (list.type) {
-                            ListType.CHECKLIST -> Icons.Rounded.CheckBox
-                            ListType.RATING -> Icons.Rounded.Star
-                            ListType.UPCOMING -> Icons.Rounded.Event
-                        },
-                        index = index,
-                        total = lists.size,
-                        onClick = {
-                            settingsViewModel.onEvent(NoteEvent.ExportList(list.id) { data ->
-                                pendingExportData = data
-                                val safeTitle = list.title.take(15).replace(Regex("[^a-zA-Z0-9]"), "_")
-                                exportLauncher.launch("list_${safeTitle}.json")
-                            })
-                        }
-                    )
-                }
+        val lazyListState = rememberLazyListState()
+        val topAlpha by remember {
+            derivedStateOf {
+                if (lazyListState.firstVisibleItemIndex > 0) 1f
+                else (lazyListState.firstVisibleItemScrollOffset / 100f).coerceIn(0f, 1f)
             }
         }
 
-        SystemBarGradients(
-            modifier = Modifier.zIndex(1f),
-            topAlpha = 0f
-        )
+        Box(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                state = lazyListState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = 16.dp, 
+                    top = padding.calculateTopPadding(), 
+                    end = 16.dp, 
+                    bottom = bottomPadding + 16.dp
+                )
+            ) {
+                item {
+                    Surface(
+                        onClick = { importLauncher.launch(arrayOf("application/json")) },
+                        shape = RoundedCornerShape(28.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Rounded.FileUpload, contentDescription = null)
+                            Spacer(Modifier.width(12.dp))
+                            Text("Import Backup File", style = MaterialTheme.typography.titleMedium)
+                        }
+                    }
+                    
+                    Text(
+                        text = "Select an item to export as a separate file. Importing will add the items to your existing collection without overwriting.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 24.dp)
+                    )
+                }
+
+                if (notes.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "Notes",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)
+                        )
+                    }
+                    
+                    itemsIndexed(notes, key = { _, n -> "note_${n.id}" }) { index, note ->
+                        GranularItemRow(
+                            title = note.title.ifBlank { "Untitled Note" },
+                            subtitle = if (note.type == NoteType.DRAWING) "Drawing" else "Text Note",
+                            icon = if (note.type == NoteType.DRAWING) Icons.Rounded.Brush else Icons.Rounded.Description,
+                            index = index,
+                            total = notes.size,
+                            onClick = {
+                                settingsViewModel.onEvent(NoteEvent.ExportNote(note.id) { data ->
+                                    pendingExportData = data
+                                    val safeTitle = note.title.take(15).replace(Regex("[^a-zA-Z0-9]"), "_")
+                                    exportLauncher.launch("note_${safeTitle}.json")
+                                })
+                            }
+                        )
+                    }
+                    
+                    item { Spacer(Modifier.height(24.dp)) }
+                }
+
+                if (lists.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "Lists",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(start = 8.dp, bottom = 8.dp)
+                        )
+                    }
+
+                    itemsIndexed(lists, key = { _, l -> "list_${l.id}" }) { index, list ->
+                        GranularItemRow(
+                            title = list.title,
+                            subtitle = when (list.type) {
+                                ListType.CHECKLIST -> "Checklist"
+                                ListType.RATING -> "Rating List"
+                                ListType.UPCOMING -> "Upcoming List"
+                            },
+                            icon = when (list.type) {
+                                ListType.CHECKLIST -> Icons.Rounded.CheckBox
+                                ListType.RATING -> Icons.Rounded.Star
+                                ListType.UPCOMING -> Icons.Rounded.Event
+                            },
+                            index = index,
+                            total = lists.size,
+                            onClick = {
+                                settingsViewModel.onEvent(NoteEvent.ExportList(list.id) { data ->
+                                    pendingExportData = data
+                                    val safeTitle = list.title.take(15).replace(Regex("[^a-zA-Z0-9]"), "_")
+                                    exportLauncher.launch("list_${safeTitle}.json")
+                                })
+                            }
+                        )
+                    }
+                }
+            }
+            
+            SystemBarGradients(
+                modifier = Modifier.zIndex(1f),
+                topAlpha = topAlpha
+            )
+        }
     }
 }
 

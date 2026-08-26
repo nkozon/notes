@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -64,13 +65,13 @@ private fun TooltipIconButton(
             onClick = onClick,
             shape = RoundedCornerShape(percent = 50),
             color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-            modifier = Modifier.size(width = 48.dp, height = 32.dp)
+            modifier = Modifier.size(width = 54.dp, height = 38.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = icon,
                     contentDescription = tooltip,
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(24.dp),
                     tint = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             }
@@ -126,6 +127,7 @@ fun NoteListScreen(
     var listToDelete by remember { mutableStateOf<NoteList?>(null) }
     var listToRename by remember { mutableStateOf<NoteList?>(null) }
     var showCreateListDialog by remember { mutableStateOf(false) }
+    var initialListType by remember { mutableStateOf(ListType.CHECKLIST) }
     var showDrawingTypeDialog by remember { mutableStateOf(false) }
     var isSearchActive by remember { mutableStateOf(false) }
 
@@ -364,20 +366,31 @@ fun NoteListScreen(
                             style = MaterialTheme.typography.titleLarge,
                             color = MaterialTheme.colorScheme.primary
                         )
-                        Surface(
-                            onClick = { showCreateListDialog = true },
-                            shape = RoundedCornerShape(percent = 50),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.size(width = 48.dp, height = 32.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Add,
-                                    contentDescription = "Add List",
-                                    modifier = Modifier.size(20.dp),
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TooltipIconButton(
+                                onClick = { 
+                                    initialListType = ListType.CHECKLIST
+                                    showCreateListDialog = true 
+                                },
+                                icon = Icons.AutoMirrored.Rounded.List,
+                                tooltip = "New Checklist"
+                            )
+                            TooltipIconButton(
+                                onClick = { 
+                                    initialListType = ListType.RATING
+                                    showCreateListDialog = true 
+                                },
+                                icon = Icons.Rounded.Star,
+                                tooltip = "New Rating List"
+                            )
+                            TooltipIconButton(
+                                onClick = { 
+                                    initialListType = ListType.UPCOMING
+                                    showCreateListDialog = true 
+                                },
+                                icon = Icons.Rounded.Event,
+                                tooltip = "New Upcoming List"
+                            )
                         }
                     }
                 }
@@ -453,6 +466,7 @@ fun NoteListScreen(
 
     CreateListDialog(
         show = showCreateListDialog,
+        initialType = initialListType,
         onDismiss = { showCreateListDialog = false },
         onConfirm = { title, type ->
             notesViewModel.onEvent(NoteEvent.SaveList(NoteList(title = title, type = type)))
@@ -739,6 +753,7 @@ private fun DeleteListDialog(
 @Composable
 private fun CreateListDialog(
     show: Boolean,
+    initialType: ListType = ListType.CHECKLIST,
     onDismiss: () -> Unit,
     onConfirm: (String, ListType) -> Unit
 ) {
@@ -751,7 +766,7 @@ private fun CreateListDialog(
                 )
             ) 
         }
-        var listType by remember { mutableStateOf(ListType.CHECKLIST) }
+        var listType by remember(initialType) { mutableStateOf(initialType) }
         val focusRequester = remember { FocusRequester() }
         val keyboardController = LocalSoftwareKeyboardController.current
 

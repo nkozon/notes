@@ -109,7 +109,7 @@ val Typography = Typography(
     ),
     displaySmall = TextStyle(
         fontFamily = GoogleSansFlexRounded,
-        fontWeight = FontWeight.Bold,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 36.sp,
         lineHeight = 44.sp,
         letterSpacing = 0.sp
@@ -123,7 +123,7 @@ val Typography = Typography(
     ),
     headlineMedium = TextStyle(
         fontFamily = GoogleSansFlexRounded,
-        fontWeight = FontWeight.SemiBold,
+        fontWeight = FontWeight.Bold,
         fontSize = 28.sp,
         lineHeight = 36.sp,
         letterSpacing = 0.sp
@@ -137,14 +137,14 @@ val Typography = Typography(
     ),
     titleLarge = TextStyle(
         fontFamily = GoogleSansFlexRounded,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 22.sp,
         lineHeight = 28.sp,
         letterSpacing = 0.sp
     ),
     titleMedium = TextStyle(
         fontFamily = GoogleSansFlexRounded,
-        fontWeight = FontWeight.Medium,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 16.sp,
         lineHeight = 24.sp,
         letterSpacing = 0.15.sp

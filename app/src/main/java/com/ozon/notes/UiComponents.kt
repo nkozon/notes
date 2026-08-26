@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
@@ -26,18 +27,24 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.util.lerp
+import androidx.compose.runtime.SideEffect
 
 @Composable
 fun CircleIconButton(
@@ -49,11 +56,11 @@ fun CircleIconButton(
     shape: Shape = CircleShape,
     containerColor: Color = MaterialTheme.colorScheme.secondaryContainer,
     contentColor: Color = MaterialTheme.colorScheme.onSecondaryContainer,
-    iconSize: androidx.compose.ui.unit.Dp = 20.dp
+    iconSize: androidx.compose.ui.unit.Dp = 24.dp
 ) {
     Box(
         modifier = modifier
-            .size(38.dp)
+            .size(44.dp)
             .clip(shape)
             .background(if (enabled) containerColor else containerColor.copy(alpha = 0.3f))
             .clickable(enabled = enabled) { onClick() },
@@ -81,11 +88,11 @@ fun SortDropdown(
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .height(38.dp)
+                .height(44.dp)
                 .clip(CircleShape)
                 .background(MaterialTheme.colorScheme.secondaryContainer)
                 .clickable { expanded = true }
-                .padding(horizontal = 14.dp)
+                .padding(horizontal = 16.dp)
         ) {
             Text(
                 text = selectedOrder.toShortLabel(),
@@ -97,7 +104,7 @@ fun SortDropdown(
             Icon(
                 imageVector = Icons.Rounded.KeyboardArrowDown,
                 contentDescription = "Sort",
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(24.dp),
                 tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
             )
         }
@@ -444,6 +451,100 @@ fun ListCard(
                 }
             },
             colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CollapsingTitleLayout(
+    title: String,
+    onNavigateUp: () -> Unit,
+    scrollBehavior: TopAppBarScrollBehavior,
+    actions: @Composable RowScope.() -> Unit = {}
+) {
+    val density = LocalDensity.current
+    val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    
+    val expandedHeight = 152.dp + topPadding
+    val collapsedHeight = 64.dp + topPadding
+    
+    // Set the scroll limits so scrolling works correctly
+    SideEffect {
+        val limit = with(density) { (64.dp - 152.dp).toPx() }
+        if (scrollBehavior.state.heightOffsetLimit != limit) {
+            scrollBehavior.state.heightOffsetLimit = limit
+        }
+    }
+    
+    val fraction = scrollBehavior.state.collapsedFraction
+    val easedFraction = FastOutSlowInEasing.transform(fraction)
+    
+    val currentHeight = lerp(expandedHeight, collapsedHeight, easedFraction)
+    
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(currentHeight)
+    ) {
+        // Back Button
+        Box(
+            modifier = Modifier
+                .padding(top = topPadding + 10.dp, start = 16.dp)
+                .size(44.dp)
+                .align(Alignment.TopStart),
+            contentAlignment = Alignment.Center
+        ) {
+            CircleIconButton(
+                onClick = onNavigateUp,
+                icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                contentDescription = "Back"
+            )
+        }
+        
+        // Actions
+        Row(
+            modifier = Modifier
+                .padding(top = topPadding + 10.dp)
+                .height(44.dp)
+                .align(Alignment.TopEnd)
+                .padding(end = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            content = actions
+        )
+
+        // Title
+        val displayStyle = MaterialTheme.typography.displaySmall
+        val titleStyle = MaterialTheme.typography.titleLarge
+        
+        Text(
+            text = title,
+            style = displayStyle,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .graphicsLayer {
+                    val targetScale = titleStyle.fontSize.toPx() / displayStyle.fontSize.toPx()
+                    val scale = lerp(1f, targetScale, easedFraction)
+                    scaleX = scale
+                    scaleY = scale
+                    
+                    // Horizontal Position
+                    // Expanded: 16dp (align with card edges)
+                    // Collapsed: 76dp (16dp edge + 44dp button + 16dp spacing)
+                    translationX = lerp(16.dp.toPx(), 76.dp.toPx(), easedFraction)
+                    
+                    // Vertical Alignment (Relative to topPadding)
+                    // Header row is 64dp high. Center is at 32dp.
+                    // We must subtract half the text height to align centers.
+                    val textHeight = size.height
+                    val collapsedY = 32.dp.toPx() - (textHeight / 2f)
+                    val expandedY = 100.dp.toPx() - (textHeight / 2f)
+                    
+                    translationY = topPadding.toPx() + lerp(expandedY, collapsedY, easedFraction)
+                    
+                    transformOrigin = TransformOrigin(0f, 0.5f)
+                }
         )
     }
 }
