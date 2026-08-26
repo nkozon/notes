@@ -393,6 +393,8 @@ fun DrawingNoteScreen(
     val currentStrokes by remember { derivedStateOf { strokeOrder.mapNotNull { strokeMap[it] } } }
     val currentImages by remember { derivedStateOf { imageOrder.mapNotNull { imageMap[it] } } }
 
+    val strokeToIndex by remember { derivedStateOf { strokeOrder.withIndex().associate { it.value to it.index } } }
+
     val undoStackManager = remember { UndoStackManager() }
     val gestureRemovedStrokes = remember { mutableStateListOf<com.ozon.notes.Stroke>() }
     val gestureRemovedImages = remember { mutableStateListOf<com.ozon.notes.DrawingImage>() }
@@ -1879,14 +1881,35 @@ fun DrawingNoteScreen(
                     
                     drawIntoCanvas { canvas ->
                         val native = canvas.nativeCanvas
-                        strokeOrder.forEach { id ->
+                        
+                        val minGX = (vLeft / SPATIAL_GRID_SIZE).toInt()
+                        val maxGX = (vRight / SPATIAL_GRID_SIZE).toInt()
+                        val minGY = (vTop / SPATIAL_GRID_SIZE).toInt()
+                        val maxGY = (vBottom / SPATIAL_GRID_SIZE).toInt()
+
+                        val candidateIds = mutableSetOf<String>()
+                        for (gx in minGX..maxGX) {
+                            for (gy in minGY..maxGY) {
+                                spatialIndexManager.spatialIndex[gx to gy]?.let { candidateIds.addAll(it) }
+                            }
+                        }
+                        
+                        // Also include selected strokes as they might be dragged into view
+                        candidateIds.addAll(selectedStrokeIds)
+
+                        val orderedCandidates = candidateIds.mapNotNull { id ->
+                            val index = strokeToIndex[id] ?: return@mapNotNull null
+                            id to index
+                        }.sortedBy { it.second }
+
+                        orderedCandidates.forEach { (id, _) ->
                             val stroke = strokeMap[id] ?: return@forEach
                             val bounds = spatialIndexManager.strokeBoundsMap[id] ?: spatialIndexManager.computeStrokeBounds(stroke)
                             
                             val isSelected = id in selectedStrokeIds
                             val liveXform = if (isSelected) activeTransformation else null
 
-                            // Fast bounds rejection allows Skia to skip tessellating strokes outside the viewport
+                            // Secondary check because candidates come from grid cells which might be larger than viewport
                             if ((vRight >= bounds.left && vLeft <= bounds.right && vBottom >= bounds.top && vTop <= bounds.bottom) || liveXform != null) {
                                 val colorArgb = if (!isSelectionEmpty && isSelected) selectedColorArgb else stroke.colorArgb
                                 renderPaint.color = colorArgb
