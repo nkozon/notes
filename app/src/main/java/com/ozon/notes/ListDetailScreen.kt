@@ -166,13 +166,23 @@ fun ListDetailScreen(
 
     LaunchedEffect(previewEntry) {
         val entry = previewEntry
-        if (entry != null && entry.tmdbPosterPath.isNullOrBlank() && moviePostersEnabled && currentList?.type == ListType.RATING) {
-            val results = checklistViewModel.searchTmdb(entry.title)
-            val bestMatch = results.find { it.posterPath != null }
-            if (bestMatch != null) {
-                val updatedEntry = entry.copy(tmdbPosterPath = bestMatch.posterPath)
-                checklistViewModel.onEvent(NoteEvent.SaveEntry(updatedEntry))
-                previewEntry = updatedEntry
+        if (entry != null && moviePostersEnabled && currentList?.type == ListType.RATING) {
+            val isSubEntry = !entry.parentId.isNullOrBlank()
+            val targetEntry = if (isSubEntry) {
+                entries.find { it.id == entry.parentId }
+            } else {
+                entry
+            }
+            if (targetEntry != null && targetEntry.tmdbPosterPath.isNullOrBlank()) {
+                val results = checklistViewModel.searchTmdb(targetEntry.title)
+                val bestMatch = results.find { it.posterPath != null }
+                if (bestMatch != null) {
+                    val updatedEntry = targetEntry.copy(tmdbPosterPath = bestMatch.posterPath)
+                    checklistViewModel.onEvent(NoteEvent.SaveEntry(updatedEntry))
+                    if (previewEntry?.id == updatedEntry.id) {
+                        previewEntry = updatedEntry
+                    }
+                }
             }
         }
     }
@@ -1012,6 +1022,7 @@ fun ListDetailScreen(
         previewEntry?.let { entry ->
             val parentEntry = entry.parentId?.let { pId -> entries.find { it.id == pId } }
             val subEntries = entries.filter { it.parentId == entry.id }
+            val posterEntry = parentEntry ?: entry
             
             Dialog(
                 onDismissRequest = { previewEntry = null },
@@ -1043,9 +1054,9 @@ fun ListDetailScreen(
                         ) {
                             // Left: Artwork (Poster ratio, padded)
                             PosterArtwork(
-                                entry = entry,
+                                entry = posterEntry,
                                 iconSize = 80.dp,
-                                onManualSearch = { entryForPosterSearch = entry },
+                                onManualSearch = { entryForPosterSearch = posterEntry },
                                 modifier = Modifier
                                     .padding(start = 24.dp, top = 24.dp, bottom = 4.dp)
                                     .width(240.dp)
@@ -1226,9 +1237,9 @@ fun ListDetailScreen(
                             ) {
                                 // Artwork (Poster ratio, padded)
                                 PosterArtwork(
-                                    entry = entry,
+                                    entry = posterEntry,
                                     iconSize = 100.dp,
-                                    onManualSearch = { entryForPosterSearch = entry },
+                                    onManualSearch = { entryForPosterSearch = posterEntry },
                                     modifier = Modifier
                                         .padding(start = 24.dp, top = 24.dp, end = 24.dp, bottom = 4.dp)
                                         .fillMaxWidth()
