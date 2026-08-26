@@ -162,27 +162,36 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
                     _importProgress.value = "Analyzing pages..."
                     val pdfInfo = withContext(Dispatchers.IO) {
                         val pfd = android.os.ParcelFileDescriptor.open(File(localPath), android.os.ParcelFileDescriptor.MODE_READ_ONLY)
-                        val renderer = android.graphics.pdf.PdfRenderer(pfd)
-                        val count = renderer.pageCount
-                        val sizes = if (count > 0) {
-                            val firstPage = renderer.openPage(0)
-                            val firstSize = PdfPageSize(firstPage.width.toFloat(), firstPage.height.toFloat())
-                            firstPage.close()
-                            // Optimization: Assume all pages have the same size as the first page for fast importing
-                            List(count) { firstSize }
-                        } else {
-                            emptyList()
+                        try {
+                            val renderer = android.graphics.pdf.PdfRenderer(pfd)
+                            try {
+                                val count = renderer.pageCount
+                                val sizes = if (count > 0) {
+                                    val firstPage = renderer.openPage(0)
+                                    try {
+                                        val firstSize = PdfPageSize(firstPage.width.toFloat(), firstPage.height.toFloat())
+                                        // Optimization: Assume all pages have the same size as the first page for fast importing
+                                        List(count) { firstSize }
+                                    } finally {
+                                        firstPage.close()
+                                    }
+                                } else {
+                                    emptyList()
+                                }
+                                PdfInfo(
+                                    localPath = localPath,
+                                    originalName = "Imported PDF",
+                                    pageCount = count,
+                                    pageSizes = sizes
+                                )
+                            } finally {
+                                renderer.close()
+                            }
+                        } finally {
+                            pfd.close()
                         }
-                        renderer.close()
-                        pfd.close()
-                        
-                        PdfInfo(
-                            localPath = localPath,
-                            originalName = "Imported PDF",
-                            pageCount = count,
-                            pageSizes = sizes
-                        )
                     }
+
                     
                     val updatedNote = newNote.copy(
                         drawingData = initialConfig.copy(pdfInfo = pdfInfo, backgroundPdfPath = null, pageCount = pdfInfo.pageCount)

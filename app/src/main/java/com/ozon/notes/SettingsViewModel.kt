@@ -7,8 +7,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.encodeToStream
 
 /**
  * ViewModel responsible for app-wide settings and data management.
@@ -18,6 +18,7 @@ import kotlinx.serialization.json.Json
  * - Managing the App Update lifecycle via [UpdateManager].
  * - Handling data backup, restore, and manual cleanup.
  */
+@OptIn(ExperimentalSerializationApi::class)
 class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
 
     private val updateManager = UpdateManager(repository.getContext())
@@ -189,10 +190,9 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
                     val file = pickedDir.createFile("application/json", fileName) ?: return@withContext
                     
                     val data = repository.getBackupData()
-                    val jsonString = Json.encodeToString(data)
                     
                     context.contentResolver.openOutputStream(file.uri)?.use { 
-                        it.write(jsonString.toByteArray())
+                        kotlinx.serialization.json.Json.encodeToStream(data, it)
                     }
                     
                     repository.setLastBackupTime(System.currentTimeMillis())

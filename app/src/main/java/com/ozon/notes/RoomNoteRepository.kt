@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromStream
+import kotlinx.serialization.json.encodeToStream
 import java.io.File
 import okhttp3.MediaType.Companion.toMediaType
 import retrofit2.Retrofit
@@ -50,15 +52,23 @@ class RoomNoteRepository(
         }
     }
 
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     override suspend fun getNoteById(id: String): Note? {
         val entity = database.noteDao().getNoteById(id) ?: return null
-        val domain = entity.toDomain()
+        val domain = entity.toDomain(includeDrawingData = true)
         
         val content = readFile("${id}.content")
         val html = readFile("${id}.html")
-        val drawingJson = readFile("${id}.drawing")
-        val drawingData = drawingJson?.let { 
-            try { json.decodeFromString<DrawingData>(it) } catch (e: Exception) { null }
+        
+        val drawingData = try {
+            context.openFileInput("${id}.drawing").use { stream ->
+                json.decodeFromStream<DrawingData>(stream)
+            }
+        } catch (e: Exception) {
+            // Fallback to database if file missing
+            entity.drawingData?.let { 
+                try { json.decodeFromString<DrawingData>(it) } catch (e: Exception) { null }
+            }
         }
         
         return domain.copy(
@@ -68,6 +78,7 @@ class RoomNoteRepository(
         )
     }
 
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     override suspend fun saveNote(note: Note) {
         withContext(Dispatchers.IO) {
             val content = note.content
@@ -77,22 +88,26 @@ class RoomNoteRepository(
             saveFile("${note.id}.content", content)
             html?.let { saveFile("${note.id}.html", it) }
             
-            val drawingDataJson = drawingData?.let { json.encodeToString(it) }
-            drawingDataJson?.let { saveFile("${note.id}.drawing", it) }
+            if (drawingData != null) {
+                try {
+                    context.openFileOutput("${note.id}.drawing", Context.MODE_PRIVATE).use {
+                        json.encodeToStream(drawingData, it)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            } else {
+                deleteFile("${note.id}.drawing")
+            }
             
             val preview = if (note.type == NoteType.TEXT) {
                 content.take(300)
             } else null
 
-            // Keep drawing data in DB only if it's small enough to avoid TransactionTooLargeException
-            val drawingDataForDb = if (drawingDataJson != null && drawingDataJson.length < 100_000) {
-                drawingDataJson
-            } else null
-
             database.noteDao().upsertNote(note.toEntity().copy(
                 content = "",
                 contentHtml = null,
-                drawingData = drawingDataForDb,
+                drawingData = null,
                 previewText = preview,
                 previewImage = if (note.type == NoteType.DRAWING) generateThumbnail(note) else null
             ))
@@ -119,36 +134,40 @@ class RoomNoteRepository(
             val size = 300
             val scale = (size * 0.8f) / maxOf(w, h)
             val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
-            val canvas = android.graphics.Canvas(bitmap)
-            canvas.drawColor(android.graphics.Color.WHITE)
-            
-            val paint = android.graphics.Paint().apply {
-                isAntiAlias = true
-                strokeCap = android.graphics.Paint.Cap.ROUND
-                strokeJoin = android.graphics.Paint.Join.ROUND
-                style = android.graphics.Paint.Style.STROKE
-            }
-
-            val dx = (size - w * scale) / 2f - minX * scale
-            val dy = (size - h * scale) / 2f - minY * scale
-
-            strokes.forEach { s ->
-                paint.color = s.colorArgb
-                paint.strokeWidth = s.width * scale
-                val path = android.graphics.Path()
-                s.points.forEachIndexed { i, p ->
-                    if (i == 0) path.moveTo(p.x * scale + dx, p.y * scale + dy)
-                    else path.lineTo(p.x * scale + dx, p.y * scale + dy)
+            try {
+                val canvas = android.graphics.Canvas(bitmap)
+                canvas.drawColor(android.graphics.Color.WHITE)
+                
+                val paint = android.graphics.Paint().apply {
+                    isAntiAlias = true
+                    strokeCap = android.graphics.Paint.Cap.ROUND
+                    strokeJoin = android.graphics.Paint.Join.ROUND
+                    style = android.graphics.Paint.Style.STROKE
                 }
-                canvas.drawPath(path, paint)
-            }
 
-            val file = File(context.filesDir, "${note.id}.thumb")
-            file.outputStream().use { 
-                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 80, it)
+                val dx = (size - w * scale) / 2f - minX * scale
+                val dy = (size - h * scale) / 2f - minY * scale
+
+                val path = android.graphics.Path()
+                strokes.forEach { s ->
+                    paint.color = s.colorArgb
+                    paint.strokeWidth = s.width * scale
+                    path.reset()
+                    s.points.forEachIndexed { i, p ->
+                        if (i == 0) path.moveTo(p.x * scale + dx, p.y * scale + dy)
+                        else path.lineTo(p.x * scale + dx, p.y * scale + dy)
+                    }
+                    canvas.drawPath(path, paint)
+                }
+
+                val file = File(context.filesDir, "${note.id}.thumb")
+                file.outputStream().use { 
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 80, it)
+                }
+                return file.absolutePath
+            } finally {
+                bitmap.recycle()
             }
-            bitmap.recycle()
-            return file.absolutePath
         } catch (e: Exception) {
             e.printStackTrace()
             return null
@@ -196,11 +215,13 @@ class RoomNoteRepository(
 
     override suspend fun getNoteContent(id: String): String? = readFile("${id}.content") ?: database.noteDao().getNoteById(id)?.content
     override suspend fun getNoteHtml(id: String): String? = readFile("${id}.html") ?: database.noteDao().getNoteById(id)?.contentHtml
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     override suspend fun getDrawingData(id: String): DrawingData? {
-        val jsonStr = readFile("${id}.drawing")
-        return if (jsonStr != null) {
-            try { json.decodeFromString<DrawingData>(jsonStr) } catch (e: Exception) { null }
-        } else {
+        return try {
+            context.openFileInput("${id}.drawing").use { stream ->
+                json.decodeFromStream<DrawingData>(stream)
+            }
+        } catch (e: Exception) {
             database.noteDao().getNoteById(id)?.drawingData?.let {
                 try { json.decodeFromString<DrawingData>(it) } catch (e: Exception) { null }
             }
@@ -350,25 +371,30 @@ class RoomNoteRepository(
         }
     }
 
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     override suspend fun getBackupData(): BackupData = withContext(Dispatchers.IO) {
         val notes = database.noteDao().getAllNotesList().map { entity ->
             val id = entity.id
             val content = readFile("${id}.content") ?: entity.content
             val html = readFile("${id}.html") ?: entity.contentHtml
-            val drawingJson = readFile("${id}.drawing")
-            var drawingData = drawingJson?.let { 
-                try { json.decodeFromString<DrawingData>(it) } catch (e: Exception) { null }
-            } ?: entity.drawingData?.let {
-                try { json.decodeFromString<DrawingData>(it) } catch (e: Exception) { null }
+            
+            var drawingData = try {
+                context.openFileInput("${id}.drawing").use { stream ->
+                    json.decodeFromStream<DrawingData>(stream)
+                }
+            } catch (e: Exception) {
+                entity.drawingData?.let {
+                    try { json.decodeFromString<DrawingData>(it) } catch (e: Exception) { null }
+                }
             }
 
             // Populate PDF data for backup
             drawingData = drawingData?.copy(
                 pdfInfo = drawingData.pdfInfo?.let { info ->
-                    val file = File(info.localPath)
+                    val file = java.io.File(info.localPath)
                     if (file.exists()) {
                         val bytes = file.readBytes()
-                        info.copy(base64Data = Base64.encodeToString(bytes, Base64.DEFAULT))
+                        info.copy(base64Data = android.util.Base64.encodeToString(bytes, android.util.Base64.DEFAULT))
                     } else info
                 }
             )

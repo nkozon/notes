@@ -7,8 +7,8 @@ import androidx.work.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.json.encodeToStream
 import java.util.concurrent.TimeUnit
 
 /**
@@ -19,6 +19,7 @@ import java.util.concurrent.TimeUnit
  * immediately. WorkManager ensures that the backup job survives process death and executes 
  * under proper conditions (e.g., storage not low).
  */
+@OptIn(ExperimentalSerializationApi::class)
 class BackupWorker(
     context: Context,
     workerParams: WorkerParameters
@@ -43,10 +44,9 @@ class BackupWorker(
             val file = pickedDir.createFile("application/json", fileName) ?: return@withContext ListenableWorker.Result.failure()
             
             val data = repository.getBackupData()
-            val jsonString = Json.encodeToString(data)
             
             applicationContext.contentResolver.openOutputStream(file.uri)?.use { stream ->
-                stream.write(jsonString.toByteArray())
+                kotlinx.serialization.json.Json.encodeToStream(data, stream)
             }
             
             repository.setLastBackupTime(System.currentTimeMillis())

@@ -31,12 +31,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromStream
+import kotlinx.serialization.json.encodeToStream
 import java.text.SimpleDateFormat
 import java.util.*
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSerializationApi::class)
 @Composable
 fun BackupRestoreScreen(
     viewModel: SettingsViewModel,
@@ -71,9 +73,8 @@ fun BackupRestoreScreen(
                     val currentTime = System.currentTimeMillis()
                     val success = withContext(Dispatchers.IO) {
                         try {
-                            val jsonString = json.encodeToString(data)
                             context.contentResolver.openOutputStream(it)?.use { outputStream ->
-                                outputStream.write(jsonString.toByteArray())
+                                json.encodeToStream(data, outputStream)
                             }
                             true
                         } catch (e: Exception) {
@@ -115,8 +116,7 @@ fun BackupRestoreScreen(
                 val success = withContext(Dispatchers.IO) {
                     try {
                         context.contentResolver.openInputStream(fileUri)?.use { inputStream ->
-                            val jsonString = inputStream.bufferedReader().use { reader -> reader.readText() }
-                            val data = json.decodeFromString<BackupData>(jsonString)
+                            val data = json.decodeFromStream<BackupData>(inputStream)
                             viewModel.onEvent(NoteEvent.RestoreData(data))
                         }
                         true

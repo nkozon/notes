@@ -54,6 +54,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
@@ -146,6 +148,9 @@ fun DrawingNoteScreen(
     var selectedStrokeIds by remember { mutableStateOf(setOf<String>()) }
     var selectedImageIds by remember { mutableStateOf(setOf<String>()) }
     var selectionBounds by remember { mutableStateOf<Rect?>(null) }
+
+    // Cached Path for the active stroke — reused every frame to avoid GC pressure
+    val activeStrokePath = remember { Path() }
 
     var clipboardStrokes by remember { mutableStateOf<List<com.ozon.notes.Stroke>?>(null) }
     
@@ -307,8 +312,9 @@ fun DrawingNoteScreen(
                         val needsLowerQuality = currentQuality > targetQuality * 2.5f
                         
                         if (!pdfPageBitmaps.containsKey(i) || needsHigherQuality || needsLowerQuality) {
+                            var page: android.graphics.pdf.PdfRenderer.Page? = null
                             try {
-                                val page = synchronized(renderer) { renderer.openPage(i) }
+                                page = synchronized(renderer) { renderer.openPage(i) }
                                 
                                 val maxDim = 2048f
                                 val safetyScale = minOf(maxDim / page.width, maxDim / page.height).coerceAtMost(1.0f)
@@ -329,9 +335,10 @@ fun DrawingNoteScreen(
                                         old?.recycle()
                                     }
                                 }
-                                synchronized(renderer) { page.close() }
                             } catch (e: Exception) {
                                 e.printStackTrace()
+                            } finally {
+                                page?.let { p -> synchronized(renderer) { p.close() } }
                             }
                         }
                     }
@@ -369,21 +376,25 @@ fun DrawingNoteScreen(
     LaunchedEffect(strokes) {
         withContext(Dispatchers.Default) {
             val currentBounds = strokeBoundsMap
-            val newBounds = strokes.associate { stroke ->
+            val newBounds = HashMap<String, Rect>(strokes.size)
+
+            strokes.forEach { stroke ->
                 val lastStroke = strokeRefCache[stroke.id]
-                // If it's the exact same object reference, the points definitely haven't changed
-                if (lastStroke === stroke && currentBounds.containsKey(stroke.id)) {
-                    stroke.id to currentBounds[stroke.id]!!
+                val rect = if (lastStroke === stroke && currentBounds.containsKey(stroke.id)) {
+                    currentBounds[stroke.id]!!
                 } else {
                     strokeRefCache[stroke.id] = stroke
                     val hw = stroke.width / 2f
                     var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
                     stroke.points.forEach { p ->
-                        minX = minOf(minX, p.x - hw); minY = minOf(minY, p.y - hw)
-                        maxX = maxOf(maxX, p.x + hw); maxY = maxOf(maxY, p.y + hw)
+                        if (p.x - hw < minX) minX = p.x - hw
+                        if (p.x + hw > maxX) maxX = p.x + hw
+                        if (p.y - hw < minY) minY = p.y - hw
+                        if (p.y + hw > maxY) maxY = p.y + hw
                     }
-                    stroke.id to Rect(minX, minY, maxX, maxY)
+                    Rect(minX, minY, maxX, maxY)
                 }
+                newBounds[stroke.id] = rect
             }
             
             val newIndex = mutableMapOf<Pair<Int, Int>, MutableList<String>>()
@@ -405,41 +416,61 @@ fun DrawingNoteScreen(
         }
     }
 
-    val lodCaches = remember { List(4) { java.util.concurrent.ConcurrentHashMap<String, Path>() } }
-
-    fun getOrBuildPath(stroke: com.ozon.notes.Stroke, scale: Float): Path {
-        val lod = when {
-            scale < 0.4f -> 3
-            scale < 0.8f -> 2
-            scale < 1.5f -> 1
-            else -> 0
+    val lodCaches = remember { List(4) { java.util.concurrent.ConcurrentHashMap<String, android.graphics.Path>() } }
+    val renderPaint = remember {
+        android.graphics.Paint().apply {
+            isAntiAlias = true
+            strokeCap = android.graphics.Paint.Cap.ROUND
+            strokeJoin = android.graphics.Paint.Join.ROUND
+            style = android.graphics.Paint.Style.STROKE
         }
-        
-        val cache = lodCaches[lod]
-        
-        return cache.getOrPut(stroke.id) {
-            Path().apply {
-                val pts = stroke.points
-                if (pts.isNotEmpty()) {
-                    moveTo(pts[0].x, pts[0].y)
-                    val threshold = when(lod) {
-                        3 -> 2.5f / scale
-                        2 -> 0.8f / scale
-                        1 -> 0.2f / scale
-                        else -> 0f
-                    }
-                    var lastX = pts[0].x
-                    var lastY = pts[0].y
-                    for (i in 1 until pts.size) {
-                        val p = pts[i]
-                        if (threshold == 0f || Math.abs(p.x - lastX) + Math.abs(p.y - lastY) > threshold || i == pts.size - 1) {
-                            lineTo(p.x, p.y)
-                            lastX = p.x; lastY = p.y
-                        }
-                    }
-                }
+    }
+    val selectedColorArgb = remember { Color.Blue.copy(alpha = 0.6f).toArgb() }
+    val batchedPaths = remember { mutableMapOf<Long, android.graphics.Path>() }
+
+    fun computeStrokeBounds(stroke: com.ozon.notes.Stroke): Rect {
+        val hw = stroke.width / 2f
+        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+        stroke.points.forEach { p ->
+            if (p.x - hw < minX) minX = p.x - hw
+            if (p.x + hw > maxX) maxX = p.x + hw
+            if (p.y - hw < minY) minY = p.y - hw
+            if (p.y + hw > maxY) maxY = p.y + hw
+        }
+        return Rect(minX, minY, maxX, maxY)
+    }
+
+    // High-fidelity path builder: preserves smooth natural handwriting curves with minimal sub-pixel filtering
+    fun buildPathForLod(stroke: com.ozon.notes.Stroke, lodThreshold: Float): android.graphics.Path {
+        val path = android.graphics.Path()
+        val pts = stroke.points
+        val n = pts.size
+        if (n == 0) return path
+        if (n == 1) {
+            path.moveTo(pts[0].x, pts[0].y)
+            path.lineTo(pts[0].x + 0.1f, pts[0].y)
+            return path
+        }
+
+        path.moveTo(pts[0].x, pts[0].y)
+        val thresholdSq = lodThreshold * lodThreshold
+        var lastX = pts[0].x
+        var lastY = pts[0].y
+        val lastIdx = n - 1
+
+        for (i in 1 until n) {
+            val p = pts[i]
+            val dx = p.x - lastX
+            val dy = p.y - lastY
+            if (i == lastIdx || (dx * dx + dy * dy) >= thresholdSq) {
+                path.lineTo(p.x, p.y)
+                lastX = p.x
+                lastY = p.y
             }
         }
+
+        return path
     }
 
     // Clean caches on stroke deletion to free memory
@@ -760,10 +791,35 @@ fun DrawingNoteScreen(
     val bitmapCache = remember { mutableStateMapOf<String, ImageBitmap>() }
     
     LaunchedEffect(images) {
-        images.forEach { img ->
-            if (!bitmapCache.containsKey(img.path)) {
-                val bitmap = android.graphics.BitmapFactory.decodeFile(img.path)?.asImageBitmap()
-                if (bitmap != null) bitmapCache[img.path] = bitmap
+        // Clean up cache entries for removed images
+        val currentPaths = images.map { it.path }.toSet()
+        bitmapCache.keys.filter { it !in currentPaths }.forEach { bitmapCache.remove(it) }
+
+        // Load new images with downsampling to prevent OOM
+        withContext(Dispatchers.IO) {
+            images.forEach { img ->
+                if (!bitmapCache.containsKey(img.path)) {
+                    val maxDim = 2048
+                    // First pass: decode bounds only
+                    val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    android.graphics.BitmapFactory.decodeFile(img.path, opts)
+                    // Calculate inSampleSize
+                    val (w, h) = opts.outWidth to opts.outHeight
+                    var inSampleSize = 1
+                    if (w > maxDim || h > maxDim) {
+                        val halfW = w / 2; val halfH = h / 2
+                        while ((halfW / inSampleSize) >= maxDim || (halfH / inSampleSize) >= maxDim) {
+                            inSampleSize *= 2
+                        }
+                    }
+                    // Second pass: decode with downsampling
+                    opts.inJustDecodeBounds = false
+                    opts.inSampleSize = inSampleSize
+                    val bitmap = android.graphics.BitmapFactory.decodeFile(img.path, opts)?.asImageBitmap()
+                    if (bitmap != null) {
+                        withContext(Dispatchers.Main) { bitmapCache[img.path] = bitmap }
+                    }
+                }
             }
         }
     }
@@ -1106,6 +1162,9 @@ fun DrawingNoteScreen(
                                                     width = penThickness,
                                                     tool = currentWorkingTool
                                                 )
+                                                val newStrokeBounds = computeStrokeBounds(newStroke)
+                                                strokeBoundsMap = strokeBoundsMap + (newStroke.id to newStrokeBounds)
+                                                strokeRefCache[newStroke.id] = newStroke
                                                 strokes = updatedStrokes + newStroke
                                                 recordAction(DrawingAction.Add(strokes = listOf(newStroke)))
                                                 isDirty = true
@@ -1146,6 +1205,9 @@ fun DrawingNoteScreen(
                                                     width = penThickness,
                                                     tool = currentWorkingTool
                                                 )
+                                                val newStrokeBounds = computeStrokeBounds(newStroke)
+                                                strokeBoundsMap = strokeBoundsMap + (newStroke.id to newStrokeBounds)
+                                                strokeRefCache[newStroke.id] = newStroke
                                                 strokes = updatedStrokes + newStroke
                                                 recordAction(DrawingAction.Add(strokes = listOf(newStroke)))
                                                 isDirty = true
@@ -1376,6 +1438,25 @@ fun DrawingNoteScreen(
                         }
                     }
             ) {
+                val currentLod by remember(canvasScale) {
+                    derivedStateOf {
+                        when {
+                            canvasScale < 0.4f -> 3
+                            canvasScale < 0.85f -> 2
+                            canvasScale < 1.5f -> 1
+                            else -> 0
+                        }
+                    }
+                }
+                
+                val currentLodThreshold = when (currentLod) {
+                    3 -> 1.2f / canvasScale
+                    2 -> 0.7f / canvasScale
+                    1 -> 0.35f / canvasScale
+                    else -> 0.15f / canvasScale
+                }
+                val activeLodCache = lodCaches[currentLod]
+
                 // LAYER 1: Background & Static Content
                 Canvas(
                     modifier = Modifier
@@ -1385,9 +1466,15 @@ fun DrawingNoteScreen(
                             translationY = canvasOffset.y
                             scaleX = canvasScale
                             scaleY = canvasScale
-                        transformOrigin = TransformOrigin(0f, 0f)
-                    }
+                            transformOrigin = TransformOrigin(0f, 0f)
+                        }
                 ) {
+                    val vLeft = currentViewport.left
+                    val vTop = currentViewport.top
+                    val vRight = currentViewport.right
+                    val vBottom = currentViewport.bottom
+                    val isSelectionEmpty = selectedStrokeIds.isEmpty()
+
                     // 1. Render PDF Background
                     if (canvasType == CanvasType.PDF && pdfInfo != null) {
                         var first = -1
@@ -1473,8 +1560,12 @@ fun DrawingNoteScreen(
                     }
 
                     images.forEach { img ->
-                        val imgRect = Rect(img.offset.x, img.offset.y, img.offset.x + img.scale.x, img.offset.y + img.scale.y)
-                        if (currentViewport.overlaps(imgRect)) {
+                        val imgLeft = img.offset.x
+                        val imgTop = img.offset.y
+                        val imgRight = img.offset.x + img.scale.x
+                        val imgBottom = img.offset.y + img.scale.y
+                        if (currentViewport.right >= imgLeft && currentViewport.left <= imgRight &&
+                            currentViewport.bottom >= imgTop && currentViewport.top <= imgBottom) {
                             bitmapCache[img.path]?.let { bitmap ->
                                 drawImage(
                                     image = bitmap,
@@ -1485,15 +1576,24 @@ fun DrawingNoteScreen(
                         }
                     }
 
+                    // GPU Optimization: Disable Anti-Aliasing and use simpler joints when unzoomed
+                    val isUnzoomed = canvasScale < 1.0f
+                    renderPaint.isAntiAlias = canvasScale >= 1.0f
+                    renderPaint.strokeJoin = if (isUnzoomed) android.graphics.Paint.Join.BEVEL else android.graphics.Paint.Join.ROUND
+                    renderPaint.strokeCap = if (canvasScale < 0.5f) android.graphics.Paint.Cap.SQUARE else android.graphics.Paint.Cap.ROUND
+                    val nativeCanvas = drawContext.canvas.nativeCanvas
+
                     strokes.forEach { stroke ->
-                        val bounds = strokeBoundsMap[stroke.id]
-                        if (bounds == null || currentViewport.overlaps(bounds)) {
-                            val path = getOrBuildPath(stroke, canvasScale)
-                            drawPath(
-                                path = path, 
-                                color = if (stroke.id in selectedStrokeIds) Color.Blue.copy(alpha = 0.6f) else Color(stroke.colorArgb), 
-                                style = Stroke(width = stroke.width, cap = StrokeCap.Round, join = StrokeJoin.Round)
-                            )
+                        val bounds = strokeBoundsMap[stroke.id] ?: computeStrokeBounds(stroke)
+                        // Fast bounds rejection allows Skia to skip tessellating strokes outside the viewport
+                        if (vRight >= bounds.left && vLeft <= bounds.right && vBottom >= bounds.top && vTop <= bounds.bottom) {
+                            val colorArgb = if (!isSelectionEmpty && stroke.id in selectedStrokeIds) selectedColorArgb else stroke.colorArgb
+                            renderPaint.color = colorArgb
+                            renderPaint.strokeWidth = stroke.width
+                            val path = activeLodCache.getOrPut(stroke.id) {
+                                buildPathForLod(stroke, currentLodThreshold)
+                            }
+                            nativeCanvas.drawPath(path, renderPaint)
                         }
                     }
                 }
@@ -1506,11 +1606,12 @@ fun DrawingNoteScreen(
                     }) {
                         val drawingTool = activeDrawingTool ?: updatedTool
                         if (currentPathPoints.isNotEmpty()) {
-                            val path = Path().apply { currentPathPoints.forEachIndexed { i, p -> if (i == 0) moveTo(p.x, p.y) else lineTo(p.x, p.y) } }
+                            activeStrokePath.rewind()
+                            currentPathPoints.forEachIndexed { i, p -> if (i == 0) activeStrokePath.moveTo(p.x, p.y) else activeStrokePath.lineTo(p.x, p.y) }
                             if (drawingTool == DrawingTool.LASSO) {
-                                drawPath(path = path, color = Color.Blue, style = Stroke(width = 1.dp.toPx() / canvasScale, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f / canvasScale, 10f / canvasScale), 0f)))
+                                drawPath(path = activeStrokePath, color = Color.Blue, style = Stroke(width = 1.dp.toPx() / canvasScale, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f / canvasScale, 10f / canvasScale), 0f)))
                             } else if (drawingTool != DrawingTool.HAND) {
-                                drawPath(path = path, color = if (drawingTool == DrawingTool.ERASER) Color.LightGray else selectedPenColor, style = Stroke(width = if (drawingTool == DrawingTool.ERASER) eraserThickness else penThickness, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                                drawPath(path = activeStrokePath, color = if (drawingTool == DrawingTool.ERASER) Color.LightGray else selectedPenColor, style = Stroke(width = if (drawingTool == DrawingTool.ERASER) eraserThickness else penThickness, cap = StrokeCap.Round, join = StrokeJoin.Round))
                             }
                         }
                         selectionBounds?.let { bounds ->
@@ -1603,14 +1704,17 @@ fun DrawingNoteScreen(
                     val px16 = with(density) { 16.dp.toPx() }
                     val px64 = with(density) { 64.dp.toPx() }
                     val px56 = with(density) { 56.dp.toPx() }
-                    val screenX = bounds.center.x * canvasScale + canvasOffset.x
-                    val screenY = bounds.top * canvasScale + canvasOffset.y
-                    val isTooHigh = screenY < 200f
-                    val yOffset = if (isTooHigh) (bounds.bottom * canvasScale + canvasOffset.y + px16) else (screenY - px64)
 
                     Surface(
                         modifier = Modifier
-                            .offset { IntOffset((screenX - 72.dp.toPx().toInt()).roundToInt(), yOffset.roundToInt()) }
+                            .offset {
+                                // Read canvasScale/canvasOffset in the layout phase to avoid recomposition
+                                val screenX = bounds.center.x * canvasScale + canvasOffset.x
+                                val screenY = bounds.top * canvasScale + canvasOffset.y
+                                val isTooHigh = screenY < 200f
+                                val yOffset = if (isTooHigh) (bounds.bottom * canvasScale + canvasOffset.y + px16) else (screenY - px64)
+                                IntOffset((screenX - 72.dp.toPx().toInt()).roundToInt(), yOffset.roundToInt())
+                            }
                             .shadow(4.dp, CircleShape).clip(CircleShape),
                         color = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
                         tonalElevation = 6.dp
@@ -1653,7 +1757,15 @@ fun DrawingNoteScreen(
                     }
 
                     Column(
-                        modifier = Modifier.offset { IntOffset((screenX - 100.dp.toPx()).roundToInt(), (yOffset + (if (isTooHigh) 60.dp.toPx() else -200.dp.toPx())).roundToInt()) }.zIndex(15f),
+                        modifier = Modifier
+                            .offset {
+                                val screenX = bounds.center.x * canvasScale + canvasOffset.x
+                                val screenY = bounds.top * canvasScale + canvasOffset.y
+                                val isTooHigh = screenY < 200f
+                                val yOffset = if (isTooHigh) (bounds.bottom * canvasScale + canvasOffset.y + px16) else (screenY - px64)
+                                IntOffset((screenX - 100.dp.toPx()).roundToInt(), (yOffset + (if (isTooHigh) 60.dp.toPx() else -200.dp.toPx())).roundToInt())
+                            }
+                            .zIndex(15f),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         if (showSelectionColorPopup) {
@@ -2100,11 +2212,17 @@ private fun exportToPng(
     if (totalWidth <= 0 || totalHeight <= 0) return
 
     // 2. Create the final large bitmap
-    // Use a scale factor but watch out for max bitmap size
-    // Higher scale = higher quality. 3x provides high resolution for prints/sharing.
-    val scale = if (totalHeight > 8000) 1.5f else 3.0f
-    val finalWidth = (totalWidth * scale).toInt().coerceAtMost(8192)
-    val finalHeight = (totalHeight * scale).toInt().coerceAtMost(16384) 
+    // Use a scale factor but cap total pixels to avoid OOM.
+    // ARGB_8888 = 4 bytes/pixel. Cap at ~128MB to leave room for the rest of the app.
+    val maxBytes = 128L * 1024 * 1024
+    val maxPixels = maxBytes / 4
+    val baseScale = if (totalHeight > 8000) 1.5f else 3.0f
+    val scaledPixels = (totalWidth * baseScale).toLong() * (totalHeight * baseScale).toLong()
+    val scale = if (scaledPixels > maxPixels) {
+        baseScale * Math.sqrt(maxPixels.toDouble() / scaledPixels).toFloat()
+    } else baseScale
+    val finalWidth = (totalWidth * scale).toInt().coerceIn(1, 4096)
+    val finalHeight = (totalHeight * scale).toInt().coerceIn(1, 4096)
     
     val combinedBitmap = Bitmap.createBitmap(finalWidth, finalHeight, Bitmap.Config.ARGB_8888)
     val canvas = Canvas(combinedBitmap)
@@ -2113,10 +2231,12 @@ private fun exportToPng(
 
     // 3. Draw content page by page
     if (canvasType == CanvasType.PDF && pdfInfo != null) {
+        var pfd: ParcelFileDescriptor? = null
+        var renderer: PdfRenderer? = null
         try {
             val file = File(pdfInfo.localPath)
-            val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-            val renderer = PdfRenderer(pfd)
+            pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            renderer = PdfRenderer(pfd)
             var currentY = 0f
             for (i in 0 until pageCount) {
                 val pageSize = pdfInfo.pageSizes.getOrNull(i) ?: PdfPageSize(800f, 1100f)
@@ -2125,11 +2245,17 @@ private fun exportToPng(
                 
                 // Draw PDF
                 val page = renderer.openPage(i)
-                val pdfBitmap = Bitmap.createBitmap(pageSize.width.toInt(), pageSize.height.toInt(), Bitmap.Config.ARGB_8888)
-                page.render(pdfBitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                canvas.drawBitmap(pdfBitmap, pageLayout.marginLeft, currentY + pageLayout.marginTop, null)
-                pdfBitmap.recycle()
-                page.close()
+                try {
+                    val pdfBitmap = Bitmap.createBitmap(pageSize.width.toInt(), pageSize.height.toInt(), Bitmap.Config.ARGB_8888)
+                    try {
+                        page.render(pdfBitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        canvas.drawBitmap(pdfBitmap, pageLayout.marginLeft, currentY + pageLayout.marginTop, null)
+                    } finally {
+                        pdfBitmap.recycle()
+                    }
+                } finally {
+                    page.close()
+                }
                 
                 // Draw Overlays
                 val pageRect = Rect(0f, currentY, fullWidth, currentY + fullHeight)
@@ -2137,9 +2263,11 @@ private fun exportToPng(
                 
                 currentY += fullHeight + pageLayout.spacing
             }
-            renderer.close()
-            pfd.close()
         } catch (e: Exception) { e.printStackTrace() }
+        finally {
+            renderer?.close()
+            pfd?.close()
+        }
     } else if (canvasType == CanvasType.PAGED) {
         var currentY = 0f
         for (i in 0 until pageCount) {
@@ -2159,6 +2287,7 @@ private fun exportToPng(
 
 private fun drawOverlays(canvas: Canvas, strokes: List<com.ozon.notes.Stroke>, images: List<com.ozon.notes.DrawingImage>, clipRect: Rect?, translateY: Float) {
     val paint = Paint().apply { isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; style = Paint.Style.STROKE }
+    val path = android.graphics.Path()
     canvas.save()
     canvas.translate(0f, translateY)
     
@@ -2193,7 +2322,7 @@ private fun drawOverlays(canvas: Canvas, strokes: List<com.ozon.notes.Stroke>, i
         if (isVisible) {
             paint.color = stroke.colorArgb
             paint.strokeWidth = stroke.width
-            val path = android.graphics.Path()
+            path.reset()
             stroke.points.forEachIndexed { index, point ->
                 if (index == 0) path.moveTo(point.x, point.y)
                 else path.lineTo(point.x, point.y)
@@ -2218,10 +2347,12 @@ private fun exportToPdf(
     val pdfDocument = PdfDocument()
 
     if (canvasType == CanvasType.PDF && pdfInfo != null) {
+        var pfd: ParcelFileDescriptor? = null
+        var renderer: PdfRenderer? = null
         try {
             val file = File(pdfInfo.localPath)
-            val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-            val renderer = PdfRenderer(pfd)
+            pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+            renderer = PdfRenderer(pfd)
             var currentY = 0f
             
             for (i in 0 until (pdfInfo.pageCount)) {
@@ -2238,19 +2369,25 @@ private fun exportToPdf(
                 
                 // 1. Draw PDF Background
                 val renderPage = renderer.openPage(i)
-                // Use higher quality for PDF background in export (2x if not vector, 1x for scale)
-                val quality = if (vector) 1.5f else 2f
-                val pdfBitmap = Bitmap.createBitmap((pageWidth * quality).toInt(), (pageHeight * quality).toInt(), Bitmap.Config.ARGB_8888)
-                renderPage.render(pdfBitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                val dst = android.graphics.Rect(
-                    pageLayout.marginLeft.toInt(), 
-                    pageLayout.marginTop.toInt(), 
-                    (pageLayout.marginLeft + pageWidth).toInt(), 
-                    (pageLayout.marginTop + pageHeight).toInt()
-                )
-                canvas.drawBitmap(pdfBitmap, null, dst, null)
-                pdfBitmap.recycle()
-                renderPage.close()
+                try {
+                    // Use higher quality for PDF background in export (2x if not vector, 1x for scale)
+                    val quality = if (vector) 1.5f else 2f
+                    val pdfBitmap = Bitmap.createBitmap((pageWidth * quality).toInt(), (pageHeight * quality).toInt(), Bitmap.Config.ARGB_8888)
+                    try {
+                        renderPage.render(pdfBitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                        val dst = android.graphics.Rect(
+                            pageLayout.marginLeft.toInt(), 
+                            pageLayout.marginTop.toInt(), 
+                            (pageLayout.marginLeft + pageWidth).toInt(), 
+                            (pageLayout.marginTop + pageHeight).toInt()
+                        )
+                        canvas.drawBitmap(pdfBitmap, null, dst, null)
+                    } finally {
+                        pdfBitmap.recycle()
+                    }
+                } finally {
+                    renderPage.close()
+                }
                 
                 // 2. Draw Overlays
                 val pageRect = Rect(0f, currentY, fullWidth, currentY + fullHeight)
@@ -2259,9 +2396,11 @@ private fun exportToPdf(
                 pdfDocument.finishPage(page)
                 currentY += fullHeight + pageLayout.spacing
             }
-            renderer.close()
-            pfd.close()
         } catch (e: Exception) { e.printStackTrace() }
+        finally {
+            renderer?.close()
+            pfd?.close()
+        }
     } else if (canvasType == CanvasType.PAGED) {
         val pageWidth = pageLayout.width
         val pageHeight = pageLayout.height

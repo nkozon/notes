@@ -142,7 +142,18 @@ private fun AddNoteScreenContent(
     var isToolbarCollapsed by remember { mutableStateOf(false) }
 
     val wordCount = remember(richTextState.annotatedString.text) {
-        richTextState.annotatedString.text.split(Regex("\\s+")).filter { it.isNotBlank() }.size
+        val text = richTextState.annotatedString.text
+        var count = 0
+        var inWord = false
+        for (i in text.indices) {
+            if (text[i].isWhitespace()) {
+                inWord = false
+            } else if (!inWord) {
+                inWord = true
+                count++
+            }
+        }
+        count
     }
 
     val scrollState = rememberScrollState()

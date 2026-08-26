@@ -18,7 +18,7 @@ private val json = Json {
 
 // --- Note Mappers ---
 
-fun NoteEntity.toDomain(): Note {
+fun NoteEntity.toDomain(includeDrawingData: Boolean = false): Note {
     return Note(
         id = id,
         title = title,
@@ -27,9 +27,11 @@ fun NoteEntity.toDomain(): Note {
         previewText = previewText,
         previewImage = previewImage,
         type = try { NoteType.valueOf(type) } catch (_: Exception) { NoteType.TEXT },
-        drawingData = drawingData?.let {
-            try { json.decodeFromString<DrawingData>(it) } catch (e: Exception) { null }
-        },
+        drawingData = if (includeDrawingData) {
+            drawingData?.let {
+                try { json.decodeFromString<DrawingData>(it) } catch (e: Exception) { null }
+            }
+        } else null,
         timestamp = timestamp,
         isPinned = isPinned
     )
