@@ -706,6 +706,10 @@ fun DrawingNoteScreen(
         undoStackManager.pushAction(action)
     }
 
+       fun invalidateStrokePath(id: String) {
+        lodCaches.forEach { it.remove(id) }
+    }
+
     fun applyAction(action: DrawingAction, isUndo: Boolean) {
         when (action) {
             is DrawingAction.Add -> {
@@ -714,6 +718,7 @@ fun DrawingNoteScreen(
                         strokeMap.remove(it.id)
                         strokeOrder.remove(it.id)
                         spatialIndexManager.removeStroke(it.id)
+                        invalidateStrokePath(it.id)
                     }
                     action.images.forEach {
                         imageMap.remove(it.id)
@@ -747,6 +752,7 @@ fun DrawingNoteScreen(
                         strokeMap.remove(it.id)
                         strokeOrder.remove(it.id)
                         spatialIndexManager.removeStroke(it.id)
+                        invalidateStrokePath(it.id)
                     }
                     action.images.forEach {
                         imageMap.remove(it.id)
@@ -761,6 +767,7 @@ fun DrawingNoteScreen(
                         val s = strokeMap[id] ?: return@forEach
                         var newS = s
                         action.geometricChange?.let { geo ->
+                            invalidateStrokePath(id)
                             geo.offset?.let { off ->
                                 newS = newS.copy(points = newS.points.map { p -> DrawingPoint(p.x + off.x * factor, p.y + off.y * factor) })
                             }
@@ -804,6 +811,7 @@ fun DrawingNoteScreen(
                     val replacementStrokes = (if (isUndo) action.oldStrokes else action.newStrokes).associateBy { it.id }
                     replacementStrokes.forEach { (id, replacement) ->
                         strokeMap[id]?.let { old ->
+                            if (!action.sharesPoints) invalidateStrokePath(id)
                             spatialIndexManager.updateStroke(old, replacement)
                             strokeMap[id] = replacement
                         }
@@ -817,7 +825,6 @@ fun DrawingNoteScreen(
                 }
             }
         }
-        lodCaches.forEach { it.clear() }
         isDirty = true
     }
 
