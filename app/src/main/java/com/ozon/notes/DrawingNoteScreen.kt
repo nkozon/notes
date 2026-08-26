@@ -80,23 +80,102 @@ import kotlin.math.roundToInt
 
 val SPATIAL_GRID_SIZE = 500f
 
+
+data class PropertyChange(
+    val oldColor: Int? = null,
+    val newColor: Int? = null,
+    val oldWidth: Float? = null,
+    val newWidth: Float? = null
+)
+
+data class GeometricChange(
+    val offset: com.ozon.notes.DrawingPoint? = null,
+    val scale: com.ozon.notes.DrawingPoint? = null,
+    val pivot: com.ozon.notes.DrawingPoint? = null
+)
+
 sealed class DrawingAction {
+    abstract val estimatedSize: Int
+
     data class Add(
         val strokes: List<com.ozon.notes.Stroke> = emptyList(),
         val images: List<com.ozon.notes.DrawingImage> = emptyList()
-    ) : DrawingAction()
+    ) : DrawingAction() {
+        override val estimatedSize: Int get() = 
+            strokes.sumOf { 64 + it.points.size * 8 } + images.size * 128
+    }
     
     data class Remove(
         val strokes: List<com.ozon.notes.Stroke> = emptyList(),
         val images: List<com.ozon.notes.DrawingImage> = emptyList()
-    ) : DrawingAction()
+    ) : DrawingAction() {
+        override val estimatedSize: Int get() = 
+            strokes.sumOf { 64 + it.points.size * 8 } + images.size * 128
+    }
     
     data class Transform(
-        val oldStrokes: List<com.ozon.notes.Stroke> = emptyList(),
-        val newStrokes: List<com.ozon.notes.Stroke> = emptyList(),
-        val oldImages: List<com.ozon.notes.DrawingImage> = emptyList(),
-        val newImages: List<com.ozon.notes.DrawingImage> = emptyList()
-    ) : DrawingAction()
+        val strokeIds: Set<String> = emptySet(),
+        val imageIds: Set<String> = emptySet(),
+        val propertyChange: PropertyChange? = null,
+        val geometricChange: GeometricChange? = null,
+        val oldStrokes: List<com.ozon.notes.Stroke>? = null,
+        val newStrokes: List<com.ozon.notes.Stroke>? = null,
+        val oldImages: List<com.ozon.notes.DrawingImage>? = null,
+        val newImages: List<com.ozon.notes.DrawingImage>? = null,
+        val sharesPoints: Boolean = false
+    ) : DrawingAction() {
+        override val estimatedSize: Int get() {
+            var size = (strokeIds.size + imageIds.size) * 64 + 128
+            if (oldStrokes != null) {
+                size += if (sharesPoints) oldStrokes.size * 64 else oldStrokes.sumOf { 64 + it.points.size * 8 }
+            }
+            if (newStrokes != null) {
+                size += if (sharesPoints) newStrokes.size * 64 else newStrokes.sumOf { 64 + it.points.size * 8 }
+            }
+            size += (oldImages?.size ?: 0) * 128 + (newImages?.size ?: 0) * 128
+            return size
+        }
+    }
+}
+
+class UndoStackManager(private val maxMemoryBytes: Long = 32L * 1024 * 1024) {
+    val undoStack = mutableStateListOf<DrawingAction>()
+    val redoStack = mutableStateListOf<DrawingAction>()
+    
+    fun pushAction(action: DrawingAction) {
+        undoStack.add(action)
+        redoStack.clear()
+        enforceMemoryLimit()
+    }
+
+    fun popUndo(): DrawingAction? {
+        if (undoStack.isEmpty()) return null
+        val action = undoStack.removeAt(undoStack.size - 1)
+        redoStack.add(action)
+        return action
+    }
+
+    fun popRedo(): DrawingAction? {
+        if (redoStack.isEmpty()) return null
+        val action = redoStack.removeAt(redoStack.size - 1)
+        undoStack.add(action)
+        return action
+    }
+    
+    private fun enforceMemoryLimit() {
+        var totalSize = (undoStack.sumOf { it.estimatedSize.toLong() } + 
+                         redoStack.sumOf { it.estimatedSize.toLong() })
+        
+        while (totalSize > maxMemoryBytes && undoStack.isNotEmpty()) {
+            val removed = undoStack.removeAt(0)
+            totalSize -= removed.estimatedSize
+        }
+    }
+
+    fun clear() {
+        undoStack.clear()
+        redoStack.clear()
+    }
 }
 
 class SpatialIndexManager(private val gridSize: Float) {
@@ -189,8 +268,7 @@ fun DrawingNoteScreen(
     var title by remember { mutableStateOf("") }
     var strokes by remember { mutableStateOf(listOf<com.ozon.notes.Stroke>()) }
     var images by remember { mutableStateOf(listOf<com.ozon.notes.DrawingImage>()) }
-    var undoStack by remember { mutableStateOf(listOf<DrawingAction>()) }
-    var redoStack by remember { mutableStateOf(listOf<DrawingAction>()) }
+    val undoStackManager = remember { UndoStackManager() }
     val gestureRemovedStrokes = remember { mutableStateListOf<com.ozon.notes.Stroke>() }
     val gestureRemovedImages = remember { mutableStateListOf<com.ozon.notes.DrawingImage>() }
     
@@ -527,8 +605,7 @@ fun DrawingNoteScreen(
     }
 
     fun recordAction(action: DrawingAction) {
-        undoStack = (undoStack + action).takeLast(100)
-        redoStack = emptyList()
+        undoStackManager.pushAction(action)
     }
 
     fun applyAction(action: DrawingAction, isUndo: Boolean) {
@@ -560,17 +637,66 @@ fun DrawingNoteScreen(
                 }
             }
             is DrawingAction.Transform -> {
-                val replacementStrokes = (if (isUndo) action.oldStrokes else action.newStrokes).associateBy { it.id }
-                val replacementImages = (if (isUndo) action.oldImages else action.newImages).associateBy { it.id }
-                strokes = strokes.map { replacementStrokes[it.id] ?: it }
-                images = images.map { replacementImages[it.id] ?: it }
-
-                if (isUndo) {
-                    action.newStrokes.forEach { spatialIndexManager.removeStroke(it.id) }
-                    action.oldStrokes.forEach { spatialIndexManager.addStroke(it) }
-                } else {
-                    action.oldStrokes.forEach { spatialIndexManager.removeStroke(it.id) }
-                    action.newStrokes.forEach { spatialIndexManager.addStroke(it) }
+                if (action.geometricChange != null || action.propertyChange != null) {
+                    val factor = if (isUndo) -1f else 1f
+                    strokes = strokes.map { s ->
+                        if (s.id in action.strokeIds) {
+                            var newS = s
+                            action.geometricChange?.let { geo ->
+                                geo.offset?.let { off ->
+                                    newS = newS.copy(points = newS.points.map { p -> DrawingPoint(p.x + off.x * factor, p.y + off.y * factor) })
+                                }
+                                if (geo.scale != null && geo.pivot != null) {
+                                    val sx = if (isUndo) 1f / geo.scale.x else geo.scale.x
+                                    val sy = if (isUndo) 1f / geo.scale.y else geo.scale.y
+                                    newS = newS.copy(points = newS.points.map { p ->
+                                        DrawingPoint(geo.pivot.x + (p.x - geo.pivot.x) * sx, geo.pivot.y + (p.y - geo.pivot.y) * sy)
+                                    })
+                                }
+                            }
+                            action.propertyChange?.let { prop ->
+                                newS = newS.copy(
+                                    colorArgb = if (isUndo) prop.oldColor ?: newS.colorArgb else prop.newColor ?: newS.colorArgb,
+                                    width = if (isUndo) prop.oldWidth ?: newS.width else prop.newWidth ?: newS.width
+                                )
+                            }
+                            spatialIndexManager.updateStroke(s, newS)
+                            newS
+                        } else s
+                    }
+                    images = images.map { img ->
+                        if (img.id in action.imageIds) {
+                             var newImg = img
+                             action.geometricChange?.let { geo ->
+                                 geo.offset?.let { off ->
+                                     newImg = newImg.copy(offset = DrawingPoint(newImg.offset.x + off.x * factor, newImg.offset.y + off.y * factor))
+                                 }
+                                 if (geo.scale != null && geo.pivot != null) {
+                                     val sx = if (isUndo) 1f / geo.scale.x else geo.scale.x
+                                     val sy = if (isUndo) 1f / geo.scale.y else geo.scale.y
+                                     val newOffset = DrawingPoint(geo.pivot.x + (newImg.offset.x - geo.pivot.x) * sx, geo.pivot.y + (newImg.offset.y - geo.pivot.y) * sy)
+                                     val newScale = DrawingPoint(newImg.scale.x * sx, newImg.scale.y * sy)
+                                     newImg = newImg.copy(offset = newOffset, scale = newScale)
+                                 }
+                             }
+                             newImg
+                        } else img
+                    }
+                }
+                
+                if (action.oldStrokes != null && action.newStrokes != null) {
+                    val replacementStrokes = (if (isUndo) action.oldStrokes else action.newStrokes).associateBy { it.id }
+                    strokes = strokes.map { s ->
+                        val replacement = replacementStrokes[s.id]
+                        if (replacement != null) {
+                            spatialIndexManager.updateStroke(s, replacement)
+                            replacement
+                        } else s
+                    }
+                }
+                if (action.oldImages != null && action.newImages != null) {
+                    val replacementImages = (if (isUndo) action.oldImages else action.newImages).associateBy { it.id }
+                    images = images.map { replacementImages[it.id] ?: it }
                 }
             }
         }
@@ -1200,16 +1326,43 @@ fun DrawingNoteScreen(
                                             if (strokes != strokesAtStart || images != imagesAtStart) {
                                                 val oldS = strokesAtStart.filter { it.id in selectedStrokesAtStart }
                                                 val newS = strokes.filter { it.id in selectedStrokesAtStart }
-                                                val oldI = imagesAtStart.filter { it.id in selectedImagesAtStart }
-                                                val newI = images.filter { it.id in selectedImagesAtStart }
                                                 
                                                 oldS.forEach { spatialIndexManager.removeStroke(it.id) }
                                                 newS.forEach { spatialIndexManager.addStroke(it) }
 
-                                                recordAction(DrawingAction.Transform(
-                                                    oldStrokes = oldS, newStrokes = newS,
-                                                    oldImages = oldI, newImages = newI
-                                                ))
+                                                if (dragMode == DragMode.MOVE) {
+                                                    val totalMove = (change.position - startPos) / updatedCanvasScale
+                                                    recordAction(DrawingAction.Transform(
+                                                        strokeIds = selectedStrokesAtStart,
+                                                        imageIds = selectedImagesAtStart,
+                                                        geometricChange = GeometricChange(offset = DrawingPoint(totalMove.x, totalMove.y))
+                                                    ))
+                                                } else {
+                                                    val worldPos = (change.position - updatedCanvasOffset) / updatedCanvasScale
+                                                    val b = bStart!!
+                                                    val pivot = when (dragMode) {
+                                                        DragMode.RESIZE_TL -> Offset(b.right, b.bottom)
+                                                        DragMode.RESIZE_TR -> Offset(b.left, b.bottom)
+                                                        DragMode.RESIZE_BL -> Offset(b.right, b.top)
+                                                        DragMode.RESIZE_BR -> Offset(b.left, b.top)
+                                                        else -> Offset.Zero
+                                                    }
+                                                    val oldW = (b.right - b.left).coerceAtLeast(1f)
+                                                    val oldH = (b.bottom - b.top).coerceAtLeast(1f)
+                                                    val newW = Math.abs(worldPos.x - pivot.x).coerceAtLeast(1f)
+                                                    val newH = Math.abs(worldPos.y - pivot.y).coerceAtLeast(1f)
+                                                    val scaleX = newW / oldW
+                                                    val scaleY = newH / oldH
+                                                    
+                                                    recordAction(DrawingAction.Transform(
+                                                        strokeIds = selectedStrokesAtStart,
+                                                        imageIds = selectedImagesAtStart,
+                                                        geometricChange = GeometricChange(
+                                                            scale = DrawingPoint(scaleX, scaleY),
+                                                            pivot = DrawingPoint(pivot.x, pivot.y)
+                                                        )
+                                                    ))
+                                                }
                                                 isDirty = true
                                             }
                                             currentPathPoints.clear()
@@ -1694,23 +1847,13 @@ fun DrawingNoteScreen(
                     },
                     showColorPopup = showColorPopup,
                     onToggleColorPopup = { showColorPopup = it; if (it) showThicknessPopup = false },
-                    undoEnabled = undoStack.isNotEmpty(),
+                    undoEnabled = undoStackManager.undoStack.isNotEmpty(),
                     onUndo = { 
-                        if (undoStack.isNotEmpty()) { 
-                            val action = undoStack.last()
-                            undoStack = undoStack.dropLast(1)
-                            redoStack = (redoStack + action).takeLast(100)
-                            applyAction(action, isUndo = true)
-                        } 
+                        undoStackManager.popUndo()?.let { applyAction(it, isUndo = true) }
                     },
-                    redoEnabled = redoStack.isNotEmpty(),
+                    redoEnabled = undoStackManager.redoStack.isNotEmpty(),
                     onRedo = { 
-                        if (redoStack.isNotEmpty()) { 
-                            val action = redoStack.last()
-                            redoStack = redoStack.dropLast(1)
-                            undoStack = (undoStack + action).takeLast(100)
-                            applyAction(action, isUndo = false)
-                        } 
+                        undoStackManager.popRedo()?.let { applyAction(it, isUndo = false) }
                     },
                     pasteEnabled = clipboardStrokes != null,
                     onPaste = { handlePaste() },
@@ -1801,7 +1944,7 @@ fun DrawingNoteScreen(
                                     val newS = oldS.map { it.copy(colorArgb = newColor.toArgb()) }
                                     strokes = strokes.map { s -> if (s.id in selectedStrokeIds) s.copy(colorArgb = newColor.toArgb()) else s }
                                     oldS.zip(newS).forEach { (old, new) -> spatialIndexManager.updateStroke(old, new) }
-                                    recordAction(DrawingAction.Transform(oldStrokes = oldS, newStrokes = newS))
+                                    recordAction(DrawingAction.Transform(oldStrokes = oldS, newStrokes = newS, sharesPoints = true))
                                     showSelectionColorPopup = false
                                     isDirty = true
                                 },
@@ -1816,7 +1959,7 @@ fun DrawingNoteScreen(
                                     val newS = oldS.map { it.copy(width = newWidth) }
                                     strokes = strokes.map { s -> if (s.id in selectedStrokeIds) s.copy(width = newWidth) else s }
                                     oldS.zip(newS).forEach { (old, new) -> spatialIndexManager.updateStroke(old, new) }
-                                    recordAction(DrawingAction.Transform(oldStrokes = oldS, newStrokes = newS))
+                                    recordAction(DrawingAction.Transform(oldStrokes = oldS, newStrokes = newS, sharesPoints = true))
                                     isDirty = true
                                 },
                                 color = Color(strokes.find { it.id in selectedStrokeIds }?.colorArgb ?: Color.Black.toArgb()),
