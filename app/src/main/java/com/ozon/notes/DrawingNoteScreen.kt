@@ -138,6 +138,37 @@ sealed class DrawingAction {
     }
 }
 
+fun getBounds(
+    strokesList: List<com.ozon.notes.Stroke>, 
+    imagesList: List<com.ozon.notes.DrawingImage>,
+    strokeBoundsMap: Map<String, Rect>? = null
+): Rect {
+    if (strokesList.isEmpty() && imagesList.isEmpty()) return Rect.Zero
+    var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+    
+    strokesList.forEach { s ->
+        val cached = strokeBoundsMap?.get(s.id)
+        if (cached != null) {
+            minX = minOf(minX, cached.left); minY = minOf(minY, cached.top)
+            maxX = maxOf(maxX, cached.right); maxY = maxOf(maxY, cached.bottom)
+        } else {
+            val halfWidth = s.width / 2f
+            s.points.forEach { p ->
+                minX = minOf(minX, p.x - halfWidth); minY = minOf(minY, p.y - halfWidth)
+                maxX = maxOf(maxX, p.x + halfWidth); maxY = maxOf(maxY, p.y + halfWidth)
+            }
+        }
+    }
+    
+    imagesList.forEach { img ->
+        minX = minOf(minX, img.offset.x)
+        minY = minOf(minY, img.offset.y)
+        maxX = maxOf(maxX, img.offset.x + img.scale.x)
+        maxY = maxOf(maxY, img.offset.y + img.scale.y)
+    }
+    return Rect(minX, minY, maxX, maxY)
+}
+
 class UndoStackManager(private val maxMemoryBytes: Long = 32L * 1024 * 1024) {
     val undoStack = mutableStateListOf<DrawingAction>()
     val redoStack = mutableStateListOf<DrawingAction>()
@@ -354,8 +385,14 @@ fun DrawingNoteScreen(
     }
     
     var title by remember { mutableStateOf("") }
-    var strokes by remember { mutableStateOf(listOf<com.ozon.notes.Stroke>()) }
-    var images by remember { mutableStateOf(listOf<com.ozon.notes.DrawingImage>()) }
+    val strokeMap = remember { mutableStateMapOf<String, com.ozon.notes.Stroke>() }
+    val strokeOrder = remember { mutableStateListOf<String>() }
+    val imageMap = remember { mutableStateMapOf<String, com.ozon.notes.DrawingImage>() }
+    val imageOrder = remember { mutableStateListOf<String>() }
+    
+    val currentStrokes by remember { derivedStateOf { strokeOrder.mapNotNull { strokeMap[it] } } }
+    val currentImages by remember { derivedStateOf { imageOrder.mapNotNull { imageMap[it] } } }
+
     val undoStackManager = remember { UndoStackManager() }
     val gestureRemovedStrokes = remember { mutableStateListOf<com.ozon.notes.Stroke>() }
     val gestureRemovedImages = remember { mutableStateListOf<com.ozon.notes.DrawingImage>() }
@@ -375,7 +412,7 @@ fun DrawingNoteScreen(
     val currentPathPoints = remember { mutableStateListOf<DrawingPoint>() }
     var selectedStrokeIds by remember { mutableStateOf(setOf<String>()) }
     var selectedImageIds by remember { mutableStateOf(setOf<String>()) }
-    var selectionBounds by remember { mutableStateOf<Rect?>(null) }
+    var activeTransformation by remember { mutableStateOf<GeometricChange?>(null) }
 
     // Cached Path for the active stroke — reused every frame to avoid GC pressure
     val activeStrokePath = remember { Path() }
@@ -443,8 +480,6 @@ fun DrawingNoteScreen(
         }
     }
 
-    val updatedStrokes by rememberUpdatedState(strokes)
-    val updatedImages by rememberUpdatedState(images)
     val updatedSelectedStrokeIds by rememberUpdatedState(selectedStrokeIds)
     val updatedSelectedImageIds by rememberUpdatedState(selectedImageIds)
     val pdfBitmapCache = remember { PdfBitmapCacheManager() }
@@ -576,13 +611,21 @@ fun DrawingNoteScreen(
                 }
             }
     }
+    val spatialIndexManager = remember { SpatialIndexManager(SPATIAL_GRID_SIZE) }
+    val selectionBounds by remember {
+        derivedStateOf {
+            val selectedStrokes = selectedStrokeIds.mapNotNull { strokeMap[it] }.filter { it.tool != DrawingTool.ERASER }
+            val selectedImages = selectedImageIds.mapNotNull { imageMap[it] }
+            if (selectedStrokes.isEmpty() && selectedImages.isEmpty()) null
+            else getBounds(selectedStrokes, selectedImages, spatialIndexManager.strokeBoundsMap)
+        }
+    }
+    
     val updatedBounds by rememberUpdatedState(selectionBounds)
     val updatedTool by rememberUpdatedState(currentTool)
     val updatedCanvasOffset by rememberUpdatedState(canvasOffset)
     val updatedCanvasScale by rememberUpdatedState(canvasScale)
     val updatedForceStylus by rememberUpdatedState(forceStylusOnly)
-
-    val spatialIndexManager = remember { SpatialIndexManager(SPATIAL_GRID_SIZE) }
     
     // Reference cache to detect if points changed for an ID
     val strokeRefCache = remember { java.util.concurrent.ConcurrentHashMap<String, com.ozon.notes.Stroke>() }
@@ -634,8 +677,9 @@ fun DrawingNoteScreen(
     }
 
     // Clean caches on stroke deletion to free memory
-    LaunchedEffect(strokes.size) {
-        val currentIds = strokes.map { it.id }.toSet()
+    // Clean caches on stroke deletion to free memory
+    LaunchedEffect(strokeOrder.size) {
+        val currentIds = strokeMap.keys.toSet()
         withContext(Dispatchers.Default) {
             lodCaches.forEach { cache ->
                 val keysToRemove = cache.keys().filter { it !in currentIds }
@@ -648,35 +692,11 @@ fun DrawingNoteScreen(
     }
 
 
-    fun getBounds(strokesList: List<com.ozon.notes.Stroke>, imagesList: List<com.ozon.notes.DrawingImage>): Rect {
-        if (strokesList.isEmpty() && imagesList.isEmpty()) return Rect.Zero
-        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
-        strokesList.forEach { s ->
-            val halfWidth = s.width / 2f
-            s.points.forEach { p ->
-                minX = minOf(minX, p.x - halfWidth); minY = minOf(minY, p.y - halfWidth)
-                maxX = maxOf(maxX, p.x + halfWidth); maxY = maxOf(maxY, p.y + halfWidth)
-            }
-        }
-        imagesList.forEach { img ->
-            minX = minOf(minX, img.offset.x)
-            minY = minOf(minY, img.offset.y)
-            maxX = maxOf(maxX, img.offset.x + img.scale.x)
-            maxY = maxOf(maxY, img.offset.y + img.scale.y)
-        }
-        return Rect(minX, minY, maxX, maxY)
-    }
 
-    LaunchedEffect(strokes, images, selectedStrokeIds, selectedImageIds) {
-        val selectedStrokes = strokes.filter { it.id in selectedStrokeIds && it.tool != DrawingTool.ERASER }
-        val selectedImages = images.filter { it.id in selectedImageIds }
-        
-        if (selectedStrokes.isEmpty() && selectedImages.isEmpty()) {
-            selectionBounds = null
+    LaunchedEffect(selectionBounds == null) {
+        if (selectionBounds == null) {
             showSelectionThicknessPopup = false
             showSelectionColorPopup = false
-        } else {
-            selectionBounds = getBounds(selectedStrokes, selectedImages)
         }
     }
 
@@ -688,91 +708,110 @@ fun DrawingNoteScreen(
         when (action) {
             is DrawingAction.Add -> {
                 if (isUndo) {
-                    val strokeIds = action.strokes.map { it.id }.toSet()
-                    val imageIds = action.images.map { it.id }.toSet()
-                    strokes = strokes.filter { it.id !in strokeIds }
-                    images = images.filter { it.id !in imageIds }
-                    action.strokes.forEach { spatialIndexManager.removeStroke(it.id) }
+                    action.strokes.forEach { 
+                        strokeMap.remove(it.id)
+                        strokeOrder.remove(it.id)
+                        spatialIndexManager.removeStroke(it.id)
+                    }
+                    action.images.forEach {
+                        imageMap.remove(it.id)
+                        imageOrder.remove(it.id)
+                    }
                 } else {
-                    strokes = strokes + action.strokes
-                    images = images + action.images
-                    action.strokes.forEach { spatialIndexManager.addStroke(it) }
+                    action.strokes.forEach {
+                        strokeMap[it.id] = it
+                        if (it.id !in strokeOrder) strokeOrder.add(it.id)
+                        spatialIndexManager.addStroke(it)
+                    }
+                    action.images.forEach {
+                        imageMap[it.id] = it
+                        if (it.id !in imageOrder) imageOrder.add(it.id)
+                    }
                 }
             }
             is DrawingAction.Remove -> {
                 if (isUndo) {
-                    strokes = strokes + action.strokes
-                    images = images + action.images
-                    action.strokes.forEach { spatialIndexManager.addStroke(it) }
+                    action.strokes.forEach {
+                        strokeMap[it.id] = it
+                        if (it.id !in strokeOrder) strokeOrder.add(it.id)
+                        spatialIndexManager.addStroke(it)
+                    }
+                    action.images.forEach {
+                        imageMap[it.id] = it
+                        if (it.id !in imageOrder) imageOrder.add(it.id)
+                    }
                 } else {
-                    val strokeIds = action.strokes.map { it.id }.toSet()
-                    val imageIds = action.images.map { it.id }.toSet()
-                    strokes = strokes.filter { it.id !in strokeIds }
-                    images = images.filter { it.id !in imageIds }
-                    action.strokes.forEach { spatialIndexManager.removeStroke(it.id) }
+                    action.strokes.forEach {
+                        strokeMap.remove(it.id)
+                        strokeOrder.remove(it.id)
+                        spatialIndexManager.removeStroke(it.id)
+                    }
+                    action.images.forEach {
+                        imageMap.remove(it.id)
+                        imageOrder.remove(it.id)
+                    }
                 }
             }
             is DrawingAction.Transform -> {
                 if (action.geometricChange != null || action.propertyChange != null) {
                     val factor = if (isUndo) -1f else 1f
-                    strokes = strokes.map { s ->
-                        if (s.id in action.strokeIds) {
-                            var newS = s
-                            action.geometricChange?.let { geo ->
-                                geo.offset?.let { off ->
-                                    newS = newS.copy(points = newS.points.map { p -> DrawingPoint(p.x + off.x * factor, p.y + off.y * factor) })
-                                }
-                                if (geo.scale != null && geo.pivot != null) {
-                                    val sx = if (isUndo) 1f / geo.scale.x else geo.scale.x
-                                    val sy = if (isUndo) 1f / geo.scale.y else geo.scale.y
-                                    newS = newS.copy(points = newS.points.map { p ->
-                                        DrawingPoint(geo.pivot.x + (p.x - geo.pivot.x) * sx, geo.pivot.y + (p.y - geo.pivot.y) * sy)
-                                    })
-                                }
+                    action.strokeIds.forEach { id ->
+                        val s = strokeMap[id] ?: return@forEach
+                        var newS = s
+                        action.geometricChange?.let { geo ->
+                            geo.offset?.let { off ->
+                                newS = newS.copy(points = newS.points.map { p -> DrawingPoint(p.x + off.x * factor, p.y + off.y * factor) })
                             }
-                            action.propertyChange?.let { prop ->
-                                newS = newS.copy(
-                                    colorArgb = if (isUndo) prop.oldColor ?: newS.colorArgb else prop.newColor ?: newS.colorArgb,
-                                    width = if (isUndo) prop.oldWidth ?: newS.width else prop.newWidth ?: newS.width
-                                )
+                            if (geo.scale != null && geo.pivot != null) {
+                                val sx = if (isUndo) 1f / geo.scale.x else geo.scale.x
+                                val sy = if (isUndo) 1f / geo.scale.y else geo.scale.y
+                                newS = newS.copy(points = newS.points.map { p ->
+                                    DrawingPoint(geo.pivot.x + (p.x - geo.pivot.x) * sx, geo.pivot.y + (p.y - geo.pivot.y) * sy)
+                                })
                             }
-                            spatialIndexManager.updateStroke(s, newS)
-                            newS
-                        } else s
+                        }
+                        action.propertyChange?.let { prop ->
+                            newS = newS.copy(
+                                colorArgb = if (isUndo) prop.oldColor ?: newS.colorArgb else prop.newColor ?: newS.colorArgb,
+                                width = if (isUndo) prop.oldWidth ?: newS.width else prop.newWidth ?: newS.width
+                            )
+                        }
+                        spatialIndexManager.updateStroke(s, newS)
+                        strokeMap[id] = newS
                     }
-                    images = images.map { img ->
-                        if (img.id in action.imageIds) {
-                             var newImg = img
-                             action.geometricChange?.let { geo ->
-                                 geo.offset?.let { off ->
-                                     newImg = newImg.copy(offset = DrawingPoint(newImg.offset.x + off.x * factor, newImg.offset.y + off.y * factor))
-                                 }
-                                 if (geo.scale != null && geo.pivot != null) {
-                                     val sx = if (isUndo) 1f / geo.scale.x else geo.scale.x
-                                     val sy = if (isUndo) 1f / geo.scale.y else geo.scale.y
-                                     val newOffset = DrawingPoint(geo.pivot.x + (newImg.offset.x - geo.pivot.x) * sx, geo.pivot.y + (newImg.offset.y - geo.pivot.y) * sy)
-                                     val newScale = DrawingPoint(newImg.scale.x * sx, newImg.scale.y * sy)
-                                     newImg = newImg.copy(offset = newOffset, scale = newScale)
-                                 }
-                             }
-                             newImg
-                        } else img
+                    action.imageIds.forEach { id ->
+                        val img = imageMap[id] ?: return@forEach
+                        var newImg = img
+                        action.geometricChange?.let { geo ->
+                            geo.offset?.let { off ->
+                                newImg = newImg.copy(offset = DrawingPoint(newImg.offset.x + off.x * factor, newImg.offset.y + off.y * factor))
+                            }
+                            if (geo.scale != null && geo.pivot != null) {
+                                val sx = if (isUndo) 1f / geo.scale.x else geo.scale.x
+                                val sy = if (isUndo) 1f / geo.scale.y else geo.scale.y
+                                val newOffset = DrawingPoint(geo.pivot.x + (newImg.offset.x - geo.pivot.x) * sx, geo.pivot.y + (newImg.offset.y - geo.pivot.y) * sy)
+                                val newScale = DrawingPoint(newImg.scale.x * sx, newImg.scale.y * sy)
+                                newImg = newImg.copy(offset = newOffset, scale = newScale)
+                            }
+                        }
+                        imageMap[id] = newImg
                     }
                 }
                 
                 if (action.oldStrokes != null && action.newStrokes != null) {
                     val replacementStrokes = (if (isUndo) action.oldStrokes else action.newStrokes).associateBy { it.id }
-                    strokes = strokes.map { s ->
-                        val replacement = replacementStrokes[s.id]
-                        if (replacement != null) {
-                            spatialIndexManager.updateStroke(s, replacement)
-                            replacement
-                        } else s
+                    replacementStrokes.forEach { (id, replacement) ->
+                        strokeMap[id]?.let { old ->
+                            spatialIndexManager.updateStroke(old, replacement)
+                            strokeMap[id] = replacement
+                        }
                     }
                 }
                 if (action.oldImages != null && action.newImages != null) {
                     val replacementImages = (if (isUndo) action.oldImages else action.newImages).associateBy { it.id }
-                    images = images.map { replacementImages[it.id] ?: it }
+                    replacementImages.forEach { (id, replacement) ->
+                        imageMap[id] = replacement
+                    }
                 }
             }
         }
@@ -802,8 +841,8 @@ fun DrawingNoteScreen(
                 type = NoteType.DRAWING,
                 timestamp = now,
                 drawingData = DrawingData(
-                    strokes = strokes, 
-                    images = images,
+                    strokes = currentStrokes, 
+                    images = currentImages,
                     canvasType = canvasType,
                     pageLayout = pageLayout,
                     pdfInfo = pdfInfo,
@@ -819,7 +858,7 @@ fun DrawingNoteScreen(
     LaunchedEffect(Unit) {
         while (true) {
             delay(30000)
-            saveDrawing()
+            if (isDirty) saveDrawing()
         }
     }
 
@@ -841,9 +880,21 @@ fun DrawingNoteScreen(
             if (note != null && note.type == NoteType.DRAWING) {
                 title = note.title
                 val initialStrokes = note.drawingData?.strokes ?: emptyList()
-                strokes = initialStrokes
+                strokeMap.clear()
+                strokeOrder.clear()
+                initialStrokes.forEach {
+                    strokeMap[it.id] = it
+                    strokeOrder.add(it.id)
+                }
                 spatialIndexManager.reset(initialStrokes)
-                images = note.drawingData?.images ?: emptyList()
+                
+                val initialImages = note.drawingData?.images ?: emptyList()
+                imageMap.clear()
+                imageOrder.clear()
+                initialImages.forEach {
+                    imageMap[it.id] = it
+                    imageOrder.add(it.id)
+                }
                 
                 canvasType = note.drawingData?.canvasType ?: CanvasType.INFINITE
                 pageLayout = note.drawingData?.pageLayout ?: PageLayout()
@@ -932,7 +983,7 @@ fun DrawingNoteScreen(
     val pngLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png")) { uri ->
         uri?.let {
             coroutineScope.launch(Dispatchers.IO) {
-                val (eStrokes, eImages) = pendingExportSelection ?: (strokes to images)
+                val (eStrokes, eImages) = pendingExportSelection ?: (currentStrokes to currentImages)
                 val eCanvasType = if (pendingExportSelection != null) CanvasType.INFINITE else canvasType
                 context.contentResolver.openOutputStream(it)?.use { stream -> exportToPng(stream, eStrokes, eImages, canvasSize, eCanvasType, pageLayout, pdfInfo, pageCount) }
                 withContext(Dispatchers.Main) { 
@@ -945,7 +996,7 @@ fun DrawingNoteScreen(
     val pdfBitmapLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         uri?.let {
             coroutineScope.launch(Dispatchers.IO) {
-                val (eStrokes, eImages) = pendingExportSelection ?: (strokes to images)
+                val (eStrokes, eImages) = pendingExportSelection ?: (currentStrokes to currentImages)
                 val eCanvasType = if (pendingExportSelection != null) CanvasType.INFINITE else canvasType
                 context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, eStrokes, eImages, canvasSize, vector = false, eCanvasType, pageLayout, pdfInfo, pageCount) }
                 withContext(Dispatchers.Main) { 
@@ -958,7 +1009,7 @@ fun DrawingNoteScreen(
     val pdfVectorLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         uri?.let {
             coroutineScope.launch(Dispatchers.IO) {
-                val (eStrokes, eImages) = pendingExportSelection ?: (strokes to images)
+                val (eStrokes, eImages) = pendingExportSelection ?: (currentStrokes to currentImages)
                 val eCanvasType = if (pendingExportSelection != null) CanvasType.INFINITE else canvasType
                 context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, eStrokes, eImages, canvasSize, vector = true, eCanvasType, pageLayout, pdfInfo, pageCount) }
                 withContext(Dispatchers.Main) { 
@@ -999,7 +1050,8 @@ fun DrawingNoteScreen(
                     offset = DrawingPoint(worldCenter.x - (w/2), worldCenter.y - (h/2)),
                     scale = DrawingPoint(w, h)
                 )
-                images = images + newImage
+                imageMap[newImage.id] = newImage
+                imageOrder.add(newImage.id)
                 recordAction(DrawingAction.Add(images = listOf(newImage)))
                 selectedImageIds = setOf(newImage.id)
                 selectedStrokeIds = emptySet()
@@ -1010,14 +1062,14 @@ fun DrawingNoteScreen(
 
     val bitmapCache = remember { mutableStateMapOf<String, ImageBitmap>() }
     
-    LaunchedEffect(images) {
+    LaunchedEffect(imageOrder.size) {
         // Clean up cache entries for removed images
-        val currentPaths = images.map { it.path }.toSet()
+        val currentPaths = imageMap.values.map { it.path }.toSet()
         bitmapCache.keys.filter { it !in currentPaths }.forEach { bitmapCache.remove(it) }
 
         // Load new images with downsampling to prevent OOM
         withContext(Dispatchers.IO) {
-            images.forEach { img ->
+            imageMap.values.forEach { img ->
                 if (!bitmapCache.containsKey(img.path)) {
                     val maxDim = 2048
                     // First pass: decode bounds only
@@ -1059,8 +1111,11 @@ fun DrawingNoteScreen(
             val offsetX = worldCenter.x - b.center.x
             val offsetY = worldCenter.y - b.center.y
             val pasted = clipboard.map { s -> s.copy(id = UUID.randomUUID().toString(), points = s.points.map { DrawingPoint(it.x + offsetX, it.y + offsetY) }) }
-            strokes = strokes + pasted
-            pasted.forEach { spatialIndexManager.addStroke(it) }
+            pasted.forEach {
+                strokeMap[it.id] = it
+                strokeOrder.add(it.id)
+                spatialIndexManager.addStroke(it)
+            }
             recordAction(DrawingAction.Add(strokes = pasted))
             selectedStrokeIds = pasted.map { it.id }.toSet()
             isDirty = true
@@ -1315,8 +1370,6 @@ fun DrawingNoteScreen(
                                 val startPos = down.position
                                 val worldStartPos = (startPos - updatedCanvasOffset) / updatedCanvasScale
                                 val bStart = updatedBounds
-                                val strokesAtStart = updatedStrokes
-                                val imagesAtStart = updatedImages
                                 val selectedStrokesAtStart = updatedSelectedStrokeIds
                                 val selectedImagesAtStart = updatedSelectedImageIds
                                 
@@ -1366,8 +1419,7 @@ fun DrawingNoteScreen(
                                     val event = awaitPointerEvent()
                                     if (event.changes.size > 1) {
                                         if (dragMode == DragMode.MOVE || dragMode.name.startsWith("RESIZE")) {
-                                            strokes = strokesAtStart
-                                            images = imagesAtStart
+                                            activeTransformation = null
                                         }
                                         currentPathPoints.clear()
                                         break
@@ -1383,9 +1435,10 @@ fun DrawingNoteScreen(
                                                     width = penThickness,
                                                     tool = currentWorkingTool
                                                 )
+                                                strokeMap[newStroke.id] = newStroke
+                                                strokeOrder.add(newStroke.id)
                                                 spatialIndexManager.addStroke(newStroke)
                                                 strokeRefCache[newStroke.id] = newStroke
-                                                strokes = updatedStrokes + newStroke
                                                 recordAction(DrawingAction.Add(strokes = listOf(newStroke)))
                                                 isDirty = true
                                             }
@@ -1398,47 +1451,15 @@ fun DrawingNoteScreen(
                                             ))
                                         }
                                         if (dragMode == DragMode.MOVE || dragMode.name.startsWith("RESIZE")) {
-                                            if (strokes != strokesAtStart || images != imagesAtStart) {
-                                                val oldS = strokesAtStart.filter { it.id in selectedStrokesAtStart }
-                                                val newS = strokes.filter { it.id in selectedStrokesAtStart }
-                                                
-                                                oldS.forEach { spatialIndexManager.removeStroke(it.id) }
-                                                newS.forEach { spatialIndexManager.addStroke(it) }
-
-                                                if (dragMode == DragMode.MOVE) {
-                                                    val totalMove = (change.position - startPos) / updatedCanvasScale
-                                                    recordAction(DrawingAction.Transform(
-                                                        strokeIds = selectedStrokesAtStart,
-                                                        imageIds = selectedImagesAtStart,
-                                                        geometricChange = GeometricChange(offset = DrawingPoint(totalMove.x, totalMove.y))
-                                                    ))
-                                                } else {
-                                                    val worldPos = (change.position - updatedCanvasOffset) / updatedCanvasScale
-                                                    val b = bStart!!
-                                                    val pivot = when (dragMode) {
-                                                        DragMode.RESIZE_TL -> Offset(b.right, b.bottom)
-                                                        DragMode.RESIZE_TR -> Offset(b.left, b.bottom)
-                                                        DragMode.RESIZE_BL -> Offset(b.right, b.top)
-                                                        DragMode.RESIZE_BR -> Offset(b.left, b.top)
-                                                        else -> Offset.Zero
-                                                    }
-                                                    val oldW = (b.right - b.left).coerceAtLeast(1f)
-                                                    val oldH = (b.bottom - b.top).coerceAtLeast(1f)
-                                                    val newW = Math.abs(worldPos.x - pivot.x).coerceAtLeast(1f)
-                                                    val newH = Math.abs(worldPos.y - pivot.y).coerceAtLeast(1f)
-                                                    val scaleX = newW / oldW
-                                                    val scaleY = newH / oldH
-                                                    
-                                                    recordAction(DrawingAction.Transform(
-                                                        strokeIds = selectedStrokesAtStart,
-                                                        imageIds = selectedImagesAtStart,
-                                                        geometricChange = GeometricChange(
-                                                            scale = DrawingPoint(scaleX, scaleY),
-                                                            pivot = DrawingPoint(pivot.x, pivot.y)
-                                                        )
-                                                    ))
-                                                }
-                                                isDirty = true
+                                            if (activeTransformation != null) {
+                                                val action = DrawingAction.Transform(
+                                                    strokeIds = selectedStrokesAtStart,
+                                                    imageIds = selectedImagesAtStart,
+                                                    geometricChange = activeTransformation
+                                                )
+                                                applyAction(action, isUndo = false)
+                                                recordAction(action)
+                                                activeTransformation = null
                                             }
                                             currentPathPoints.clear()
                                         }
@@ -1456,9 +1477,10 @@ fun DrawingNoteScreen(
                                                     width = penThickness,
                                                     tool = currentWorkingTool
                                                 )
+                                                strokeMap[newStroke.id] = newStroke
+                                                strokeOrder.add(newStroke.id)
                                                 spatialIndexManager.addStroke(newStroke)
                                                 strokeRefCache[newStroke.id] = newStroke
-                                                strokes = updatedStrokes + newStroke
                                                 recordAction(DrawingAction.Add(strokes = listOf(newStroke)))
                                                 isDirty = true
                                             }
@@ -1483,9 +1505,7 @@ fun DrawingNoteScreen(
                                             DragMode.PAN -> canvasOffset += dragDelta
                                             DragMode.MOVE -> {
                                                 val totalMove = (currentPos - startPos) / updatedCanvasScale
-                                                strokes = strokesAtStart.map { s -> if (s.id in selectedStrokesAtStart) s.copy(points = s.points.map { DrawingPoint(it.x + totalMove.x, it.y + totalMove.y) }) else s }
-                                                images = imagesAtStart.map { img -> if (img.id in selectedImagesAtStart) img.copy(offset = DrawingPoint(img.offset.x + totalMove.x, img.offset.y + totalMove.y)) else img }
-                                                selectedStrokesAtStart.forEach { id -> lodCaches.forEach { it.remove(id) } }
+                                                activeTransformation = GeometricChange(offset = DrawingPoint(totalMove.x, totalMove.y))
                                             }
                                             DragMode.RESIZE_TL, DragMode.RESIZE_TR, DragMode.RESIZE_BL, DragMode.RESIZE_BR -> {
                                                 if (bStart != null) {
@@ -1501,9 +1521,10 @@ fun DrawingNoteScreen(
                                                     val newW = Math.abs(worldPos.x - pivot.x).coerceAtLeast(1f)
                                                     val newH = Math.abs(worldPos.y - pivot.y).coerceAtLeast(1f)
                                                     val sX = newW / oldW; val sY = newH / oldH
-                                                    strokes = strokesAtStart.map { s -> if (s.id in selectedStrokesAtStart) s.copy(points = s.points.map { DrawingPoint(pivot.x + (it.x - pivot.x) * sX, pivot.y + (it.y - pivot.y) * sY) }) else s }
-                                                    images = imagesAtStart.map { img -> if (img.id in selectedImagesAtStart) img.copy(offset = DrawingPoint(pivot.x + (img.offset.x - pivot.x) * sX, pivot.y + (img.offset.y - pivot.y) * sY), scale = DrawingPoint(img.scale.x * sX, img.scale.y * sY)) else img }
-                                                    selectedStrokesAtStart.forEach { id -> lodCaches.forEach { it.remove(id) } }
+                                                    activeTransformation = GeometricChange(
+                                                        scale = DrawingPoint(sX, sY),
+                                                        pivot = DrawingPoint(pivot.x, pivot.y)
+                                                    )
                                                 }
                                             }
                                             DragMode.LASSO, DragMode.DRAW -> {
@@ -1552,7 +1573,6 @@ fun DrawingNoteScreen(
                                                     }
                                                     val eraseRect = Rect(minX - radius, minY - radius, maxX + radius, maxY + radius)
 
-                                                    val oldStrokesSize = strokes.size
                                                     val eraserRadius = eraserThickness / 2f
                                                     
                                                     val minGX = (eraseRect.left / SPATIAL_GRID_SIZE).toInt()
@@ -1602,8 +1622,11 @@ fun DrawingNoteScreen(
                                                     
                                                     if (toErase.isNotEmpty()) {
                                                         gestureRemovedStrokes.addAll(toErase)
-                                                        toErase.forEach { spatialIndexManager.removeStroke(it.id) }
-                                                        strokes = strokes.filterNot { it in toErase }
+                                                        toErase.forEach { 
+                                                            strokeMap.remove(it.id)
+                                                            strokeOrder.remove(it.id)
+                                                            spatialIndexManager.removeStroke(it.id) 
+                                                        }
                                                         isDirty = true
                                                     }
                                                 }
@@ -1620,7 +1643,7 @@ fun DrawingNoteScreen(
                                         selectedStrokeIds = emptySet()
                                         selectedImageIds = emptySet()
                                         if (updatedTool == DrawingTool.LASSO) {
-                                            val tappedImage = updatedImages.findLast { img ->
+                                            val tappedImage = imageMap.values.findLast { img ->
                                                 val rect = Rect(img.offset.x, img.offset.y, img.offset.x + img.scale.x, img.offset.y + img.scale.y)
                                                 rect.contains(worldStartPos)
                                             }
@@ -1810,19 +1833,40 @@ fun DrawingNoteScreen(
                         }
                     }
 
-                    images.forEach { img ->
+                    imageOrder.forEach { id ->
+                        val img = imageMap[id] ?: return@forEach
+                        val isSelected = id in selectedImageIds
+                        val liveXform = if (isSelected) activeTransformation else null
+
                         val imgLeft = img.offset.x
                         val imgTop = img.offset.y
                         val imgRight = img.offset.x + img.scale.x
                         val imgBottom = img.offset.y + img.scale.y
-                        if (currentViewport.right >= imgLeft && currentViewport.left <= imgRight &&
-                            currentViewport.bottom >= imgTop && currentViewport.top <= imgBottom) {
+                        if ((currentViewport.right >= imgLeft && currentViewport.left <= imgRight &&
+                            currentViewport.bottom >= imgTop && currentViewport.top <= imgBottom) || liveXform != null) {
                             bitmapCache[img.path]?.let { bitmap ->
-                                drawImage(
-                                    image = bitmap,
-                                    dstOffset = IntOffset(img.offset.x.roundToInt(), img.offset.y.roundToInt()),
-                                    dstSize = IntSize(img.scale.x.roundToInt(), img.scale.y.roundToInt()),
-                                )
+                                drawIntoCanvas { canvas ->
+                                    val native = canvas.nativeCanvas
+                                    if (liveXform != null) {
+                                        native.save()
+                                        liveXform.offset?.let { native.translate(it.x, it.y) }
+                                        if (liveXform.scale != null && liveXform.pivot != null) {
+                                            native.scale(liveXform.scale.x, liveXform.scale.y, liveXform.pivot.x, liveXform.pivot.y)
+                                        }
+                                        drawImage(
+                                            image = bitmap,
+                                            dstOffset = IntOffset(img.offset.x.roundToInt(), img.offset.y.roundToInt()),
+                                            dstSize = IntSize(img.scale.x.roundToInt(), img.scale.y.roundToInt()),
+                                        )
+                                        native.restore()
+                                    } else {
+                                        drawImage(
+                                            image = bitmap,
+                                            dstOffset = IntOffset(img.offset.x.roundToInt(), img.offset.y.roundToInt()),
+                                            dstSize = IntSize(img.scale.x.roundToInt(), img.scale.y.roundToInt()),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -1832,19 +1876,37 @@ fun DrawingNoteScreen(
                     renderPaint.isAntiAlias = canvasScale >= 1.0f
                     renderPaint.strokeJoin = if (isUnzoomed) android.graphics.Paint.Join.BEVEL else android.graphics.Paint.Join.ROUND
                     renderPaint.strokeCap = if (canvasScale < 0.5f) android.graphics.Paint.Cap.SQUARE else android.graphics.Paint.Cap.ROUND
-                    val nativeCanvas = drawContext.canvas.nativeCanvas
+                    
+                    drawIntoCanvas { canvas ->
+                        val native = canvas.nativeCanvas
+                        strokeOrder.forEach { id ->
+                            val stroke = strokeMap[id] ?: return@forEach
+                            val bounds = spatialIndexManager.strokeBoundsMap[id] ?: spatialIndexManager.computeStrokeBounds(stroke)
+                            
+                            val isSelected = id in selectedStrokeIds
+                            val liveXform = if (isSelected) activeTransformation else null
 
-                    strokes.forEach { stroke ->
-                        val bounds = spatialIndexManager.strokeBoundsMap[stroke.id] ?: spatialIndexManager.computeStrokeBounds(stroke)
-                        // Fast bounds rejection allows Skia to skip tessellating strokes outside the viewport
-                        if (vRight >= bounds.left && vLeft <= bounds.right && vBottom >= bounds.top && vTop <= bounds.bottom) {
-                            val colorArgb = if (!isSelectionEmpty && stroke.id in selectedStrokeIds) selectedColorArgb else stroke.colorArgb
-                            renderPaint.color = colorArgb
-                            renderPaint.strokeWidth = stroke.width
-                            val path = activeLodCache.get(stroke.id) ?: buildPathForLod(stroke, currentLodThreshold).also {
-                                activeLodCache.put(stroke.id, it)
+                            // Fast bounds rejection allows Skia to skip tessellating strokes outside the viewport
+                            if ((vRight >= bounds.left && vLeft <= bounds.right && vBottom >= bounds.top && vTop <= bounds.bottom) || liveXform != null) {
+                                val colorArgb = if (!isSelectionEmpty && isSelected) selectedColorArgb else stroke.colorArgb
+                                renderPaint.color = colorArgb
+                                renderPaint.strokeWidth = stroke.width
+                                val path = activeLodCache.get(stroke.id) ?: buildPathForLod(stroke, currentLodThreshold).also {
+                                    activeLodCache.put(stroke.id, it)
+                                }
+                                
+                                if (liveXform != null) {
+                                    native.save()
+                                    liveXform.offset?.let { native.translate(it.x, it.y) }
+                                    if (liveXform.scale != null && liveXform.pivot != null) {
+                                        native.scale(liveXform.scale.x, liveXform.scale.y, liveXform.pivot.x, liveXform.pivot.y)
+                                    }
+                                    native.drawPath(path, renderPaint)
+                                    native.restore()
+                                } else {
+                                    native.drawPath(path, renderPaint)
+                                }
                             }
-                            nativeCanvas.drawPath(path, renderPaint)
                         }
                     }
                 }
@@ -1866,12 +1928,22 @@ fun DrawingNoteScreen(
                             }
                         }
                         selectionBounds?.let { bounds ->
-                            drawRect(color = Color.Blue, topLeft = bounds.topLeft, size = bounds.size, style = Stroke(width = 1.dp.toPx() / canvasScale, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f / canvasScale, 10f / canvasScale), 0f)))
-                            val r = 6.dp.toPx() / canvasScale
-                            val strokeW = 2.dp.toPx() / canvasScale
-                            listOf(bounds.topLeft, bounds.topRight, bounds.bottomLeft, bounds.bottomRight).forEach { c -> 
-                                drawCircle(color = Color.White, radius = r, center = c)
-                                drawCircle(color = Color.Blue, radius = r, center = c, style = Stroke(width = strokeW)) 
+                            val liveXform = activeTransformation
+                            withTransform({
+                                if (liveXform != null) {
+                                    liveXform.offset?.let { translate(it.x, it.y) }
+                                    if (liveXform.scale != null && liveXform.pivot != null) {
+                                        scale(liveXform.scale.x, liveXform.scale.y, Offset(liveXform.pivot.x, liveXform.pivot.y))
+                                    }
+                                }
+                            }) {
+                                drawRect(color = Color.Blue, topLeft = bounds.topLeft, size = bounds.size, style = Stroke(width = 1.dp.toPx() / canvasScale, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f / canvasScale, 10f / canvasScale), 0f)))
+                                val r = 6.dp.toPx() / canvasScale
+                                val strokeW = 2.dp.toPx() / canvasScale
+                                listOf(bounds.topLeft, bounds.topRight, bounds.bottomLeft, bounds.bottomRight).forEach { c -> 
+                                    drawCircle(color = Color.White, radius = r, center = c)
+                                    drawCircle(color = Color.Blue, radius = r, center = c, style = Stroke(width = strokeW)) 
+                                }
                             }
                         }
                     }
@@ -1949,11 +2021,27 @@ fun DrawingNoteScreen(
                     Surface(
                         modifier = Modifier
                             .offset {
+                                val liveXform = activeTransformation
+                                var x = bounds.center.x
+                                var y = bounds.top
+                                var bBottom = bounds.bottom
+                                
+                                if (liveXform != null) {
+                                    liveXform.offset?.let { x += it.x; y += it.y; bBottom += it.y }
+                                    if (liveXform.scale != null && liveXform.pivot != null) {
+                                        val sx = liveXform.scale.x; val sy = liveXform.scale.y
+                                        val px = liveXform.pivot.x; val py = liveXform.pivot.y
+                                        x = px + (x - px) * sx
+                                        y = py + (y - py) * sy
+                                        bBottom = py + (bBottom - py) * sy
+                                    }
+                                }
+
                                 // Read canvasScale/canvasOffset in the layout phase to avoid recomposition
-                                val screenX = bounds.center.x * canvasScale + canvasOffset.x
-                                val screenY = bounds.top * canvasScale + canvasOffset.y
+                                val screenX = x * canvasScale + canvasOffset.x
+                                val screenY = y * canvasScale + canvasOffset.y
                                 val isTooHigh = screenY < 200f
-                                val yOffset = if (isTooHigh) (bounds.bottom * canvasScale + canvasOffset.y + px16) else (screenY - px64)
+                                val yOffset = if (isTooHigh) (bBottom * canvasScale + canvasOffset.y + px16) else (screenY - px64)
                                 IntOffset((screenX - 72.dp.toPx().toInt()).roundToInt(), yOffset.roundToInt())
                             }
                             .shadow(4.dp, CircleShape).clip(CircleShape),
@@ -1962,15 +2050,21 @@ fun DrawingNoteScreen(
                     ) {
                         Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                             IconButton(onClick = { 
-                                pendingExportSelection = strokes.filter { it.id in selectedStrokeIds } to images.filter { it.id in selectedImageIds }
+                                pendingExportSelection = selectedStrokeIds.mapNotNull { strokeMap[it] } to selectedImageIds.mapNotNull { imageMap[it] }
                                 showSelectionExportDialog = true 
                             }) { Icon(Icons.Rounded.FileDownload, contentDescription = "Export Selection") }
                             IconButton(onClick = {
-                                val newStrokes = strokes.filter { it.id in selectedStrokeIds }.map { s -> s.copy(id = UUID.randomUUID().toString(), points = s.points.map { DrawingPoint(it.x + 20f, it.y + 20f) }) }
-                                val newImages = images.filter { it.id in selectedImageIds }.map { img -> img.copy(id = UUID.randomUUID().toString(), offset = DrawingPoint(img.offset.x + 20f, img.offset.y + 20f)) }
-                                strokes = strokes + newStrokes
-                                images = images + newImages
-                                newStrokes.forEach { spatialIndexManager.addStroke(it) }
+                                val newStrokes = selectedStrokeIds.mapNotNull { strokeMap[it] }.map { s -> s.copy(id = UUID.randomUUID().toString(), points = s.points.map { DrawingPoint(it.x + 20f, it.y + 20f) }) }
+                                val newImages = selectedImageIds.mapNotNull { imageMap[it] }.map { img -> img.copy(id = UUID.randomUUID().toString(), offset = DrawingPoint(img.offset.x + 20f, img.offset.y + 20f)) }
+                                newStrokes.forEach {
+                                    strokeMap[it.id] = it
+                                    strokeOrder.add(it.id)
+                                    spatialIndexManager.addStroke(it)
+                                }
+                                newImages.forEach {
+                                    imageMap[it.id] = it
+                                    imageOrder.add(it.id)
+                                }
                                 recordAction(DrawingAction.Add(strokes = newStrokes, images = newImages))
                                 selectedStrokeIds = newStrokes.map { it.id }.toSet()
                                 selectedImageIds = newImages.map { it.id }.toSet()
@@ -1978,11 +2072,17 @@ fun DrawingNoteScreen(
                                 Toast.makeText(context, "Duplicated", Toast.LENGTH_SHORT).show()
                             }) { Icon(Icons.Rounded.ContentCopy, contentDescription = "Duplicate") }
                             IconButton(onClick = { 
-                                val removedS = strokes.filter { it.id in selectedStrokeIds }
-                                val removedI = images.filter { it.id in selectedImageIds }
-                                strokes = strokes.filterNot { it.id in selectedStrokeIds }
-                                images = images.filterNot { it.id in selectedImageIds }
-                                removedS.forEach { spatialIndexManager.removeStroke(it.id) }
+                                val removedS = selectedStrokeIds.mapNotNull { strokeMap[it] }
+                                val removedI = selectedImageIds.mapNotNull { imageMap[it] }
+                                removedS.forEach { 
+                                    strokeMap.remove(it.id)
+                                    strokeOrder.remove(it.id)
+                                    spatialIndexManager.removeStroke(it.id) 
+                                }
+                                removedI.forEach {
+                                    imageMap.remove(it.id)
+                                    imageOrder.remove(it.id)
+                                }
                                 recordAction(DrawingAction.Remove(strokes = removedS, images = removedI))
                                 selectedStrokeIds = emptySet(); selectedImageIds = emptySet()
                                 showSelectionThicknessPopup = false; showSelectionColorPopup = false
@@ -1991,7 +2091,7 @@ fun DrawingNoteScreen(
                             if (selectedStrokeIds.isNotEmpty()) {
                                 VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
                                 IconButton(onClick = { showSelectionColorPopup = !showSelectionColorPopup; showSelectionThicknessPopup = false }) {
-                                    val firstColor = strokes.find { it.id in selectedStrokeIds }?.colorArgb ?: Color.Black.toArgb()
+                                    val firstColor = strokeMap[selectedStrokeIds.first()]?.colorArgb ?: Color.Black.toArgb()
                                     Box(modifier = Modifier.size(20.dp).clip(CircleShape).background(Color(firstColor)).border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f), CircleShape))
                                 }
                                 IconButton(onClick = { showSelectionThicknessPopup = !showSelectionThicknessPopup; showSelectionColorPopup = false }) { Icon(Icons.Rounded.LineWeight, contentDescription = "Thickness") }
@@ -2002,10 +2102,26 @@ fun DrawingNoteScreen(
                     Column(
                         modifier = Modifier
                             .offset {
-                                val screenX = bounds.center.x * canvasScale + canvasOffset.x
-                                val screenY = bounds.top * canvasScale + canvasOffset.y
+                                val liveXform = activeTransformation
+                                var x = bounds.center.x
+                                var y = bounds.top
+                                var bBottom = bounds.bottom
+                                
+                                if (liveXform != null) {
+                                    liveXform.offset?.let { x += it.x; y += it.y; bBottom += it.y }
+                                    if (liveXform.scale != null && liveXform.pivot != null) {
+                                        val sx = liveXform.scale.x; val sy = liveXform.scale.y
+                                        val px = liveXform.pivot.x; val py = liveXform.pivot.y
+                                        x = px + (x - px) * sx
+                                        y = py + (y - py) * sy
+                                        bBottom = py + (bBottom - py) * sy
+                                    }
+                                }
+
+                                val screenX = x * canvasScale + canvasOffset.x
+                                val screenY = y * canvasScale + canvasOffset.y
                                 val isTooHigh = screenY < 200f
-                                val yOffset = if (isTooHigh) (bounds.bottom * canvasScale + canvasOffset.y + px16) else (screenY - px64)
+                                val yOffset = if (isTooHigh) (bBottom * canvasScale + canvasOffset.y + px16) else (screenY - px64)
                                 IntOffset((screenX - 100.dp.toPx()).roundToInt(), (yOffset + (if (isTooHigh) 60.dp.toPx() else -200.dp.toPx())).roundToInt())
                             }
                             .zIndex(15f),
@@ -2013,12 +2129,14 @@ fun DrawingNoteScreen(
                     ) {
                         if (showSelectionColorPopup) {
                             ColorPopup(
-                                selectedColor = Color(strokes.find { it.id in selectedStrokeIds }?.colorArgb ?: Color.Black.toArgb()),
+                                selectedColor = Color(strokeMap[selectedStrokeIds.first()]?.colorArgb ?: Color.Black.toArgb()),
                                 onColorChange = { newColor ->
-                                    val oldS = strokes.filter { it.id in selectedStrokeIds }
+                                    val oldS = selectedStrokeIds.mapNotNull { strokeMap[it] }
                                     val newS = oldS.map { it.copy(colorArgb = newColor.toArgb()) }
-                                    strokes = strokes.map { s -> if (s.id in selectedStrokeIds) s.copy(colorArgb = newColor.toArgb()) else s }
-                                    oldS.zip(newS).forEach { (old, new) -> spatialIndexManager.updateStroke(old, new) }
+                                    oldS.zip(newS).forEach { (old, new) -> 
+                                        strokeMap[new.id] = new
+                                        spatialIndexManager.updateStroke(old, new) 
+                                    }
                                     recordAction(DrawingAction.Transform(oldStrokes = oldS, newStrokes = newS, sharesPoints = true))
                                     showSelectionColorPopup = false
                                     isDirty = true
@@ -2028,16 +2146,18 @@ fun DrawingNoteScreen(
                         }
                         if (showSelectionThicknessPopup) {
                             ThicknessPopup(
-                                thickness = strokes.find { it.id in selectedStrokeIds }?.width ?: 2.5f,
+                                thickness = strokeMap[selectedStrokeIds.first()]?.width ?: 2.5f,
                                 onThicknessChange = { newWidth -> 
-                                    val oldS = strokes.filter { it.id in selectedStrokeIds }
+                                    val oldS = selectedStrokeIds.mapNotNull { strokeMap[it] }
                                     val newS = oldS.map { it.copy(width = newWidth) }
-                                    strokes = strokes.map { s -> if (s.id in selectedStrokeIds) s.copy(width = newWidth) else s }
-                                    oldS.zip(newS).forEach { (old, new) -> spatialIndexManager.updateStroke(old, new) }
+                                    oldS.zip(newS).forEach { (old, new) -> 
+                                        strokeMap[new.id] = new
+                                        spatialIndexManager.updateStroke(old, new) 
+                                    }
                                     recordAction(DrawingAction.Transform(oldStrokes = oldS, newStrokes = newS, sharesPoints = true))
                                     isDirty = true
                                 },
-                                color = Color(strokes.find { it.id in selectedStrokeIds }?.colorArgb ?: Color.Black.toArgb()),
+                                color = Color(strokeMap[selectedStrokeIds.first()]?.colorArgb ?: Color.Black.toArgb()),
                                 min = 0.5f,
                                 max = 50f
                             )
@@ -2448,7 +2568,7 @@ private fun exportToPng(
             pageHeights.add(h)
         }
     } else {
-        val bounds = if (strokes.isNotEmpty() || images.isNotEmpty()) getBoundsLocal(strokes, images) else Rect(0f, 0f, size.width.toFloat().coerceAtLeast(1f), size.height.toFloat().coerceAtLeast(1f))
+        val bounds = if (strokes.isNotEmpty() || images.isNotEmpty()) getBounds(strokes, images) else Rect(0f, 0f, size.width.toFloat().coerceAtLeast(1f), size.height.toFloat().coerceAtLeast(1f))
         totalWidth = (bounds.width + padding * 2).toInt()
         totalHeight = (bounds.height + padding * 2).toInt()
         pageHeights.add(totalHeight)
@@ -2521,7 +2641,7 @@ private fun exportToPng(
             currentY += pageLayout.height + pageLayout.spacing
         }
     } else {
-        val bounds = if (strokes.isNotEmpty() || images.isNotEmpty()) getBoundsLocal(strokes, images) else Rect(0f, 0f, size.width.toFloat().coerceAtLeast(1f), size.height.toFloat().coerceAtLeast(1f))
+        val bounds = if (strokes.isNotEmpty() || images.isNotEmpty()) getBounds(strokes, images) else Rect(0f, 0f, size.width.toFloat().coerceAtLeast(1f), size.height.toFloat().coerceAtLeast(1f))
         canvas.translate(-bounds.left + padding, -bounds.top + padding)
         drawOverlays(canvas, strokes, images, null, 0f)
     }
@@ -2661,7 +2781,7 @@ private fun exportToPdf(
         }
     } else {
         // Infinite Canvas
-        val bounds = if (strokes.isNotEmpty() || images.isNotEmpty()) getBoundsLocal(strokes, images) else Rect(0f, 0f, size.width.toFloat().coerceAtLeast(1f), size.height.toFloat().coerceAtLeast(1f))
+        val bounds = if (strokes.isNotEmpty() || images.isNotEmpty()) getBounds(strokes, images) else Rect(0f, 0f, size.width.toFloat().coerceAtLeast(1f), size.height.toFloat().coerceAtLeast(1f))
         val padding = 40f
         val exportWidth = (bounds.width + padding * 2).toInt().coerceAtLeast(1)
         val exportHeight = (bounds.height + padding * 2).toInt().coerceAtLeast(1)
@@ -2677,13 +2797,6 @@ private fun exportToPdf(
     pdfDocument.close()
 }
 
-private fun getBoundsLocal(strokes: List<com.ozon.notes.Stroke>, images: List<com.ozon.notes.DrawingImage>): Rect {
-    if (strokes.isEmpty() && images.isEmpty()) return Rect.Zero
-    var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
-    strokes.forEach { s -> val halfWidth = s.width / 2f; s.points.forEach { p -> minX = minOf(minX, p.x - halfWidth); minY = minOf(minY, p.y - halfWidth); maxX = maxOf(maxX, p.x + halfWidth); maxY = maxOf(maxY, p.y + halfWidth) } }
-    images.forEach { img -> minX = minOf(minX, img.offset.x); minY = minOf(minY, img.offset.y); maxX = maxOf(maxX, img.offset.x + img.scale.x); maxY = maxOf(maxY, img.offset.y + img.scale.y) }
-    return Rect(minX, minY, maxX, maxY)
-}
 
 private fun distanceToSegmentSq(px: Float, py: Float, x1: Float, y1: Float, x2: Float, y2: Float): Float {
     val dx = x2 - x1
@@ -2718,7 +2831,7 @@ private fun SelectionExportDialog(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                val bounds = remember(strokes, images) { getBoundsLocal(strokes, images) }
+        val bounds = remember(strokes, images) { getBounds(strokes, images) }
                 Box(
                     modifier = Modifier
                         .size(240.dp)
