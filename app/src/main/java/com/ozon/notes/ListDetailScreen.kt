@@ -1099,8 +1099,8 @@ fun ListDetailScreen(
                                         if (tagNames.isNotEmpty() && !isSequel && !isPrequel) {
                                             FlowRow(
                                                 modifier = Modifier.padding(top = 8.dp),
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
                                                 tagNames.forEach { name ->
                                                     Surface(
@@ -1109,9 +1109,10 @@ fun ListDetailScreen(
                                                     ) {
                                                         Text(
                                                             text = name,
-                                                            style = MaterialTheme.typography.labelSmall,
+                                                            style = MaterialTheme.typography.labelMedium,
+                                                            fontWeight = FontWeight.Medium,
                                                             color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                                         )
                                                     }
                                                 }
@@ -1271,8 +1272,8 @@ fun ListDetailScreen(
                                         if (tagNames.isNotEmpty() && !isSequel && !isPrequel) {
                                             FlowRow(
                                                 modifier = Modifier.padding(top = 8.dp),
-                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                verticalArrangement = Arrangement.spacedBy(6.dp)
                                             ) {
                                                 tagNames.forEach { name ->
                                                     Surface(
@@ -1281,9 +1282,10 @@ fun ListDetailScreen(
                                                     ) {
                                                         Text(
                                                             text = name,
-                                                            style = MaterialTheme.typography.labelSmall,
+                                                            style = MaterialTheme.typography.labelMedium,
+                                                            fontWeight = FontWeight.Medium,
                                                             color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                                         )
                                                     }
                                                 }
@@ -2926,9 +2928,10 @@ private fun PreviewSubEntryItem(
                                 ) {
                                     Text(
                                         text = name,
-                                        style = MaterialTheme.typography.labelSmall,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Medium,
                                         color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                                     )
                                 }
                             }
