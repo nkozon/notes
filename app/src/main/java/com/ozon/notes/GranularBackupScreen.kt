@@ -55,6 +55,7 @@ fun GranularBackupScreen(
     val lists by notesViewModel.listsState.collectAsStateWithLifecycle()
     
     var pendingExportData by remember { mutableStateOf<BackupData?>(null) }
+    
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
@@ -65,9 +66,10 @@ fun GranularBackupScreen(
                     try {
                         context.contentResolver.openOutputStream(it)?.use { outputStream ->
                             json.encodeToStream(data, outputStream)
-                        }
-                        true
+                            true
+                        } ?: false
                     } catch (e: Exception) {
+                        e.printStackTrace()
                         false
                     }
                 }

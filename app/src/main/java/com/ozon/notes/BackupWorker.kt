@@ -46,7 +46,9 @@ class BackupWorker(
             val data = repository.getBackupData()
             
             applicationContext.contentResolver.openOutputStream(file.uri)?.use { stream ->
-                kotlinx.serialization.json.Json.encodeToStream(data, stream)
+                val jsonString = kotlinx.serialization.json.Json.encodeToString(data)
+                stream.write(jsonString.toByteArray())
+                stream.flush()
             }
             
             repository.setLastBackupTime(System.currentTimeMillis())

@@ -75,9 +75,10 @@ fun BackupRestoreScreen(
                         try {
                             context.contentResolver.openOutputStream(it)?.use { outputStream ->
                                 json.encodeToStream(data, outputStream)
-                            }
-                            true
+                                true
+                            } ?: false
                         } catch (e: Exception) {
+                            e.printStackTrace()
                             false
                         }
                     }

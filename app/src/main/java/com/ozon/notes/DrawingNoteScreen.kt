@@ -99,6 +99,68 @@ sealed class DrawingAction {
     ) : DrawingAction()
 }
 
+class SpatialIndexManager(private val gridSize: Float) {
+    var spatialIndex = mutableMapOf<Pair<Int, Int>, MutableList<String>>()
+    var strokeBoundsMap = mutableMapOf<String, Rect>()
+    var strokeMap = mutableMapOf<String, com.ozon.notes.Stroke>()
+
+    fun reset(initialStrokes: List<com.ozon.notes.Stroke>) {
+        spatialIndex = mutableMapOf()
+        strokeBoundsMap = mutableMapOf()
+        strokeMap = mutableMapOf()
+        initialStrokes.forEach { addStroke(it) }
+    }
+
+    fun addStroke(stroke: com.ozon.notes.Stroke) {
+        val rect = computeStrokeBounds(stroke)
+        strokeBoundsMap[stroke.id] = rect
+        strokeMap[stroke.id] = stroke
+        val minGX = (rect.left / gridSize).toInt()
+        val maxGX = (rect.right / gridSize).toInt()
+        val minGY = (rect.top / gridSize).toInt()
+        val maxGY = (rect.bottom / gridSize).toInt()
+        for (gx in minGX..maxGX) {
+            for (gy in minGY..maxGY) {
+                spatialIndex.getOrPut(gx to gy) { mutableListOf() }.add(stroke.id)
+            }
+        }
+    }
+
+    fun removeStroke(strokeId: String) {
+        val rect = strokeBoundsMap.remove(strokeId)
+        strokeMap.remove(strokeId)
+        if (rect != null) {
+            val minGX = (rect.left / gridSize).toInt()
+            val maxGX = (rect.right / gridSize).toInt()
+            val minGY = (rect.top / gridSize).toInt()
+            val maxGY = (rect.bottom / gridSize).toInt()
+            for (gx in minGX..maxGX) {
+                for (gy in minGY..maxGY) {
+                    spatialIndex[gx to gy]?.remove(strokeId)
+                }
+            }
+        }
+    }
+
+    fun updateStroke(oldStroke: com.ozon.notes.Stroke, newStroke: com.ozon.notes.Stroke) {
+        removeStroke(oldStroke.id)
+        addStroke(newStroke)
+    }
+
+    fun computeStrokeBounds(stroke: com.ozon.notes.Stroke): Rect {
+        val hw = stroke.width / 2f
+        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
+        stroke.points.forEach { p ->
+            if (p.x - hw < minX) minX = p.x - hw
+            if (p.x + hw > maxX) maxX = p.x + hw
+            if (p.y - hw < minY) minY = p.y - hw
+            if (p.y + hw > maxY) maxY = p.y + hw
+        }
+        if (minX == Float.MAX_VALUE) return Rect.Zero
+        return Rect(minX, minY, maxX, maxY)
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DrawingNoteScreen(
@@ -366,55 +428,12 @@ fun DrawingNoteScreen(
     val updatedCanvasScale by rememberUpdatedState(canvasScale)
     val updatedForceStylus by rememberUpdatedState(forceStylusOnly)
 
-    var strokeBoundsMap by remember { mutableStateOf<Map<String, Rect>>(emptyMap()) }
-    var spatialIndex by remember { mutableStateOf<Map<Pair<Int, Int>, List<String>>>(emptyMap()) }
-    var strokeMap by remember { mutableStateOf<Map<String, com.ozon.notes.Stroke>>(emptyMap()) }
+    val spatialIndexManager = remember { SpatialIndexManager(SPATIAL_GRID_SIZE) }
     
     // Reference cache to detect if points changed for an ID
     val strokeRefCache = remember { java.util.concurrent.ConcurrentHashMap<String, com.ozon.notes.Stroke>() }
     
-    LaunchedEffect(strokes) {
-        withContext(Dispatchers.Default) {
-            val currentBounds = strokeBoundsMap
-            val newBounds = HashMap<String, Rect>(strokes.size)
-
-            strokes.forEach { stroke ->
-                val lastStroke = strokeRefCache[stroke.id]
-                val rect = if (lastStroke === stroke && currentBounds.containsKey(stroke.id)) {
-                    currentBounds[stroke.id]!!
-                } else {
-                    strokeRefCache[stroke.id] = stroke
-                    val hw = stroke.width / 2f
-                    var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
-                    stroke.points.forEach { p ->
-                        if (p.x - hw < minX) minX = p.x - hw
-                        if (p.x + hw > maxX) maxX = p.x + hw
-                        if (p.y - hw < minY) minY = p.y - hw
-                        if (p.y + hw > maxY) maxY = p.y + hw
-                    }
-                    Rect(minX, minY, maxX, maxY)
-                }
-                newBounds[stroke.id] = rect
-            }
-            
-            val newIndex = mutableMapOf<Pair<Int, Int>, MutableList<String>>()
-            newBounds.forEach { (id, rect) ->
-                val minGX = (rect.left / SPATIAL_GRID_SIZE).toInt()
-                val maxGX = (rect.right / SPATIAL_GRID_SIZE).toInt()
-                val minGY = (rect.top / SPATIAL_GRID_SIZE).toInt()
-                val maxGY = (rect.bottom / SPATIAL_GRID_SIZE).toInt()
-                for (gx in minGX..maxGX) {
-                    for (gy in minGY..maxGY) {
-                        newIndex.getOrPut(gx to gy) { mutableListOf() }.add(id)
-                    }
-                }
-            }
-            
-            strokeBoundsMap = newBounds
-            spatialIndex = newIndex
-            strokeMap = strokes.associateBy { it.id }
-        }
-    }
+    // We no longer need the full rebuild LaunchedEffect(strokes)
 
     val lodCaches = remember { List(4) { java.util.concurrent.ConcurrentHashMap<String, android.graphics.Path>() } }
     val renderPaint = remember {
@@ -427,19 +446,6 @@ fun DrawingNoteScreen(
     }
     val selectedColorArgb = remember { Color.Blue.copy(alpha = 0.6f).toArgb() }
     val batchedPaths = remember { mutableMapOf<Long, android.graphics.Path>() }
-
-    fun computeStrokeBounds(stroke: com.ozon.notes.Stroke): Rect {
-        val hw = stroke.width / 2f
-        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
-        var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
-        stroke.points.forEach { p ->
-            if (p.x - hw < minX) minX = p.x - hw
-            if (p.x + hw > maxX) maxX = p.x + hw
-            if (p.y - hw < minY) minY = p.y - hw
-            if (p.y + hw > maxY) maxY = p.y + hw
-        }
-        return Rect(minX, minY, maxX, maxY)
-    }
 
     // High-fidelity path builder: preserves smooth natural handwriting curves with minimal sub-pixel filtering
     fun buildPathForLod(stroke: com.ozon.notes.Stroke, lodThreshold: Float): android.graphics.Path {
@@ -533,20 +539,24 @@ fun DrawingNoteScreen(
                     val imageIds = action.images.map { it.id }.toSet()
                     strokes = strokes.filter { it.id !in strokeIds }
                     images = images.filter { it.id !in imageIds }
+                    action.strokes.forEach { spatialIndexManager.removeStroke(it.id) }
                 } else {
                     strokes = strokes + action.strokes
                     images = images + action.images
+                    action.strokes.forEach { spatialIndexManager.addStroke(it) }
                 }
             }
             is DrawingAction.Remove -> {
                 if (isUndo) {
                     strokes = strokes + action.strokes
                     images = images + action.images
+                    action.strokes.forEach { spatialIndexManager.addStroke(it) }
                 } else {
                     val strokeIds = action.strokes.map { it.id }.toSet()
                     val imageIds = action.images.map { it.id }.toSet()
                     strokes = strokes.filter { it.id !in strokeIds }
                     images = images.filter { it.id !in imageIds }
+                    action.strokes.forEach { spatialIndexManager.removeStroke(it.id) }
                 }
             }
             is DrawingAction.Transform -> {
@@ -554,10 +564,17 @@ fun DrawingNoteScreen(
                 val replacementImages = (if (isUndo) action.oldImages else action.newImages).associateBy { it.id }
                 strokes = strokes.map { replacementStrokes[it.id] ?: it }
                 images = images.map { replacementImages[it.id] ?: it }
+
+                if (isUndo) {
+                    action.newStrokes.forEach { spatialIndexManager.removeStroke(it.id) }
+                    action.oldStrokes.forEach { spatialIndexManager.addStroke(it) }
+                } else {
+                    action.oldStrokes.forEach { spatialIndexManager.removeStroke(it.id) }
+                    action.newStrokes.forEach { spatialIndexManager.addStroke(it) }
+                }
             }
         }
         lodCaches.forEach { it.clear() }
-        strokeBoundsMap = emptyMap()
         isDirty = true
     }
 
@@ -622,7 +639,9 @@ fun DrawingNoteScreen(
             val note = notesViewModel.getNoteById(noteId)
             if (note != null && note.type == NoteType.DRAWING) {
                 title = note.title
-                strokes = note.drawingData?.strokes ?: emptyList()
+                val initialStrokes = note.drawingData?.strokes ?: emptyList()
+                strokes = initialStrokes
+                spatialIndexManager.reset(initialStrokes)
                 images = note.drawingData?.images ?: emptyList()
                 
                 canvasType = note.drawingData?.canvasType ?: CanvasType.INFINITE
@@ -840,6 +859,7 @@ fun DrawingNoteScreen(
             val offsetY = worldCenter.y - b.center.y
             val pasted = clipboard.map { s -> s.copy(id = UUID.randomUUID().toString(), points = s.points.map { DrawingPoint(it.x + offsetX, it.y + offsetY) }) }
             strokes = strokes + pasted
+            pasted.forEach { spatialIndexManager.addStroke(it) }
             recordAction(DrawingAction.Add(strokes = pasted))
             selectedStrokeIds = pasted.map { it.id }.toSet()
             isDirty = true
@@ -1162,8 +1182,7 @@ fun DrawingNoteScreen(
                                                     width = penThickness,
                                                     tool = currentWorkingTool
                                                 )
-                                                val newStrokeBounds = computeStrokeBounds(newStroke)
-                                                strokeBoundsMap = strokeBoundsMap + (newStroke.id to newStrokeBounds)
+                                                spatialIndexManager.addStroke(newStroke)
                                                 strokeRefCache[newStroke.id] = newStroke
                                                 strokes = updatedStrokes + newStroke
                                                 recordAction(DrawingAction.Add(strokes = listOf(newStroke)))
@@ -1183,6 +1202,10 @@ fun DrawingNoteScreen(
                                                 val newS = strokes.filter { it.id in selectedStrokesAtStart }
                                                 val oldI = imagesAtStart.filter { it.id in selectedImagesAtStart }
                                                 val newI = images.filter { it.id in selectedImagesAtStart }
+                                                
+                                                oldS.forEach { spatialIndexManager.removeStroke(it.id) }
+                                                newS.forEach { spatialIndexManager.addStroke(it) }
+
                                                 recordAction(DrawingAction.Transform(
                                                     oldStrokes = oldS, newStrokes = newS,
                                                     oldImages = oldI, newImages = newI
@@ -1205,8 +1228,7 @@ fun DrawingNoteScreen(
                                                     width = penThickness,
                                                     tool = currentWorkingTool
                                                 )
-                                                val newStrokeBounds = computeStrokeBounds(newStroke)
-                                                strokeBoundsMap = strokeBoundsMap + (newStroke.id to newStrokeBounds)
+                                                spatialIndexManager.addStroke(newStroke)
                                                 strokeRefCache[newStroke.id] = newStroke
                                                 strokes = updatedStrokes + newStroke
                                                 recordAction(DrawingAction.Add(strokes = listOf(newStroke)))
@@ -1313,15 +1335,15 @@ fun DrawingNoteScreen(
                                                     val candidateIds = mutableSetOf<String>()
                                                     for (gx in minGX..maxGX) {
                                                         for (gy in minGY..maxGY) {
-                                                            spatialIndex[gx to gy]?.let { candidateIds.addAll(it) }
+                                                            spatialIndexManager.spatialIndex[gx to gy]?.let { candidateIds.addAll(it) }
                                                         }
                                                     }
 
-                                                    val toErase = candidateIds.mapNotNull { strokeMap[it] }.filter { stroke ->
+                                                    val toErase = candidateIds.mapNotNull { spatialIndexManager.strokeMap[it] }.filter { stroke ->
                                                         if (stroke.tool == DrawingTool.ERASER) {
                                                             false
                                                         } else {
-                                                            val bounds = strokeBoundsMap[stroke.id]
+                                                            val bounds = spatialIndexManager.strokeBoundsMap[stroke.id]
                                                             if (bounds != null && !bounds.overlaps(eraseRect)) {
                                                                 false
                                                             } else {
@@ -1352,6 +1374,7 @@ fun DrawingNoteScreen(
                                                     
                                                     if (toErase.isNotEmpty()) {
                                                         gestureRemovedStrokes.addAll(toErase)
+                                                        toErase.forEach { spatialIndexManager.removeStroke(it.id) }
                                                         strokes = strokes.filterNot { it in toErase }
                                                         isDirty = true
                                                     }
@@ -1403,12 +1426,12 @@ fun DrawingNoteScreen(
                                         val candidateIds = mutableSetOf<String>()
                                         for (gx in minGX..maxGX) {
                                             for (gy in minGY..maxGY) {
-                                                spatialIndex[gx to gy]?.let { candidateIds.addAll(it) }
+                                                spatialIndexManager.spatialIndex[gx to gy]?.let { candidateIds.addAll(it) }
                                             }
                                         }
 
                                         val newIds = mutableSetOf<String>()
-                                        val penStrokes = candidateIds.mapNotNull { strokeMap[it] }.filter { it.tool != DrawingTool.ERASER && it.points.any { pt -> region.contains((pt.x * scaleFactor).toInt(), (pt.y * scaleFactor).toInt()) } }
+                                        val penStrokes = candidateIds.mapNotNull { spatialIndexManager.strokeMap[it] }.filter { it.tool != DrawingTool.ERASER && it.points.any { pt -> region.contains((pt.x * scaleFactor).toInt(), (pt.y * scaleFactor).toInt()) } }
                                         penStrokes.forEach { newIds.add(it.id) }
                                         
                                         if (newIds.isNotEmpty()) {
@@ -1422,11 +1445,11 @@ fun DrawingNoteScreen(
                                             val eraserCandidates = mutableSetOf<String>()
                                             for (gx in minEGX..maxEGX) {
                                                 for (gy in minEGY..maxEGY) {
-                                                    spatialIndex[gx to gy]?.let { eraserCandidates.addAll(it) }
+                                                    spatialIndexManager.spatialIndex[gx to gy]?.let { eraserCandidates.addAll(it) }
                                                 }
                                             }
-                                            
-                                            eraserCandidates.mapNotNull { strokeMap[it] }.filter { it.tool == DrawingTool.ERASER }.forEach { eraser -> if (eraser.points.any { pt -> selBounds.contains(Offset(pt.x, pt.y)) }) newIds.add(eraser.id) }
+
+                                            eraserCandidates.mapNotNull { spatialIndexManager.strokeMap[it] }.filter { it.tool == DrawingTool.ERASER }.forEach { eraser -> if (eraser.points.any { pt -> selBounds.contains(Offset(pt.x, pt.y)) }) newIds.add(eraser.id) }
                                         }
                                         
                                         selectedStrokeIds = newIds
@@ -1584,7 +1607,7 @@ fun DrawingNoteScreen(
                     val nativeCanvas = drawContext.canvas.nativeCanvas
 
                     strokes.forEach { stroke ->
-                        val bounds = strokeBoundsMap[stroke.id] ?: computeStrokeBounds(stroke)
+                        val bounds = spatialIndexManager.strokeBoundsMap[stroke.id] ?: spatialIndexManager.computeStrokeBounds(stroke)
                         // Fast bounds rejection allows Skia to skip tessellating strokes outside the viewport
                         if (vRight >= bounds.left && vLeft <= bounds.right && vBottom >= bounds.top && vTop <= bounds.bottom) {
                             val colorArgb = if (!isSelectionEmpty && stroke.id in selectedStrokeIds) selectedColorArgb else stroke.colorArgb
@@ -1729,6 +1752,7 @@ fun DrawingNoteScreen(
                                 val newImages = images.filter { it.id in selectedImageIds }.map { img -> img.copy(id = UUID.randomUUID().toString(), offset = DrawingPoint(img.offset.x + 20f, img.offset.y + 20f)) }
                                 strokes = strokes + newStrokes
                                 images = images + newImages
+                                newStrokes.forEach { spatialIndexManager.addStroke(it) }
                                 recordAction(DrawingAction.Add(strokes = newStrokes, images = newImages))
                                 selectedStrokeIds = newStrokes.map { it.id }.toSet()
                                 selectedImageIds = newImages.map { it.id }.toSet()
@@ -1740,6 +1764,7 @@ fun DrawingNoteScreen(
                                 val removedI = images.filter { it.id in selectedImageIds }
                                 strokes = strokes.filterNot { it.id in selectedStrokeIds }
                                 images = images.filterNot { it.id in selectedImageIds }
+                                removedS.forEach { spatialIndexManager.removeStroke(it.id) }
                                 recordAction(DrawingAction.Remove(strokes = removedS, images = removedI))
                                 selectedStrokeIds = emptySet(); selectedImageIds = emptySet()
                                 showSelectionThicknessPopup = false; showSelectionColorPopup = false
@@ -1775,6 +1800,7 @@ fun DrawingNoteScreen(
                                     val oldS = strokes.filter { it.id in selectedStrokeIds }
                                     val newS = oldS.map { it.copy(colorArgb = newColor.toArgb()) }
                                     strokes = strokes.map { s -> if (s.id in selectedStrokeIds) s.copy(colorArgb = newColor.toArgb()) else s }
+                                    oldS.zip(newS).forEach { (old, new) -> spatialIndexManager.updateStroke(old, new) }
                                     recordAction(DrawingAction.Transform(oldStrokes = oldS, newStrokes = newS))
                                     showSelectionColorPopup = false
                                     isDirty = true
@@ -1789,6 +1815,7 @@ fun DrawingNoteScreen(
                                     val oldS = strokes.filter { it.id in selectedStrokeIds }
                                     val newS = oldS.map { it.copy(width = newWidth) }
                                     strokes = strokes.map { s -> if (s.id in selectedStrokeIds) s.copy(width = newWidth) else s }
+                                    oldS.zip(newS).forEach { (old, new) -> spatialIndexManager.updateStroke(old, new) }
                                     recordAction(DrawingAction.Transform(oldStrokes = oldS, newStrokes = newS))
                                     isDirty = true
                                 },
