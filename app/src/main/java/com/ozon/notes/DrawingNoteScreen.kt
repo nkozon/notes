@@ -210,9 +210,11 @@ class UndoStackManager(private val maxMemoryBytes: Long = 32L * 1024 * 1024) {
 }
 
 class SpatialIndexManager(private val gridSize: Float) {
-    var spatialIndex = mutableMapOf<Pair<Int, Int>, MutableList<String>>()
+    var spatialIndex = mutableMapOf<Long, MutableList<String>>()
     var strokeBoundsMap = mutableMapOf<String, Rect>()
     var strokeMap = mutableMapOf<String, com.ozon.notes.Stroke>()
+
+    fun gridKey(x: Int, y: Int): Long = (x.toLong() shl 32) xor (y.toLong() and 0xffffffffL)
 
     fun reset(initialStrokes: List<com.ozon.notes.Stroke>) {
         spatialIndex = mutableMapOf()
@@ -231,7 +233,7 @@ class SpatialIndexManager(private val gridSize: Float) {
         val maxGY = (rect.bottom / gridSize).toInt()
         for (gx in minGX..maxGX) {
             for (gy in minGY..maxGY) {
-                spatialIndex.getOrPut(gx to gy) { mutableListOf() }.add(stroke.id)
+                spatialIndex.getOrPut(gridKey(gx, gy)) { mutableListOf() }.add(stroke.id)
             }
         }
     }
@@ -246,7 +248,11 @@ class SpatialIndexManager(private val gridSize: Float) {
             val maxGY = (rect.bottom / gridSize).toInt()
             for (gx in minGX..maxGX) {
                 for (gy in minGY..maxGY) {
-                    spatialIndex[gx to gy]?.remove(strokeId)
+                    val key = gridKey(gx, gy)
+                    spatialIndex[key]?.let { ids ->
+                        ids.remove(strokeId)
+                        if (ids.isEmpty()) spatialIndex.remove(key)
+                    }
                 }
             }
         }
@@ -1592,7 +1598,7 @@ fun DrawingNoteScreen(
                                                     val candidateIds = mutableSetOf<String>()
                                                     for (gx in minGX..maxGX) {
                                                         for (gy in minGY..maxGY) {
-                                                            spatialIndexManager.spatialIndex[gx to gy]?.let { candidateIds.addAll(it) }
+                                                            spatialIndexManager.spatialIndex[spatialIndexManager.gridKey(gx, gy)]?.let { candidateIds.addAll(it) }
                                                         }
                                                     }
 
@@ -1686,7 +1692,7 @@ fun DrawingNoteScreen(
                                         val candidateIds = mutableSetOf<String>()
                                         for (gx in minGX..maxGX) {
                                             for (gy in minGY..maxGY) {
-                                                spatialIndexManager.spatialIndex[gx to gy]?.let { candidateIds.addAll(it) }
+                                                spatialIndexManager.spatialIndex[spatialIndexManager.gridKey(gx, gy)]?.let { candidateIds.addAll(it) }
                                             }
                                         }
 
@@ -1705,7 +1711,7 @@ fun DrawingNoteScreen(
                                             val eraserCandidates = mutableSetOf<String>()
                                             for (gx in minEGX..maxEGX) {
                                                 for (gy in minEGY..maxEGY) {
-                                                    spatialIndexManager.spatialIndex[gx to gy]?.let { eraserCandidates.addAll(it) }
+                                                    spatialIndexManager.spatialIndex[spatialIndexManager.gridKey(gx, gy)]?.let { eraserCandidates.addAll(it) }
                                                 }
                                             }
 
@@ -1897,7 +1903,7 @@ fun DrawingNoteScreen(
                         val candidateIds = mutableSetOf<String>()
                         for (gx in minGX..maxGX) {
                             for (gy in minGY..maxGY) {
-                                spatialIndexManager.spatialIndex[gx to gy]?.let { candidateIds.addAll(it) }
+                                spatialIndexManager.spatialIndex[spatialIndexManager.gridKey(gx, gy)]?.let { candidateIds.addAll(it) }
                             }
                         }
                         
