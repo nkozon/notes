@@ -240,6 +240,94 @@ class SpatialIndexManager(private val gridSize: Float) {
     }
 }
 
+class PdfBitmapCacheManager(private val maxMemoryBytes: Long = 48L * 1024 * 1024) {
+    val bitmaps = mutableStateMapOf<Int, Bitmap>()
+    val scales = mutableMapOf<Int, Float>()
+    private val accessOrder = mutableListOf<Int>()
+    private var currentSize = 0L
+
+    fun get(index: Int): Bitmap? {
+        val bitmap = bitmaps[index]
+        if (bitmap != null) {
+            markAccessed(index)
+        }
+        return bitmap
+    }
+
+    fun markAccessed(index: Int) {
+        if (bitmaps.containsKey(index)) {
+            accessOrder.remove(index)
+            accessOrder.add(index)
+        }
+    }
+
+    fun put(index: Int, bitmap: Bitmap, scale: Float) {
+        val oldBitmap = bitmaps[index]
+        if (oldBitmap != null) {
+            currentSize -= oldBitmap.allocationByteCount
+            oldBitmap.recycle()
+        }
+        
+        bitmaps[index] = bitmap
+        scales[index] = scale
+        currentSize += bitmap.allocationByteCount
+        
+        accessOrder.remove(index)
+        accessOrder.add(index)
+        
+        evictIfNeeded()
+    }
+
+    private fun evictIfNeeded() {
+        while (currentSize > maxMemoryBytes && accessOrder.isNotEmpty()) {
+            val indexToRemove = accessOrder.removeAt(0)
+            val bitmap = bitmaps.remove(indexToRemove)
+            scales.remove(indexToRemove)
+            if (bitmap != null) {
+                currentSize -= bitmap.allocationByteCount
+                bitmap.recycle()
+            }
+        }
+    }
+
+    fun clear() {
+        bitmaps.values.forEach { it.recycle() }
+        bitmaps.clear()
+        scales.clear()
+        accessOrder.clear()
+        currentSize = 0L
+    }
+}
+
+class LruPathCache(private val maxSize: Int) {
+    private val cache = object : LinkedHashMap<String, android.graphics.Path>(maxSize, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, android.graphics.Path>?): Boolean {
+            return size > maxSize
+        }
+    }
+
+    @Synchronized
+    fun get(id: String): android.graphics.Path? = cache[id]
+
+    @Synchronized
+    fun put(id: String, path: android.graphics.Path) {
+        cache[id] = path
+    }
+
+    @Synchronized
+    fun remove(id: String) {
+        cache.remove(id)
+    }
+
+    @Synchronized
+    fun clear() {
+        cache.clear()
+    }
+
+    @Synchronized
+    fun keys(): Set<String> = cache.keys.toSet()
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DrawingNoteScreen(
@@ -359,8 +447,7 @@ fun DrawingNoteScreen(
     val updatedImages by rememberUpdatedState(images)
     val updatedSelectedStrokeIds by rememberUpdatedState(selectedStrokeIds)
     val updatedSelectedImageIds by rememberUpdatedState(selectedImageIds)
-    val pdfPageBitmaps = remember { mutableStateMapOf<Int, Bitmap>() }
-    val pdfPageScales = remember { mutableStateMapOf<Int, Float>() }
+    val pdfBitmapCache = remember { PdfBitmapCacheManager() }
     var pdfRenderer by remember { mutableStateOf<PdfRenderer?>(null) }
 
     DisposableEffect(pdfInfo) {
@@ -383,6 +470,7 @@ fun DrawingNoteScreen(
             pdfRenderer = null
             renderer?.close()
             pfd?.close()
+            pdfBitmapCache.clear()
         }
     }
 
@@ -446,12 +534,13 @@ fun DrawingNoteScreen(
                         kotlinx.coroutines.yield()
                         
                         val targetQuality = (canvasScale * 1.3f).coerceIn(0.7f, 2.2f)
-                        val currentQuality = pdfPageScales[i] ?: 0f
+                        val currentQuality = pdfBitmapCache.scales[i] ?: 0f
                         
                         val needsHigherQuality = targetQuality > currentQuality * 1.15f
                         val needsLowerQuality = currentQuality > targetQuality * 2.5f
                         
-                        if (!pdfPageBitmaps.containsKey(i) || needsHigherQuality || needsLowerQuality) {
+                        val existingBitmap = pdfBitmapCache.get(i)
+                        if (existingBitmap == null || needsHigherQuality || needsLowerQuality) {
                             var page: android.graphics.pdf.PdfRenderer.Page? = null
                             try {
                                 page = synchronized(renderer) { renderer.openPage(i) }
@@ -469,10 +558,7 @@ fun DrawingNoteScreen(
                                     synchronized(renderer) { page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY) }
                                     
                                     withContext(Dispatchers.Main) {
-                                        val old = pdfPageBitmaps[i]
-                                        pdfPageBitmaps[i] = bitmap
-                                        pdfPageScales[i] = finalQuality
-                                        old?.recycle()
+                                        pdfBitmapCache.put(i, bitmap, finalQuality)
                                     }
                                 }
                             } catch (e: Exception) {
@@ -480,20 +566,10 @@ fun DrawingNoteScreen(
                             } finally {
                                 page?.let { p -> synchronized(renderer) { p.close() } }
                             }
-                        }
-                    }
-
-                    // Clean up non-visible bitmaps AFTER rendering visible ones to keep UI smooth
-                    // Be conservative: keep a few extra pages around to avoid flashing
-                    val keysToRemove = pdfPageBitmaps.keys.filter { index ->
-                        index !in visibleIndices && !viewport.overlaps(pagePositions[index])
-                    }
-                    if (keysToRemove.isNotEmpty()) {
-                        withContext(Dispatchers.Main) {
-                            keysToRemove.forEach { 
-                                pdfPageBitmaps[it]?.recycle()
-                                pdfPageBitmaps.remove(it) 
-                                pdfPageScales.remove(it)
+                        } else {
+                            // If already cached and quality is fine, just ensure it's marked as accessed
+                            withContext(Dispatchers.Main) {
+                                pdfBitmapCache.markAccessed(i)
                             }
                         }
                     }
@@ -513,7 +589,7 @@ fun DrawingNoteScreen(
     
     // We no longer need the full rebuild LaunchedEffect(strokes)
 
-    val lodCaches = remember { List(4) { java.util.concurrent.ConcurrentHashMap<String, android.graphics.Path>() } }
+    val lodCaches = remember { List(4) { LruPathCache(500) } }
     val renderPaint = remember {
         android.graphics.Paint().apply {
             isAntiAlias = true
@@ -562,7 +638,7 @@ fun DrawingNoteScreen(
         val currentIds = strokes.map { it.id }.toSet()
         withContext(Dispatchers.Default) {
             lodCaches.forEach { cache ->
-                val keysToRemove = cache.keys().asSequence().filter { it !in currentIds }.toList()
+                val keysToRemove = cache.keys().filter { it !in currentIds }
                 keysToRemove.forEach { cache.remove(it) }
             }
             // Clean up reference cache too
@@ -750,8 +826,7 @@ fun DrawingNoteScreen(
     DisposableEffect(Unit) {
         onDispose {
             if (!wasSaved) saveDrawing()
-            pdfPageBitmaps.values.forEach { it.recycle() }
-            pdfPageBitmaps.clear()
+            pdfBitmapCache.clear()
         }
     }
 
@@ -1666,7 +1741,7 @@ fun DrawingNoteScreen(
                                 val pageRect = pagePositions[i]
                                 
                                 drawRect(color = Color.White, topLeft = pageRect.topLeft, size = pageRect.size)
-                                pdfPageBitmaps[i]?.let { bitmap ->
+                                pdfBitmapCache.bitmaps[i]?.let { bitmap ->
                                     drawImage(
                                         image = bitmap.asImageBitmap(),
                                         dstOffset = IntOffset((pageRect.left + pageLayout.marginLeft).toInt(), (pageRect.top + pageLayout.marginTop).toInt()),
@@ -1766,8 +1841,8 @@ fun DrawingNoteScreen(
                             val colorArgb = if (!isSelectionEmpty && stroke.id in selectedStrokeIds) selectedColorArgb else stroke.colorArgb
                             renderPaint.color = colorArgb
                             renderPaint.strokeWidth = stroke.width
-                            val path = activeLodCache.getOrPut(stroke.id) {
-                                buildPathForLod(stroke, currentLodThreshold)
+                            val path = activeLodCache.get(stroke.id) ?: buildPathForLod(stroke, currentLodThreshold).also {
+                                activeLodCache.put(stroke.id, it)
                             }
                             nativeCanvas.drawPath(path, renderPaint)
                         }
