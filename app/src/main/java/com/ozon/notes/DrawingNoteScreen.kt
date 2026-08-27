@@ -1908,7 +1908,8 @@ fun DrawingNoteScreen(
                                                         toErase.forEach { 
                                                             strokeMap.remove(it.id)
                                                             strokeOrder.remove(it.id)
-                                                            spatialIndexManager.removeStroke(it.id) 
+                                                            spatialIndexManager.removeStroke(it.id)
+                                                            invalidateStrokePath(it.id)
                                                         }
                                                         isDirty = true
                                                     }
