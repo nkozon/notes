@@ -662,7 +662,6 @@ fun DrawingNoteScreen(
         }
     }
 
-    @OptIn(kotlinx.coroutines.FlowPreview::class)
     LaunchedEffect(Unit) {
         snapshotFlow {
             val lod = TileRenderEngine.getLod(canvasScale)
@@ -677,7 +676,6 @@ fun DrawingNoteScreen(
             )
         }
         .distinctUntilChanged()
-        .debounce(40L)
         .collectLatest { snapshot: TileRenderSnapshot ->
             withContext(Dispatchers.Default) {
                 val vCenter = currentViewport.center
@@ -688,7 +686,7 @@ fun DrawingNoteScreen(
                     dx * dx + dy * dy
                 }
 
-                var anyRendered = false
+                var renderedCount = 0
                 for (key in sortedKeys) {
                     if (tileEngine.tileCache.get(key) == null && !tileEngine.tileCache.isEmpty(key)) {
                         tileEngine.renderTileDirect(
@@ -702,10 +700,15 @@ fun DrawingNoteScreen(
                             excludedStrokeIds = snapshot.selS,
                             excludedImageIds = snapshot.selI
                         )
-                        anyRendered = true
+                        renderedCount++
+                        if (renderedCount % 3 == 0) {
+                            withContext(Dispatchers.Main) {
+                                tileCacheVersion++
+                            }
+                        }
                     }
                 }
-                if (anyRendered) {
+                if (renderedCount > 0 && renderedCount % 3 != 0) {
                     withContext(Dispatchers.Main) {
                         tileCacheVersion++
                     }
@@ -2345,20 +2348,41 @@ fun DrawingNoteScreen(
                             if (cachedBitmap != null && !cachedBitmap.isRecycled) {
                                 native.drawBitmap(cachedBitmap, null, dstRectF, tilePaint)
                             } else {
-                                // Instant live vector rendering for this tile region (zero flash, zero stale bitmaps)
-                                drawTileVectorFallback(
-                                    canvas = native,
-                                    tileRect = tileRect,
-                                    spatialIndexManager = spatialIndexManager,
-                                    strokeMap = strokeMap,
-                                    strokeToIndex = strokeToIndex,
-                                    imageMap = imageMap,
-                                    imageOrder = imageOrder,
-                                    bitmapCache = bitmapCache,
-                                    excludedStrokeIds = selectedStrokeIds,
-                                    excludedImageIds = selectedImageIds,
-                                    renderPaint = renderPaint
-                                )
+                                // 1. Instant Parent LOD fallback (coarser zoom, single hardware blit)
+                                val parentFallback = tileEngine.getParentTileFallback(key)
+                                if (parentFallback != null) {
+                                    val (parentBmp, srcRect) = parentFallback
+                                    native.drawBitmap(parentBmp, srcRect, dstRectF, tilePaint)
+                                } else {
+                                    // 2. Instant Child LOD fallback (finer zoom quadrants, single hardware blit)
+                                    val childFallbacks = tileEngine.getChildTilesFallback(key)
+                                    if (childFallbacks.isNotEmpty()) {
+                                        childFallbacks.forEach { (childBmp, childRect) ->
+                                            val childDst = android.graphics.RectF(
+                                                childRect.left,
+                                                childRect.top,
+                                                childRect.right + 0.35f,
+                                                childRect.bottom + 0.35f
+                                            )
+                                            native.drawBitmap(childBmp, null, childDst, tilePaint)
+                                        }
+                                    } else if (!tileEngine.tileCache.isEmpty(key)) {
+                                        // 3. Last resort if no parent or child bitmap exists in cache
+                                        drawTileVectorFallback(
+                                            canvas = native,
+                                            tileRect = tileRect,
+                                            spatialIndexManager = spatialIndexManager,
+                                            strokeMap = strokeMap,
+                                            strokeToIndex = strokeToIndex,
+                                            imageMap = imageMap,
+                                            imageOrder = imageOrder,
+                                            bitmapCache = bitmapCache,
+                                            excludedStrokeIds = selectedStrokeIds,
+                                            excludedImageIds = selectedImageIds,
+                                            renderPaint = renderPaint
+                                        )
+                                    }
+                                }
                             }
                         }
                     }

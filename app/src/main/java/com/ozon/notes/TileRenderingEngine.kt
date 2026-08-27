@@ -111,22 +111,20 @@ class TileRenderEngine(
          */
         fun getLod(scale: Float): Int {
             return when {
-                scale >= 6.0f -> -4
-                scale >= 3.0f -> -3
-                scale >= 1.5f -> -2
-                scale >= 0.85f -> -1
-                scale >= 0.5f -> 0
-                scale >= 0.25f -> 1
-                scale >= 0.125f -> 2
+                scale >= 6.0f -> -3
+                scale >= 3.0f -> -2
+                scale >= 1.5f -> -1
+                scale >= 0.75f -> 0
+                scale >= 0.375f -> 1
+                scale >= 0.1875f -> 2
                 else -> 3
             }
         }
 
         fun getTileScale(lod: Int): Float = when (lod) {
-            -4 -> 8.0f
-            -3 -> 4.0f
-            -2 -> 2.0f
-            -1 -> 1.5f
+            -3 -> 8.0f
+            -2 -> 4.0f
+            -1 -> 2.0f
             0 -> 1.0f
             1 -> 0.5f
             2 -> 0.25f
@@ -167,7 +165,6 @@ class TileRenderEngine(
     /**
      * Looks up cached parent LOD tiles (coarser zoom) and returns the parent bitmap
      * along with the exact source pixel rectangle covering this tile.
-     * Limits coarseness to 2 levels above to prevent blurry pixelation artifacts.
      */
     fun getParentTileFallback(key: TileKey): Pair<Bitmap, android.graphics.Rect>? {
         val maxParentLod = minOf(key.lod + 2, 3)
@@ -179,8 +176,8 @@ class TileRenderEngine(
             val parentKey = TileKey(parentLod, parentX, parentY)
             val parentBmp = tileCache.get(parentKey)
             if (parentBmp != null && !parentBmp.isRecycled) {
-                val subX = (key.x % factor + factor) % factor
-                val subY = (key.y % factor + factor) % factor
+                val subX = key.x - parentX * factor
+                val subY = key.y - parentY * factor
                 val subSize = TILE_PIXEL_SIZE / factor
                 val srcRect = android.graphics.Rect(
                     subX * subSize,
@@ -195,32 +192,29 @@ class TileRenderEngine(
     }
 
     /**
-     * Looks up cached child LOD tiles (finer zoom) covering quadrants of this tile
+     * Looks up cached child LOD tiles (finer zoom) covering all 4 quadrants of this tile
      * and returns the child bitmaps with their world rectangles.
      */
     fun getChildTilesFallback(key: TileKey): List<Pair<Bitmap, Rect>> {
         val childLod = key.lod - 1
-        if (childLod < -4) return emptyList()
-        val result = ArrayList<Pair<Bitmap, Rect>>(4)
+        if (childLod < -3) return emptyList()
         val baseChildX = key.x * 2
         val baseChildY = key.y * 2
         val childWorldSize = getTileWorldSize(childLod)
-        for (dy in 0..1) {
-            for (dx in 0..1) {
-                val childKey = TileKey(childLod, baseChildX + dx, baseChildY + dy)
-                val childBmp = tileCache.get(childKey)
-                if (childBmp != null && !childBmp.isRecycled) {
-                    val childRect = Rect(
-                        (baseChildX + dx) * childWorldSize,
-                        (baseChildY + dy) * childWorldSize,
-                        (baseChildX + dx + 1) * childWorldSize,
-                        (baseChildY + dy + 1) * childWorldSize
-                    )
-                    result.add(childBmp to childRect)
-                }
-            }
-        }
-        return result
+        
+        val c00 = tileCache.get(TileKey(childLod, baseChildX, baseChildY)) ?: return emptyList()
+        val c10 = tileCache.get(TileKey(childLod, baseChildX + 1, baseChildY)) ?: return emptyList()
+        val c01 = tileCache.get(TileKey(childLod, baseChildX, baseChildY + 1)) ?: return emptyList()
+        val c11 = tileCache.get(TileKey(childLod, baseChildX + 1, baseChildY + 1)) ?: return emptyList()
+        
+        if (c00.isRecycled || c10.isRecycled || c01.isRecycled || c11.isRecycled) return emptyList()
+
+        return listOf(
+            c00 to Rect(baseChildX * childWorldSize, baseChildY * childWorldSize, (baseChildX + 1) * childWorldSize, (baseChildY + 1) * childWorldSize),
+            c10 to Rect((baseChildX + 1) * childWorldSize, baseChildY * childWorldSize, (baseChildX + 2) * childWorldSize, (baseChildY + 1) * childWorldSize),
+            c01 to Rect(baseChildX * childWorldSize, (baseChildY + 1) * childWorldSize, (baseChildX + 1) * childWorldSize, (baseChildY + 2) * childWorldSize),
+            c11 to Rect((baseChildX + 1) * childWorldSize, (baseChildY + 1) * childWorldSize, (baseChildX + 2) * childWorldSize, (baseChildY + 2) * childWorldSize)
+        )
     }
 
     fun invalidateArea(area: Rect) {
