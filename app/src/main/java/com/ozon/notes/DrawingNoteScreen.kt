@@ -17,7 +17,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.collectLatest
 import kotlin.math.floor
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -26,8 +25,15 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -54,6 +60,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Redo
 import androidx.compose.material.icons.automirrored.rounded.Undo
+import androidx.compose.material.icons.automirrored.rounded.NoteAdd
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -82,6 +89,14 @@ import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -388,7 +403,7 @@ data class TileRenderSnapshot(
     val selI: Set<String>
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun DrawingNoteScreen(
     noteId: String?,
@@ -411,6 +426,21 @@ fun DrawingNoteScreen(
         AppTheme.LIGHT -> false
         AppTheme.DARK -> true
         AppTheme.SYSTEM -> androidx.compose.foundation.isSystemInDarkTheme()
+    }
+    
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
+
+    fun showSnackbar(message: String) {
+        coroutineScope.launch {
+            snackbarHostState.currentSnackbarData?.dismiss()
+            snackbarHostState.showSnackbar(
+                message = message,
+                actionLabel = "Dismiss",
+                withDismissAction = false,
+                duration = SnackbarDuration.Short
+            )
+        }
     }
     
     var title by remember { mutableStateOf("") }
@@ -436,8 +466,10 @@ fun DrawingNoteScreen(
     var wasSaved by remember { mutableStateOf(false) }
     var lastSavedTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var isDirty by remember { mutableStateOf(false) }
+    var showSavedCheckmark by remember { mutableStateOf(false) }
     var showGuidelines by remember { mutableStateOf(false) }
     var showPageOverview by remember { mutableStateOf(false) }
+    var showTitleDialog by remember { mutableStateOf(false) }
 
     var currentTool by remember { mutableStateOf(DrawingTool.PEN) }
     var activeDrawingTool by remember { mutableStateOf<DrawingTool?>(null) }
@@ -961,6 +993,7 @@ fun DrawingNoteScreen(
         isDirty = false
         val now = System.currentTimeMillis()
         lastSavedTime = now
+        showSavedCheckmark = true
         val finalTitle = title.ifBlank { "New Drawing" }
         notesViewModel.onEvent(NoteEvent.SaveNote(
             Note(
@@ -1007,7 +1040,8 @@ fun DrawingNoteScreen(
     }
 
     fun insertPage(atIndex: Int) {
-        val step = if (pageLayout.height > 0) (pageLayout.height + pageLayout.spacing) else 1100f
+        val pageHeight = if (canvasType == CanvasType.PDF) (pdfInfo?.pageSizes?.firstOrNull()?.height ?: 1100f) else (if (pageLayout.height > 0) pageLayout.height else 1100f)
+        val step = pageHeight + pageLayout.spacing
         val insertThreshold = atIndex * step
 
         val updatedStrokes = strokeMap.values.map { stroke ->
@@ -1045,7 +1079,7 @@ fun DrawingNoteScreen(
         tileCacheVersion++
         pageCount++
         isDirty = true
-        Toast.makeText(context, "Page ${atIndex + 1} added", Toast.LENGTH_SHORT).show()
+        showSnackbar("Page ${atIndex + 1} added")
     }
 
     fun addPageBefore(index: Int) {
@@ -1061,8 +1095,9 @@ fun DrawingNoteScreen(
     }
 
     fun duplicatePage(index: Int) {
-        if (index !in 0 until pageCount || pageLayout.height <= 0) return
-        val step = pageLayout.height + pageLayout.spacing
+        if (index !in 0 until pageCount) return
+        val pageHeight = if (canvasType == CanvasType.PDF) (pdfInfo?.pageSizes?.firstOrNull()?.height ?: 1100f) else (if (pageLayout.height > 0) pageLayout.height else 1100f)
+        val step = pageHeight + pageLayout.spacing
         val targetIndex = index + 1
 
         val newClonedStrokes = mutableListOf<com.ozon.notes.Stroke>()
@@ -1120,16 +1155,17 @@ fun DrawingNoteScreen(
         tileCacheVersion++
         pageCount++
         isDirty = true
-        Toast.makeText(context, "Page ${index + 1} duplicated", Toast.LENGTH_SHORT).show()
+        showSnackbar("Page ${index + 1} duplicated")
     }
 
     fun deletePage(index: Int) {
         if (pageCount <= 1) {
-            Toast.makeText(context, "Cannot delete the only page", Toast.LENGTH_SHORT).show()
+            showSnackbar("Cannot delete the only page")
             return
         }
-        if (index !in 0 until pageCount || pageLayout.height <= 0) return
-        val step = pageLayout.height + pageLayout.spacing
+        if (index !in 0 until pageCount) return
+        val pageHeight = if (canvasType == CanvasType.PDF) (pdfInfo?.pageSizes?.firstOrNull()?.height ?: 1100f) else (if (pageLayout.height > 0) pageLayout.height else 1100f)
+        val step = pageHeight + pageLayout.spacing
 
         val remainingStrokes = strokeMap.values.mapNotNull { stroke ->
             val midY = if (stroke.points.isNotEmpty()) (stroke.points.minOf { it.y } + stroke.points.maxOf { it.y }) / 2f else 0f
@@ -1168,12 +1204,13 @@ fun DrawingNoteScreen(
         tileCacheVersion++
         pageCount--
         isDirty = true
-        Toast.makeText(context, "Page ${index + 1} deleted", Toast.LENGTH_SHORT).show()
+        showSnackbar("Page ${index + 1} deleted")
     }
 
     fun movePage(fromIndex: Int, toIndex: Int) {
-        if (fromIndex == toIndex || fromIndex !in 0 until pageCount || toIndex !in 0 until pageCount || pageLayout.height <= 0) return
-        val step = pageLayout.height + pageLayout.spacing
+        if (fromIndex == toIndex || fromIndex !in 0 until pageCount || toIndex !in 0 until pageCount) return
+        val pageHeight = if (canvasType == CanvasType.PDF) (pdfInfo?.pageSizes?.firstOrNull()?.height ?: 1100f) else (if (pageLayout.height > 0) pageLayout.height else 1100f)
+        val step = pageHeight + pageLayout.spacing
 
         val fromShift = (toIndex - fromIndex) * step
         val intermediateShift = if (fromIndex < toIndex) -step else step
@@ -1230,12 +1267,20 @@ fun DrawingNoteScreen(
         tileEngine.invalidateAll()
         tileCacheVersion++
         isDirty = true
+        showSnackbar("Page moved to position ${toIndex + 1}")
     }
 
     LaunchedEffect(Unit) {
         while (true) {
             delay(30000)
             if (isDirty) saveDrawing()
+        }
+    }
+
+    LaunchedEffect(showSavedCheckmark, lastSavedTime) {
+        if (showSavedCheckmark) {
+            delay(5000)
+            showSavedCheckmark = false
         }
     }
 
@@ -1257,6 +1302,9 @@ fun DrawingNoteScreen(
             val note = notesViewModel.getNoteById(noteId)
             if (note != null && note.type == NoteType.DRAWING) {
                 title = note.title
+                if (note.timestamp > 0) {
+                    lastSavedTime = note.timestamp
+                }
                 val initialStrokes = note.drawingData?.strokes ?: emptyList()
                 strokeMap.clear()
                 strokeOrder.clear()
@@ -1321,7 +1369,7 @@ fun DrawingNoteScreen(
                             saveDrawing() 
                         } catch (e: Exception) {
                             withContext(Dispatchers.Main) {
-                                Toast.makeText(context, "Failed to import PDF: ${e.message}", Toast.LENGTH_SHORT).show()
+                                showSnackbar("Failed to import PDF: ${e.message}")
                             }
                         }
                     }
@@ -1359,7 +1407,6 @@ fun DrawingNoteScreen(
         }
     }
 
-    val coroutineScope = rememberCoroutineScope()
     val pngLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png")) { uri ->
         uri?.let {
             coroutineScope.launch(Dispatchers.IO) {
@@ -1367,7 +1414,7 @@ fun DrawingNoteScreen(
                 val eCanvasType = if (pendingExportSelection != null) CanvasType.INFINITE else canvasType
                 context.contentResolver.openOutputStream(it)?.use { stream -> exportToPng(stream, eStrokes, eImages, canvasSize, eCanvasType, pageLayout, pdfInfo, pageCount) }
                 withContext(Dispatchers.Main) { 
-                    Toast.makeText(context, "Exported as PNG", Toast.LENGTH_SHORT).show() 
+                    showSnackbar("Exported as PNG") 
                     pendingExportSelection = null
                 }
             }
@@ -1380,7 +1427,7 @@ fun DrawingNoteScreen(
                 val eCanvasType = if (pendingExportSelection != null) CanvasType.INFINITE else canvasType
                 context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, eStrokes, eImages, canvasSize, vector = false, eCanvasType, pageLayout, pdfInfo, pageCount) }
                 withContext(Dispatchers.Main) { 
-                    Toast.makeText(context, "Exported as Bitmap PDF", Toast.LENGTH_SHORT).show() 
+                    showSnackbar("Exported as Bitmap PDF") 
                     pendingExportSelection = null
                 }
             }
@@ -1393,7 +1440,7 @@ fun DrawingNoteScreen(
                 val eCanvasType = if (pendingExportSelection != null) CanvasType.INFINITE else canvasType
                 context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, eStrokes, eImages, canvasSize, vector = true, eCanvasType, pageLayout, pdfInfo, pageCount) }
                 withContext(Dispatchers.Main) { 
-                    Toast.makeText(context, "Exported as Vector PDF", Toast.LENGTH_SHORT).show() 
+                    showSnackbar("Exported as Vector PDF") 
                     pendingExportSelection = null
                 }
             }
@@ -1507,7 +1554,24 @@ fun DrawingNoteScreen(
 
     Scaffold(
         containerColor = Color.Transparent,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0)
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        snackbarHost = {
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier
+                    .navigationBarsPadding()
+                    .padding(bottom = 16.dp)
+                    .zIndex(50f)
+            ) { data ->
+                Snackbar(
+                    snackbarData = data,
+                    shape = RoundedCornerShape(16.dp),
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    actionColor = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
     ) { scaffoldPadding ->
         val isNormalTablet = isSplitScreen && isSidePanelVisible
 
@@ -1535,164 +1599,183 @@ fun DrawingNoteScreen(
                 }
             }
 
-            TopAppBar(
-                title = {
-                    Box(modifier = Modifier.padding(start = 16.dp)) {
-                        BasicTextField(
-                            value = title,
-                            onValueChange = { 
-                                title = it
-                                isDirty = true
-                            },
-                            singleLine = true,
-                            textStyle = MaterialTheme.typography.titleLarge.copy(
-                                textAlign = TextAlign.Start, 
-                                color = Color.Black
-                            ),
-                            modifier = Modifier.fillMaxWidth(),
-                            decorationBox = { innerTextField ->
-                                if (title.isEmpty()) {
-                                    Text(
-                                        text = "Drawing",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        color = Color.Black.copy(alpha = 0.4f),
-                                        textAlign = TextAlign.Start
-                                    )
-                                }
-                                innerTextField()
-                            }
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    scrolledContainerColor = Color.Transparent
-                ),
-                navigationIcon = {
-                    Row(
-                        modifier = Modifier.padding(start = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .shadow(8.dp, CircleShape)
+                    .clip(CircleShape)
+                    .zIndex(25f),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
+                tonalElevation = 6.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { saveDrawing(); onNavigateUp() },
+                        modifier = Modifier.size(40.dp)
                     ) {
-                        CircleIconButton(
-                            onClick = { saveDrawing(); onNavigateUp() },
-                            icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
                             contentDescription = "Back",
-                            containerColor = Color.Black.copy(alpha = 0.25f),
-                            contentColor = Color.Black
+                            tint = MaterialTheme.colorScheme.primary
                         )
-                        if (isSplitScreen) {
-                            Spacer(Modifier.width(12.dp))
-                            CircleIconButton(
-                                onClick = { notesViewModel.onEvent(NoteEvent.ToggleSidePanel) },
-                                icon = if (isSidePanelVisible) Icons.Rounded.Fullscreen else Icons.Rounded.FullscreenExit,
+                    }
+                    if (isSplitScreen) {
+                        IconButton(
+                            onClick = { notesViewModel.onEvent(NoteEvent.ToggleSidePanel) },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isSidePanelVisible) Icons.Rounded.Fullscreen else Icons.Rounded.FullscreenExit,
                                 contentDescription = "Toggle Fullscreen",
-                                containerColor = Color.Black.copy(alpha = 0.25f),
-                                contentColor = Color.Black
+                                tint = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
-                },
-                actions = {
-                    Row(
-                        modifier = Modifier.padding(end = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 8.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { showTitleDialog = true },
+                        contentAlignment = Alignment.CenterStart
                     ) {
-                        val recentlySaved = !isDirty && (System.currentTimeMillis() - lastSavedTime) < 5000
-                        CircleIconButton(
-                            onClick = { saveDrawing() },
-                            icon = if (recentlySaved) Icons.Rounded.Check else Icons.Rounded.Save,
-                            contentDescription = "Save Note",
-                            containerColor = when {
-                                recentlySaved -> Color(0xFF4CAF50).copy(alpha = 0.25f)
-                                isDirty -> Color(0xFFFF9800).copy(alpha = 0.25f)
-                                else -> Color.Black.copy(alpha = 0.25f)
-                            },
-                            contentColor = when {
-                                recentlySaved -> Color(0xFF2E7D32)
-                                isDirty -> Color(0xFFE65100)
-                                else -> Color.Black
-                            }
+                        Text(
+                            text = title.ifBlank { "Drawing" },
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (title.isBlank()) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else MaterialTheme.colorScheme.primary
+                            ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                         )
-                        Spacer(Modifier.width(12.dp))
+                    }
 
-                        if (canvasType != CanvasType.INFINITE) {
-                            CircleIconButton(
-                                onClick = { showPageOverview = !showPageOverview },
-                                icon = Icons.Rounded.GridView,
-                                contentDescription = "Page Overview",
-                                containerColor = if (showPageOverview) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else Color.Black.copy(alpha = 0.25f),
-                                contentColor = if (showPageOverview) MaterialTheme.colorScheme.primary else Color.Black
+                    if (isDirty) {
+                        IconButton(
+                            onClick = { saveDrawing() },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Save,
+                                contentDescription = "Save Note",
+                                tint = MaterialTheme.colorScheme.primary
                             )
-                            Spacer(Modifier.width(12.dp))
                         }
-
-                        if (canvasType == CanvasType.PAGED) {
-                            CircleIconButton(
-                                onClick = { 
-                                    pageCount++
-                                    isDirty = true
-                                    Toast.makeText(context, "Page ${pageCount} added", Toast.LENGTH_SHORT).show()
-                                },
-                                icon = Icons.Rounded.NoteAdd,
-                                contentDescription = "Add Page",
-                                containerColor = Color.Black.copy(alpha = 0.25f),
-                                contentColor = Color.Black
+                    } else if (showSavedCheckmark) {
+                        IconButton(
+                            onClick = { /* already saved */ },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Check,
+                                contentDescription = "Saved",
+                                tint = MaterialTheme.colorScheme.primary
                             )
-                            Spacer(Modifier.width(12.dp))
-                        }
-
-                        var showMoreMenu by remember { mutableStateOf(false) }
-                        Box {
-                            CircleIconButton(
-                                onClick = { showMoreMenu = true },
-                                icon = Icons.Rounded.MoreVert,
-                                contentDescription = "More",
-                                containerColor = Color.Black.copy(alpha = 0.25f),
-                                contentColor = Color.Black
-                            )
-                            DropdownMenu(
-                                expanded = showMoreMenu, 
-                                onDismissRequest = { showMoreMenu = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Insert Image") },
-                                    onClick = { 
-                                        showMoreMenu = false
-                                        imagePickerLauncher.launch("image/*")
-                                    },
-                                    leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null) }
-                                )
-                                HorizontalDivider()
-                                DropdownMenuItem(
-                                    text = { Text("Export as PNG") }, 
-                                    onClick = { showMoreMenu = false; launchExport(pngLauncher, "png") },
-                                    leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null) }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Export as PDF (Bitmap)") }, 
-                                    onClick = { showMoreMenu = false; launchExport(pdfBitmapLauncher, "pdf") },
-                                    leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, contentDescription = null) }
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Export as PDF (Vector)") }, 
-                                    onClick = { showMoreMenu = false; launchExport(pdfVectorLauncher, "pdf") },
-                                    leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, contentDescription = null) }
-                                )
-                                HorizontalDivider()
-                                DropdownMenuItem(
-                                    text = { Text(if (showGuidelines) "Hide Guidelines" else "Show Guidelines") },
-                                    onClick = { 
-                                        showMoreMenu = false
-                                        showGuidelines = !showGuidelines 
-                                    },
-                                    leadingIcon = { Icon(if (showGuidelines) Icons.Rounded.GridOff else Icons.Rounded.GridOn, contentDescription = null) }
-                                )
-                            }
                         }
                     }
-                },
-                modifier = Modifier.zIndex(12f).statusBarsPadding()
-            )
+
+                    if (canvasType != CanvasType.INFINITE) {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (showPageOverview) MaterialTheme.colorScheme.primaryContainer 
+                                    else Color.Transparent
+                                )
+                                .combinedClickable(
+                                    onClick = { showPageOverview = !showPageOverview },
+                                    onLongClick = { addPageAtEnd() }
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.GridView,
+                                contentDescription = "Page Overview (Long-press to add page)",
+                                tint = if (showPageOverview) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
+                    if (canvasType == CanvasType.PAGED) {
+                        IconButton(
+                            onClick = { 
+                                addPageAtEnd()
+                            },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.NoteAdd,
+                                contentDescription = "Add Page",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
+                    var showMoreMenu by remember { mutableStateOf(false) }
+                    Box {
+                        IconButton(
+                            onClick = { showMoreMenu = true },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.MoreVert,
+                                contentDescription = "More",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showMoreMenu, 
+                            onDismissRequest = { showMoreMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Insert Image") },
+                                onClick = { 
+                                    showMoreMenu = false
+                                    imagePickerLauncher.launch("image/*")
+                                },
+                                leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null) }
+                            )
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text("Export as PNG") }, 
+                                onClick = { showMoreMenu = false; launchExport(pngLauncher, "png") },
+                                leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Export as PDF (Bitmap)") }, 
+                                onClick = { showMoreMenu = false; launchExport(pdfBitmapLauncher, "pdf") },
+                                leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, contentDescription = null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Export as PDF (Vector)") }, 
+                                onClick = { showMoreMenu = false; launchExport(pdfVectorLauncher, "pdf") },
+                                leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, contentDescription = null) }
+                            )
+                            HorizontalDivider()
+                            DropdownMenuItem(
+                                text = { Text(if (showGuidelines) "Hide Guidelines" else "Show Guidelines") },
+                                onClick = { 
+                                    showMoreMenu = false
+                                    showGuidelines = !showGuidelines 
+                                },
+                                leadingIcon = { Icon(if (showGuidelines) Icons.Rounded.GridOff else Icons.Rounded.GridOn, contentDescription = null) }
+                            )
+                        }
+                    }
+                }
+            }
 
             // 1. Drawing Layer
             Box(
@@ -2602,8 +2685,6 @@ fun DrawingNoteScreen(
                     onRedo = { 
                         undoStackManager.popRedo()?.let { applyAction(it, isUndo = false) }
                     },
-                    pasteEnabled = clipboardStrokes != null,
-                    onPaste = { handlePaste() },
                     canvasScale = canvasScale,
                     onResetZoom = { canvasScale = 1f; canvasOffset = Offset.Zero },
                     thicknessPresets = thicknessPresets,
@@ -2672,7 +2753,7 @@ fun DrawingNoteScreen(
                                 selectedStrokeIds = newStrokes.map { it.id }.toSet()
                                 selectedImageIds = newImages.map { it.id }.toSet()
                                 isDirty = true
-                                Toast.makeText(context, "Duplicated", Toast.LENGTH_SHORT).show()
+                                showSnackbar("Duplicated")
                             }) { Icon(Icons.Rounded.ContentCopy, contentDescription = "Duplicate") }
                             IconButton(onClick = { 
                                 val removedS = selectedStrokeIds.mapNotNull { strokeMap[it] }
@@ -2800,7 +2881,7 @@ fun DrawingNoteScreen(
                     exit = slideOutHorizontally { it } + fadeOut(),
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .zIndex(25f)
+                        .zIndex(20f)
                 ) {
                     PageOverviewSidePanel(
                         canvasType = canvasType,
@@ -2822,6 +2903,44 @@ fun DrawingNoteScreen(
                         onMovePage = { from, to -> movePage(from, to) }
                     )
                 }
+            }
+
+            if (showTitleDialog) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(21f)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) { showTitleDialog = false }
+                )
+            }
+
+            AnimatedVisibility(
+                visible = showTitleDialog,
+                enter = scaleIn(
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow),
+                    initialScale = 0.88f,
+                    transformOrigin = TransformOrigin(0.15f, 0f)
+                ) + fadeIn(),
+                exit = scaleOut(
+                    targetScale = 0.88f,
+                    transformOrigin = TransformOrigin(0.15f, 0f)
+                ) + fadeOut(),
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .zIndex(22f)
+            ) {
+                DrawingTitleDetailsPopup(
+                    title = title,
+                    onTitleChange = { 
+                        title = it
+                        isDirty = true
+                    },
+                    lastSavedTime = lastSavedTime,
+                    onClose = { showTitleDialog = false }
+                )
             }
         }
     }
@@ -3188,7 +3307,8 @@ private fun PageOverviewSidePanel(
         modifier = modifier
             .width(360.dp)
             .fillMaxHeight()
-            .padding(top = 80.dp, bottom = 24.dp, end = 16.dp),
+            .statusBarsPadding()
+            .padding(top = 68.dp, bottom = 24.dp, end = 16.dp),
         shape = RoundedCornerShape(28.dp),
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 8.dp,
@@ -3403,7 +3523,7 @@ fun DrawingToolbar(
     isCollapsed: Boolean, onToggleCollapse: (Boolean) -> Unit, penThickness: Float, onPenThicknessChange: (Float) -> Unit,
     eraserThickness: Float, onEraserThicknessChange: (Float) -> Unit, showThicknessPopup: Boolean,
     selectedPenColor: Color, onPenColorChange: (Color) -> Unit, showColorPopup: Boolean, onToggleColorPopup: (Boolean) -> Unit,
-    undoEnabled: Boolean, onUndo: () -> Unit, redoEnabled: Boolean, onRedo: () -> Unit, pasteEnabled: Boolean, onPaste: () -> Unit,
+    undoEnabled: Boolean, onUndo: () -> Unit, redoEnabled: Boolean, onRedo: () -> Unit,
     canvasScale: Float, onResetZoom: () -> Unit,
     thicknessPresets: List<Float> = emptyList(), onThicknessPresetsChange: (List<Float>) -> Unit = {}
 ) {
@@ -3425,12 +3545,12 @@ fun DrawingToolbar(
             ToolbarAnchor.BOTTOM_LEFT -> Alignment.BottomStart
             ToolbarAnchor.BOTTOM_RIGHT -> Alignment.BottomEnd
         }
-        val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-        val headerHeight = 64.dp // TopAppBar height
         
         val isTop = anchor == ToolbarAnchor.TOP || anchor == ToolbarAnchor.TOP_LEFT || anchor == ToolbarAnchor.TOP_RIGHT
         val isBottom = anchor == ToolbarAnchor.BOTTOM || anchor == ToolbarAnchor.BOTTOM_LEFT || anchor == ToolbarAnchor.BOTTOM_RIGHT
+        val isHorizontal = anchor == ToolbarAnchor.TOP || anchor == ToolbarAnchor.BOTTOM || 
+                           anchor == ToolbarAnchor.TOP_LEFT || anchor == ToolbarAnchor.TOP_RIGHT ||
+                           anchor == ToolbarAnchor.BOTTOM_LEFT || anchor == ToolbarAnchor.BOTTOM_RIGHT
 
         // Helper to get alignment for any anchor
         fun getAlignment(a: ToolbarAnchor) = when (a) {
@@ -3455,15 +3575,23 @@ fun DrawingToolbar(
             Box(
                 modifier = Modifier
                     .align(getAlignment(pred))
-                    .padding(12.dp)
-                    .padding(
-                        bottom = if (pBottom) navBarPadding + 12.dp else 0.dp, 
-                        top = if (pTop) statusBarPadding + headerHeight else 0.dp
+                    .then(
+                        if (!isCollapsed && pIsHorizontal) Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                        else Modifier.padding(horizontal = 16.dp)
+                    )
+                    .then(
+                        if (pTop) Modifier.statusBarsPadding().padding(top = 60.dp)
+                        else if (pBottom) Modifier.navigationBarsPadding().padding(bottom = 12.dp)
+                        else Modifier.padding(vertical = 12.dp)
                     )
             ) {
                 Surface(
                     modifier = Modifier
-                        .then(if (pIsHorizontal) Modifier.size(240.dp, 48.dp) else Modifier.size(48.dp, 240.dp)),
+                        .then(
+                            if (isCollapsed) Modifier.size(48.dp, 48.dp)
+                            else if (pIsHorizontal) Modifier.fillMaxWidth().height(54.dp)
+                            else Modifier.size(54.dp, 240.dp)
+                        ),
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                     border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
@@ -3472,12 +3600,22 @@ fun DrawingToolbar(
         }
 
         Column(
-            modifier = Modifier.align(alignment).padding(12.dp)
-                .padding(
-                    bottom = if (isBottom) navBarPadding + 12.dp else 0.dp, 
-                    top = if (isTop) statusBarPadding + headerHeight else 0.dp
+            modifier = Modifier
+                .align(alignment)
+                .then(
+                    if (!isCollapsed && isHorizontal) Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                    else Modifier.padding(horizontal = 16.dp)
+                )
+                .then(
+                    if (isTop) Modifier.statusBarsPadding().padding(top = 60.dp)
+                    else if (isBottom) Modifier.navigationBarsPadding().padding(bottom = 12.dp)
+                    else Modifier.padding(vertical = 12.dp)
                 ),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = if (!isCollapsed && isHorizontal) Alignment.CenterHorizontally else when(anchor) {
+                ToolbarAnchor.TOP_LEFT, ToolbarAnchor.BOTTOM_LEFT, ToolbarAnchor.LEFT -> Alignment.Start
+                ToolbarAnchor.TOP_RIGHT, ToolbarAnchor.BOTTOM_RIGHT, ToolbarAnchor.RIGHT -> Alignment.End
+                else -> Alignment.CenterHorizontally
+            }
         ) {
             if (!isCollapsed && showThicknessPopup) {
                 ThicknessPopup(
@@ -3501,7 +3639,14 @@ fun DrawingToolbar(
             }
 
             Surface(
-                modifier = Modifier.wrapContentSize().offset { IntOffset(dragOffset.x.roundToInt(), dragOffset.y.roundToInt()) }.shadow(if (isCollapsed) 4.dp else 8.dp, CircleShape).clip(CircleShape)
+                modifier = Modifier
+                    .then(
+                        if (!isCollapsed && isHorizontal) Modifier.fillMaxWidth()
+                        else Modifier.wrapContentSize()
+                    )
+                    .offset { IntOffset(dragOffset.x.roundToInt(), dragOffset.y.roundToInt()) }
+                    .shadow(if (isCollapsed) 4.dp else 8.dp, CircleShape)
+                    .clip(CircleShape)
                     .pointerInput(anchor) {
                         detectDragGesturesAfterLongPress(
                             onDragStart = { 
@@ -3556,21 +3701,21 @@ fun DrawingToolbar(
                 color = MaterialTheme.colorScheme.surfaceColorAtElevation(if (isCollapsed) 2.dp else 6.dp),
                 tonalElevation = if (isCollapsed) 2.dp else 6.dp
             ) {
-                val isHorizontal = anchor == ToolbarAnchor.TOP || anchor == ToolbarAnchor.BOTTOM || 
-                               anchor == ToolbarAnchor.TOP_LEFT || anchor == ToolbarAnchor.TOP_RIGHT ||
-                               anchor == ToolbarAnchor.BOTTOM_LEFT || anchor == ToolbarAnchor.BOTTOM_RIGHT
                 val padding = if (isCollapsed) 6.dp else 10.dp
                 if (isHorizontal) {
                     Row(
                         modifier = Modifier
-                            .widthIn(max = (screenWidth / LocalDensity.current.density).dp - 48.dp)
+                            .then(
+                                if (!isCollapsed) Modifier.fillMaxWidth()
+                                else Modifier.wrapContentSize()
+                            )
                             .clip(CircleShape)
                             .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = padding, vertical = padding),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            .padding(horizontal = if (isCollapsed) 6.dp else 10.dp, vertical = padding),
+                        horizontalArrangement = if (!isCollapsed) Arrangement.SpaceEvenly else Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        ToolbarContent(isHorizontal, isCollapsed, currentTool, onToolChange, selectedPenColor, showColorPopup, onToggleColorPopup, onToggleCollapse, undoEnabled, onUndo, redoEnabled, onRedo, pasteEnabled, onPaste, canvasScale, onResetZoom)
+                        ToolbarContent(isHorizontal, isCollapsed, currentTool, onToolChange, selectedPenColor, showColorPopup, onToggleColorPopup, onToggleCollapse, undoEnabled, onUndo, redoEnabled, onRedo, canvasScale, onResetZoom)
                     }
                 } else {
                     Column(
@@ -3582,7 +3727,7 @@ fun DrawingToolbar(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        ToolbarContent(isHorizontal, isCollapsed, currentTool, onToolChange, selectedPenColor, showColorPopup, onToggleColorPopup, onToggleCollapse, undoEnabled, onUndo, redoEnabled, onRedo, pasteEnabled, onPaste, canvasScale, onResetZoom)
+                        ToolbarContent(isHorizontal, isCollapsed, currentTool, onToolChange, selectedPenColor, showColorPopup, onToggleColorPopup, onToggleCollapse, undoEnabled, onUndo, redoEnabled, onRedo, canvasScale, onResetZoom)
                     }
                 }
             }
@@ -3595,7 +3740,7 @@ fun DrawingToolbar(
 private fun ToolbarContent(
     isHorizontal: Boolean, isCollapsed: Boolean, currentTool: DrawingTool, onToolChange: (DrawingTool) -> Unit,
     selectedPenColor: Color, showColorPopup: Boolean, onToggleColorPopup: (Boolean) -> Unit, onToggleCollapse: (Boolean) -> Unit,
-    undoEnabled: Boolean, onUndo: () -> Unit, redoEnabled: Boolean, onRedo: () -> Unit, pasteEnabled: Boolean, onPaste: () -> Unit,
+    undoEnabled: Boolean, onUndo: () -> Unit, redoEnabled: Boolean, onRedo: () -> Unit,
     canvasScale: Float, onResetZoom: () -> Unit
 ) {
     if (!isCollapsed) {
@@ -3614,7 +3759,6 @@ private fun ToolbarContent(
         ToolbarSeparator(isHorizontal)
     }
     IconButton(onClick = onUndo, enabled = undoEnabled, modifier = Modifier.size(34.dp)) { Icon(Icons.AutoMirrored.Rounded.Undo, null, modifier = Modifier.size(18.dp)) }
-    IconButton(onClick = onPaste, enabled = pasteEnabled, modifier = Modifier.size(34.dp)) { Icon(Icons.Rounded.ContentPaste, null, modifier = Modifier.size(18.dp)) }
     IconButton(onClick = onRedo, enabled = redoEnabled, modifier = Modifier.size(34.dp)) { Icon(Icons.AutoMirrored.Rounded.Redo, null, modifier = Modifier.size(18.dp)) }
     ToolbarSeparator(isHorizontal)
     if (isHorizontal) {
@@ -4194,3 +4338,142 @@ private fun SelectionExportDialog(
         }
     )
 }
+
+@Composable
+private fun DrawingTitleDetailsPopup(
+    title: String,
+    onTitleChange: (String) -> Unit,
+    lastSavedTime: Long,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var titleState by remember {
+        mutableStateOf(
+            TextFieldValue(
+                text = title,
+                selection = TextRange(title.length)
+            )
+        )
+    }
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    Surface(
+        modifier = modifier
+            .widthIn(max = 360.dp)
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(top = 68.dp, start = 16.dp, end = 16.dp),
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 8.dp,
+        shadowElevation = 8.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Header row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.EditNote,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Text(
+                        text = "Note Details",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                IconButton(onClick = onClose) {
+                    Icon(Icons.Rounded.Close, contentDescription = "Close")
+                }
+            }
+
+            // Title input
+            OutlinedTextField(
+                value = titleState,
+                onValueChange = { newValue ->
+                    titleState = newValue
+                    onTitleChange(newValue.text)
+                },
+                label = { Text("Note Title") },
+                placeholder = { Text("Drawing") },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
+            )
+
+            // Last saved time display
+            val sdf = remember { SimpleDateFormat("MMM d, yyyy 'at' HH:mm", Locale.getDefault()) }
+            val formattedDate = remember(lastSavedTime) { sdf.format(Date(lastSavedTime)) }
+
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Schedule,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Column {
+                        Text(
+                            text = "Last Saved",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = formattedDate,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+
+            // Done button
+            Button(
+                onClick = onClose,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            ) {
+                Text("Done", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+        keyboardController?.show()
+    }
+}
+
