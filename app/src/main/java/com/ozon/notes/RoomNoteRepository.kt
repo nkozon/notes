@@ -23,7 +23,11 @@ class RoomNoteRepository(
     private val database: NoteDatabase
 ) : NoteRepository {
 
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = Json { 
+        ignoreUnknownKeys = true
+        coerceInputValues = true
+        encodeDefaults = true
+    }
 
     private suspend fun saveFile(fileName: String, content: String) = withContext(Dispatchers.IO) {
         context.openFileOutput(fileName, Context.MODE_PRIVATE).use {
@@ -53,8 +57,8 @@ class RoomNoteRepository(
     }
 
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-    override suspend fun getNoteById(id: String): Note? {
-        val entity = database.noteDao().getNoteById(id) ?: return null
+    override suspend fun getNoteById(id: String): Note? = withContext(Dispatchers.IO) {
+        val entity = database.noteDao().getNoteById(id) ?: return@withContext null
         val domain = entity.toDomain(includeDrawingData = true)
         
         val content = readFile("${id}.content")
@@ -71,7 +75,7 @@ class RoomNoteRepository(
             }
         }
         
-        return domain.copy(
+        domain.copy(
             content = content ?: domain.content,
             contentHtml = html ?: domain.contentHtml,
             drawingData = drawingData ?: domain.drawingData
@@ -388,16 +392,24 @@ class RoomNoteRepository(
                 }
             }
 
-            // Populate PDF data for backup
-            drawingData = drawingData?.copy(
-                pdfInfo = drawingData.pdfInfo?.let { info ->
-                    val file = java.io.File(info.localPath)
+            // Populate PDF data and image data for backup
+            if (drawingData != null) {
+                val updatedPdfInfo = drawingData.pdfInfo?.let { info ->
+                    val file = File(info.localPath)
                     if (file.exists()) {
                         val bytes = file.readBytes()
-                        info.copy(base64Data = android.util.Base64.encodeToString(bytes, android.util.Base64.DEFAULT))
+                        info.copy(base64Data = Base64.encodeToString(bytes, Base64.DEFAULT))
                     } else info
                 }
-            )
+                val updatedImages = drawingData.images.map { img ->
+                    val file = File(img.path)
+                    if (file.exists()) {
+                        val bytes = file.readBytes()
+                        img.copy(base64Data = Base64.encodeToString(bytes, Base64.DEFAULT))
+                    } else img
+                }
+                drawingData = drawingData.copy(pdfInfo = updatedPdfInfo, images = updatedImages)
+            }
 
             entity.toDomain().copy(content = content, contentHtml = html, drawingData = drawingData)
         }
@@ -414,24 +426,38 @@ class RoomNoteRepository(
         BackupData(notes, lists, entries, tags)
     }
 
-    override suspend fun getNoteBackup(noteId: String): BackupData? {
-        val note = getNoteById(noteId) ?: return null
+    override suspend fun getNoteBackup(noteId: String): BackupData? = withContext(Dispatchers.IO) {
+        val note = getNoteById(noteId) ?: return@withContext null
         
-        // Handle PDF base64 if it's a PDF drawing
-        val pdfRestoredNote = note.drawingData?.pdfInfo?.let { info ->
-            val file = File(info.localPath)
-            if (file.exists()) {
-                val bytes = file.readBytes()
-                val updatedInfo = info.copy(base64Data = Base64.encodeToString(bytes, Base64.DEFAULT))
-                note.copy(drawingData = note.drawingData.copy(pdfInfo = updatedInfo))
-            } else note
-        } ?: note
+        var drawingData = note.drawingData
+        if (drawingData != null) {
+            // Handle PDF base64 if it's a PDF drawing
+            val updatedPdfInfo = drawingData.pdfInfo?.let { info ->
+                val file = File(info.localPath)
+                if (file.exists()) {
+                    val bytes = file.readBytes()
+                    info.copy(base64Data = Base64.encodeToString(bytes, Base64.DEFAULT))
+                } else info
+            }
+            
+            // Handle image base64 if there are images
+            val updatedImages = drawingData.images.map { img ->
+                val file = File(img.path)
+                if (file.exists()) {
+                    val bytes = file.readBytes()
+                    img.copy(base64Data = Base64.encodeToString(bytes, Base64.DEFAULT))
+                } else img
+            }
+            
+            drawingData = drawingData.copy(pdfInfo = updatedPdfInfo, images = updatedImages)
+        }
         
-        return BackupData(notes = listOf(pdfRestoredNote), lists = emptyList(), entries = emptyList(), tags = emptyList())
+        val pdfRestoredNote = note.copy(drawingData = drawingData)
+        BackupData(notes = listOf(pdfRestoredNote), lists = emptyList(), entries = emptyList(), tags = emptyList())
     }
 
-    override suspend fun getListBackup(listId: String): BackupData? {
-        val listEntity = database.listDao().getListById(listId) ?: return null
+    override suspend fun getListBackup(listId: String): BackupData? = withContext(Dispatchers.IO) {
+        val listEntity = database.listDao().getListById(listId) ?: return@withContext null
         val list = listEntity.toDomain()
         
         val allTags = database.tagDao().getAllTagsList().map { it.toDomain() }
@@ -447,7 +473,7 @@ class RoomNoteRepository(
         val relevantTagIds = entries.flatMap { it.tagIds }.toSet()
         val relevantTags = allTags.filter { it.listId == listId || it.id in relevantTagIds }
         
-        return BackupData(notes = emptyList(), lists = listOf(list), entries = entries, tags = relevantTags)
+        BackupData(notes = emptyList(), lists = listOf(list), entries = entries, tags = relevantTags)
     }
 
     override suspend fun restoreBackupData(data: BackupData) = withContext(Dispatchers.IO) {
@@ -484,12 +510,30 @@ class RoomNoteRepository(
                     }
                 } else info
             }
+
+            val restoredImages = note.drawingData?.images?.map { img ->
+                if (img.base64Data != null) {
+                    try {
+                        val bytes = Base64.decode(img.base64Data, Base64.DEFAULT)
+                        val fileName = "img_${UUID.randomUUID()}.png"
+                        val file = File(context.filesDir, fileName)
+                        file.writeBytes(bytes)
+                        img.copy(path = file.absolutePath, base64Data = null)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        img
+                    }
+                } else img
+            } ?: emptyList()
             
-            val drawingDataToSave = note.drawingData?.copy(pdfInfo = restoredPdfInfo)
+            val drawingDataToSave = note.drawingData?.copy(
+                pdfInfo = restoredPdfInfo,
+                images = restoredImages
+            )
             drawingDataToSave?.let { saveFile("${note.id}.drawing", json.encodeToString(it)) }
             
             val preview = if (note.type == NoteType.TEXT) note.content.take(300) else null
-            val previewImage = if (note.type == NoteType.DRAWING) generateThumbnail(note) else null
+            val previewImage = if (note.type == NoteType.DRAWING) generateThumbnail(note.copy(drawingData = drawingDataToSave)) else null
             
             note.toEntity().copy(
                 content = "",

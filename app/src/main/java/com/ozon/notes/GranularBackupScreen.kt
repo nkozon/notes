@@ -20,6 +20,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -62,31 +63,59 @@ fun GranularBackupScreen(
     
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
-    var pendingExportData by remember { mutableStateOf<BackupData?>(null) }
+    var pendingExportNoteId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingExportListId by rememberSaveable { mutableStateOf<String?>(null) }
     
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
-        uri?.let {
-            val data = pendingExportData ?: return@let
-            scope.launch {
-                val success = withContext(Dispatchers.IO) {
-                    try {
-                        context.contentResolver.openOutputStream(it)?.use { outputStream ->
-                            json.encodeToStream(data, outputStream)
-                            true
-                        } ?: false
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        false
+        uri?.let { targetUri ->
+            val noteId = pendingExportNoteId
+            val listId = pendingExportListId
+            if (noteId != null) {
+                settingsViewModel.onEvent(NoteEvent.ExportNote(noteId) { data ->
+                    scope.launch {
+                        val success = withContext(Dispatchers.IO) {
+                            try {
+                                context.contentResolver.openOutputStream(targetUri)?.use { outputStream ->
+                                    json.encodeToStream(data, outputStream)
+                                    true
+                                } ?: false
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                false
+                            }
+                        }
+                        if (success) {
+                            Toast.makeText(context, "Export successful", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "Export failed", Toast.LENGTH_SHORT).show()
+                        }
+                        pendingExportNoteId = null
                     }
-                }
-                if (success) {
-                    Toast.makeText(context, "Export successful", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "Export failed", Toast.LENGTH_SHORT).show()
-                }
-                pendingExportData = null
+                })
+            } else if (listId != null) {
+                settingsViewModel.onEvent(NoteEvent.ExportList(listId) { data ->
+                    scope.launch {
+                        val success = withContext(Dispatchers.IO) {
+                            try {
+                                context.contentResolver.openOutputStream(targetUri)?.use { outputStream ->
+                                    json.encodeToStream(data, outputStream)
+                                    true
+                                } ?: false
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                false
+                            }
+                        }
+                        if (success) {
+                            Toast.makeText(context, "Export successful", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "Export failed", Toast.LENGTH_SHORT).show()
+                        }
+                        pendingExportListId = null
+                    }
+                })
             }
         }
     }
@@ -194,11 +223,10 @@ fun GranularBackupScreen(
                             index = index,
                             total = notes.size,
                             onClick = {
-                                settingsViewModel.onEvent(NoteEvent.ExportNote(note.id) { data ->
-                                    pendingExportData = data
-                                    val safeTitle = note.title.take(15).replace(Regex("[^a-zA-Z0-9]"), "_")
-                                    exportLauncher.launch("note_${safeTitle}.json")
-                                })
+                                pendingExportNoteId = note.id
+                                pendingExportListId = null
+                                val safeTitle = note.title.take(15).replace(Regex("[^a-zA-Z0-9]"), "_")
+                                exportLauncher.launch("note_${safeTitle}.json")
                             }
                         )
                     }
@@ -232,11 +260,10 @@ fun GranularBackupScreen(
                             index = index,
                             total = lists.size,
                             onClick = {
-                                settingsViewModel.onEvent(NoteEvent.ExportList(list.id) { data ->
-                                    pendingExportData = data
-                                    val safeTitle = list.title.take(15).replace(Regex("[^a-zA-Z0-9]"), "_")
-                                    exportLauncher.launch("list_${safeTitle}.json")
-                                })
+                                pendingExportListId = list.id
+                                pendingExportNoteId = null
+                                val safeTitle = list.title.take(15).replace(Regex("[^a-zA-Z0-9]"), "_")
+                                exportLauncher.launch("list_${safeTitle}.json")
                             }
                         )
                     }

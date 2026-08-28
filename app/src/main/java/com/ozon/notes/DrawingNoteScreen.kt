@@ -60,7 +60,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.Redo
 import androidx.compose.material.icons.automirrored.rounded.Undo
-import androidx.compose.material.icons.automirrored.rounded.NoteAdd
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -1704,21 +1703,6 @@ fun DrawingNoteScreen(
                                 imageVector = Icons.Rounded.GridView,
                                 contentDescription = "Page Overview (Long-press to add page)",
                                 tint = if (showPageOverview) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-
-                    if (canvasType == CanvasType.PAGED) {
-                        IconButton(
-                            onClick = { 
-                                addPageAtEnd()
-                            },
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Rounded.NoteAdd,
-                                contentDescription = "Add Page",
-                                tint = MaterialTheme.colorScheme.primary
                             )
                         }
                     }

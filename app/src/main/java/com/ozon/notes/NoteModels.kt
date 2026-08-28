@@ -3,6 +3,7 @@ package com.ozon.notes
 import kotlinx.serialization.Serializable
 import java.util.UUID
 
+@Serializable
 enum class CanvasType {
     INFINITE, PAGED, PDF
 }
@@ -33,6 +34,7 @@ data class PdfInfo(
     val base64Data: String? = null // Populated only during backup
 )
 
+@Serializable
 enum class NoteType {
     TEXT, DRAWING
 }
@@ -85,7 +87,8 @@ data class DrawingImage(
     val path: String, // Internal file path
     val offset: DrawingPoint,
     val scale: DrawingPoint, // For width/height scaling
-    val rotation: Float = 0f
+    val rotation: Float = 0f,
+    val base64Data: String? = null // Populated only during backup
 )
 
 @Serializable
@@ -157,6 +160,7 @@ data class ListEntry(
     val remindMe: Boolean = false
 )
 
+@Serializable
 enum class ListSortOrder {
     ALPHABETICAL, REVERSE_ALPHABETICAL, TAG_ALPHABETICAL, TAG_REVERSE_ALPHABETICAL, RATING_LOW_TO_HIGH, RATING_HIGH_TO_LOW, NEWEST, OLDEST;
 
@@ -183,22 +187,27 @@ enum class ListSortOrder {
     }
 }
 
+@Serializable
 enum class AppTheme {
     SYSTEM, LIGHT, DARK
 }
 
+@Serializable
 enum class TabletMode {
     AUTOMATIC, ALWAYS, NEVER
 }
 
+@Serializable
 enum class ChecklistBehavior {
     GREY_OUT, MOVE_TO_BOTTOM, HIDE
 }
 
+@Serializable
 enum class TagFilterMode {
     AND, OR
 }
 
+@Serializable
 enum class SmoothingStrength {
     NONE, LIGHT, MODERATE, HEAVY
 }
