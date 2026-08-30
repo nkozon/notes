@@ -130,7 +130,8 @@ data class NoteListEntityWithCounts(
     @Embedded val list: NoteListEntity,
     val entryCount: Int,
     val subEntryCount: Int,
-    val checkedCount: Int
+    val checkedCount: Int,
+    val watchingCount: Int = 0
 )
 
 data class ListEntryWithTags(
@@ -206,9 +207,10 @@ interface ListDao {
     @Query("""
         SELECT 
             l.*, 
-            (SELECT COUNT(*) FROM list_entries e WHERE e.listId = l.id AND e.parentId IS NULL) as entryCount,
+            (SELECT COUNT(*) FROM list_entries e WHERE e.listId = l.id AND e.parentId IS NULL AND e.isCurrentlyWatching = 0) as entryCount,
             (SELECT COUNT(*) FROM list_entries e WHERE e.listId = l.id AND e.parentId IS NOT NULL) as subEntryCount,
-            (SELECT COUNT(*) FROM list_entries e WHERE e.listId = l.id AND e.isChecked = 1) as checkedCount
+            (SELECT COUNT(*) FROM list_entries e WHERE e.listId = l.id AND e.isChecked = 1) as checkedCount,
+            (SELECT COUNT(*) FROM list_entries e WHERE e.listId = l.id AND e.isCurrentlyWatching = 1) as watchingCount
         FROM note_lists l
         ORDER BY l.isPinned DESC, l.timestamp DESC
     """)

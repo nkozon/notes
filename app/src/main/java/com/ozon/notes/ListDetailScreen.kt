@@ -356,7 +356,7 @@ fun ListDetailScreen(
                                         "$uncheckedCount entries, $checkedCount checked"
                                     } else if (currentList.type == ListType.RATING) {
                                         val watchingCount = entries.count { it.isCurrentlyWatching }
-                                        val rootCount = (totalCount - subEntryCount - watchingCount).coerceAtLeast(0)
+                                        val parentCount = entries.count { it.parentId.isNullOrBlank() && !it.isCurrentlyWatching }
                                         val sectionName = currentList.getEffectiveCurrentSectionName()
                                         val watchingShort = when {
                                             sectionName.contains("read", ignoreCase = true) -> "reading"
@@ -364,7 +364,7 @@ fun ListDetailScreen(
                                             sectionName.contains("listen", ignoreCase = true) -> "listening"
                                             else -> "watching"
                                         }
-                                        "$rootCount entries${if (subEntryCount > 0) ", $subEntryCount sub" else ""}${if (watchingCount > 0) ", $watchingCount $watchingShort" else ""}"
+                                        "$parentCount entries${if (watchingCount > 0) ", $watchingCount $watchingShort" else ""}"
                                     } else {
                                         val rootCount = totalCount - subEntryCount
                                         "$rootCount entries${if (subEntryCount > 0) ", $subEntryCount sub" else ""}"

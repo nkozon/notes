@@ -135,4 +135,32 @@ class ExampleUnitTest {
         assertEquals("test.pdf", deserializedDrawing.pdfInfo?.originalName)
         assertEquals(pdfInfo.base64Data, deserializedDrawing.pdfInfo?.base64Data)
     }
+
+    @Test
+    fun testNoteListEntityWithCountsToDomainMapping() {
+        val entity = NoteListEntityWithCounts(
+            list = NoteListEntity(
+                id = "list1",
+                title = "Movies",
+                type = ListType.RATING.name,
+                timestamp = 1000L,
+                isPinned = false,
+                sortOrder = ListSortOrder.ALPHABETICAL.name,
+                currentSectionName = "Currently Watching"
+            ),
+            entryCount = 5,
+            subEntryCount = 3,
+            checkedCount = 0,
+            watchingCount = 2
+        )
+
+        val domain = entity.toDomain()
+        assertEquals("list1", domain.list.id)
+        assertEquals("Movies", domain.list.title)
+        assertEquals(ListType.RATING, domain.list.type)
+        assertEquals(5, domain.entryCount)
+        assertEquals(3, domain.subEntryCount)
+        assertEquals(0, domain.checkedCount)
+        assertEquals(2, domain.watchingCount)
+    }
 }

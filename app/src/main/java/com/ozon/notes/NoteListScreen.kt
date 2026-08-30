@@ -431,6 +431,7 @@ fun NoteListScreen(
                             entryCount = listWithCounts.entryCount,
                             subEntryCount = listWithCounts.subEntryCount,
                             checkedCount = listWithCounts.checkedCount,
+                            watchingCount = listWithCounts.watchingCount,
                             showCounts = showEntryCount,
                             onClick = { onListClick(list.id) },
                             onLongClick = { listToRename = list },

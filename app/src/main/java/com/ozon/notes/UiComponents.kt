@@ -361,7 +361,8 @@ fun ListCard(
     onLongClick: () -> Unit = {},
     modifier: Modifier = Modifier,
     shape: Shape = CardDefaults.shape,
-    isSelected: Boolean = false
+    isSelected: Boolean = false,
+    watchingCount: Int = 0
 ) {
     Card(
         modifier = modifier
@@ -422,7 +423,14 @@ fun ListCard(
                                 val unchecked = total - checkedCount
                                 "$unchecked entries, $checkedCount checked"
                             } else {
-                                "$entryCount entries${if (subEntryCount > 0) ", $subEntryCount sub" else ""}"
+                                val sectionName = list.getEffectiveCurrentSectionName()
+                                val watchingShort = when {
+                                    sectionName.contains("read", ignoreCase = true) -> "reading"
+                                    sectionName.contains("play", ignoreCase = true) -> "playing"
+                                    sectionName.contains("listen", ignoreCase = true) -> "listening"
+                                    else -> "watching"
+                                }
+                                "$entryCount entries${if (watchingCount > 0) ", $watchingCount $watchingShort" else ""}"
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary

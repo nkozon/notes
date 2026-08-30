@@ -160,7 +160,7 @@ fun AboutScreen(
 
                 SettingsItemContainer(
                     index = 0,
-                    total = 1,
+                    total = 2,
                     onClick = { uriHandler.openUri("https://www.themoviedb.org") }
                 ) {
                     Row(
@@ -190,6 +190,52 @@ fun AboutScreen(
                             )
                             Text(
                                 text = "This product uses the TMDB API but is not endorsed or certified by TMDB.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
+
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.OpenInNew,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+                    }
+                }
+
+                SettingsItemContainer(
+                    index = 1,
+                    total = 2,
+                    onClick = { uriHandler.openUri("https://www.dropbox.com") }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(24.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Image(
+                                painter = painterResource(id = R.drawable.dropbox_logo),
+                                contentDescription = "Dropbox Logo",
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Dropbox",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                text = "Dropbox and the Dropbox logo are trademarks of Dropbox, Inc.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )

@@ -71,7 +71,8 @@ fun NoteListEntityWithCounts.toDomain(): NoteListWithCounts {
         list = list.toDomain(),
         entryCount = entryCount,
         subEntryCount = subEntryCount,
-        checkedCount = checkedCount
+        checkedCount = checkedCount,
+        watchingCount = watchingCount
     )
 }
 

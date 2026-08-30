@@ -134,7 +134,8 @@ data class NoteListWithCounts(
     val list: NoteList,
     val entryCount: Int,
     val subEntryCount: Int,
-    val checkedCount: Int = 0
+    val checkedCount: Int = 0,
+    val watchingCount: Int = 0
 )
 
 @androidx.compose.runtime.Immutable
