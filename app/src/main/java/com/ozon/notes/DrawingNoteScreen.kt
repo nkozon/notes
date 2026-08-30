@@ -1,5 +1,6 @@
 package com.ozon.notes
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -393,6 +394,60 @@ class LruPathCache(private val maxSize: Int) {
     fun keys(): Set<String> = cache.keys.toSet()
 }
 
+class DrawingImageCache(private val context: Context) {
+    private val memoryCache = java.util.concurrent.ConcurrentHashMap<String, Bitmap>()
+
+    fun get(path: String): Bitmap? {
+        memoryCache[path]?.let { if (!it.isRecycled) return it }
+        return loadDirect(path)
+    }
+
+    fun loadDirect(path: String): Bitmap? {
+        try {
+            var f = File(path)
+            if (!f.exists()) {
+                val fileName = path.removePrefix("media/").split("/").last().split("\\").last()
+                val fallback = File(context.filesDir, fileName)
+                if (fallback.exists()) f = fallback
+            }
+            if (!f.exists()) return null
+
+            val maxDim = 2048
+            val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeFile(f.absolutePath, opts)
+            val (w, h) = opts.outWidth to opts.outHeight
+            if (w <= 0 || h <= 0) return null
+
+            var inSampleSize = 1
+            if (w > maxDim || h > maxDim) {
+                val halfW = w / 2; val halfH = h / 2
+                while ((halfW / inSampleSize) >= maxDim || (halfH / inSampleSize) >= maxDim) {
+                    inSampleSize *= 2
+                }
+            }
+            opts.inJustDecodeBounds = false
+            opts.inSampleSize = inSampleSize
+            opts.inPreferredConfig = Bitmap.Config.ARGB_8888
+            val bmp = android.graphics.BitmapFactory.decodeFile(f.absolutePath, opts)
+            if (bmp != null) {
+                memoryCache[path] = bmp
+            }
+            return bmp
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return null
+        }
+    }
+
+    fun remove(path: String) {
+        memoryCache.remove(path)
+    }
+
+    fun clear() {
+        memoryCache.clear()
+    }
+}
+
 data class TileRenderSnapshot(
     val lod: Int,
     val keys: List<TileKey>,
@@ -557,7 +612,12 @@ fun DrawingNoteScreen(
         var pfd: ParcelFileDescriptor? = null
         if (info != null) {
             try {
-                val file = File(info.localPath)
+                var file = File(info.localPath)
+                if (!file.exists()) {
+                    val fileName = info.localPath.removePrefix("media/").split("/").last().split("\\").last()
+                    val fallback = File(context.filesDir, fileName)
+                    if (fallback.exists()) file = fallback
+                }
                 if (file.exists()) {
                     pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
                     renderer = PdfRenderer(pfd)
@@ -683,7 +743,7 @@ fun DrawingNoteScreen(
     }
 
     val spatialIndexManager = remember { SpatialIndexManager(SPATIAL_GRID_SIZE) }
-    val bitmapCache = remember { mutableStateMapOf<String, ImageBitmap>() }
+    val imageCache = remember { DrawingImageCache(context) }
 
     val tilePaint = remember {
         android.graphics.Paint().apply {
@@ -727,7 +787,7 @@ fun DrawingNoteScreen(
                             strokeToIndex = strokeToIndex,
                             imageMap = imageMap,
                             imageOrder = imageOrder,
-                            bitmapCache = bitmapCache,
+                            getBitmap = { path -> imageCache.get(path) },
                             excludedStrokeIds = snapshot.selS,
                             excludedImageIds = snapshot.selI
                         )
@@ -970,7 +1030,7 @@ fun DrawingNoteScreen(
                 strokeToIndex = strokeToIndex,
                 imageMap = imageMap,
                 imageOrder = imageOrder,
-                bitmapCache = bitmapCache,
+                getBitmap = { path -> imageCache.get(path) },
                 excludedStrokeIds = selectedStrokeIds,
                 excludedImageIds = selectedImageIds
             )
@@ -1488,35 +1548,19 @@ fun DrawingNoteScreen(
         }
     }
     
-    LaunchedEffect(imageOrder.size) {
-        // Clean up cache entries for removed images
+    LaunchedEffect(imageMap.values.map { it.path }) {
         val currentPaths = imageMap.values.map { it.path }.toSet()
-        bitmapCache.keys.filter { it !in currentPaths }.forEach { bitmapCache.remove(it) }
-
-        // Load new images with downsampling to prevent OOM
         withContext(Dispatchers.IO) {
-            imageMap.values.forEach { img ->
-                if (!bitmapCache.containsKey(img.path)) {
-                    val maxDim = 2048
-                    // First pass: decode bounds only
-                    val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    android.graphics.BitmapFactory.decodeFile(img.path, opts)
-                    // Calculate inSampleSize
-                    val (w, h) = opts.outWidth to opts.outHeight
-                    var inSampleSize = 1
-                    if (w > maxDim || h > maxDim) {
-                        val halfW = w / 2; val halfH = h / 2
-                        while ((halfW / inSampleSize) >= maxDim || (halfH / inSampleSize) >= maxDim) {
-                            inSampleSize *= 2
-                        }
-                    }
-                    // Second pass: decode with downsampling
-                    opts.inJustDecodeBounds = false
-                    opts.inSampleSize = inSampleSize
-                    val bitmap = android.graphics.BitmapFactory.decodeFile(img.path, opts)?.asImageBitmap()
-                    if (bitmap != null) {
-                        withContext(Dispatchers.Main) { bitmapCache[img.path] = bitmap }
-                    }
+            var anyLoaded = false
+            currentPaths.forEach { path ->
+                if (imageCache.get(path) != null) {
+                    anyLoaded = true
+                }
+            }
+            if (anyLoaded) {
+                withContext(Dispatchers.Main) {
+                    tileEngine.invalidateAll()
+                    tileCacheVersion++
                 }
             }
         }
@@ -1872,7 +1916,7 @@ fun DrawingNoteScreen(
                                                 strokeToIndex = strokeToIndex,
                                                 imageMap = imageMap,
                                                 imageOrder = imageOrder,
-                                                bitmapCache = bitmapCache,
+                                                getBitmap = { path -> imageCache.get(path) },
                                                 excludedStrokeIds = emptySet(),
                                                 excludedImageIds = emptySet()
                                             )
@@ -1937,7 +1981,7 @@ fun DrawingNoteScreen(
                                                         strokeToIndex = strokeToIndex,
                                                         imageMap = imageMap,
                                                         imageOrder = imageOrder,
-                                                        bitmapCache = bitmapCache
+                                                        getBitmap = { path -> imageCache.get(path) }
                                                     )
                                                 }
                                                 tileCacheVersion++
@@ -1996,7 +2040,7 @@ fun DrawingNoteScreen(
                                                          strokeToIndex = strokeToIndex,
                                                          imageMap = imageMap,
                                                          imageOrder = imageOrder,
-                                                         bitmapCache = bitmapCache
+                                                         getBitmap = { path -> imageCache.get(path) }
                                                      )
                                                  }
                                                  tileCacheVersion++
@@ -2164,7 +2208,7 @@ fun DrawingNoteScreen(
                                                                 strokeToIndex = strokeToIndex,
                                                                 imageMap = imageMap,
                                                                 imageOrder = imageOrder,
-                                                                bitmapCache = bitmapCache
+                                                                getBitmap = { path -> imageCache.get(path) }
                                                             )
                                                         }
                                                         tileCacheVersion++
@@ -2200,7 +2244,7 @@ fun DrawingNoteScreen(
                                                     strokeToIndex = strokeToIndex,
                                                     imageMap = imageMap,
                                                     imageOrder = imageOrder,
-                                                    bitmapCache = bitmapCache,
+                                                    getBitmap = { path -> imageCache.get(path) },
                                                     excludedStrokeIds = emptySet(),
                                                     excludedImageIds = emptySet()
                                                 )
@@ -2282,7 +2326,7 @@ fun DrawingNoteScreen(
                                                     strokeToIndex = strokeToIndex,
                                                     imageMap = imageMap,
                                                     imageOrder = imageOrder,
-                                                    bitmapCache = bitmapCache,
+                                                    getBitmap = { path -> imageCache.get(path) },
                                                     excludedStrokeIds = newIds,
                                                     excludedImageIds = selectedImageIds
                                                 )
@@ -2443,7 +2487,7 @@ fun DrawingNoteScreen(
                                             strokeToIndex = strokeToIndex,
                                             imageMap = imageMap,
                                             imageOrder = imageOrder,
-                                            bitmapCache = bitmapCache,
+                                            getBitmap = { path -> imageCache.get(path) },
                                             excludedStrokeIds = selectedStrokeIds,
                                             excludedImageIds = selectedImageIds,
                                             renderPaint = renderPaint
@@ -2509,11 +2553,13 @@ fun DrawingNoteScreen(
                                 // Draw selected images
                                 selectedImageIds.forEach { id ->
                                     val img = imageMap[id] ?: return@forEach
-                                    bitmapCache[img.path]?.let { bitmap ->
+                                    val bmp = imageCache.get(img.path)
+                                    if (bmp != null && !bmp.isRecycled) {
                                         drawImage(
-                                            image = bitmap,
+                                            image = bmp.asImageBitmap(),
                                             dstOffset = IntOffset(img.offset.x.roundToInt(), img.offset.y.roundToInt()),
-                                            dstSize = IntSize(img.scale.x.roundToInt(), img.scale.y.roundToInt())
+                                            dstSize = IntSize(img.scale.x.roundToInt(), img.scale.y.roundToInt()),
+                                            filterQuality = FilterQuality.Medium
                                         )
                                     }
                                 }
@@ -2623,7 +2669,7 @@ fun DrawingNoteScreen(
                                     strokeToIndex = strokeToIndex,
                                     imageMap = imageMap,
                                     imageOrder = imageOrder,
-                                    bitmapCache = bitmapCache,
+                                    getBitmap = { path -> imageCache.get(path) },
                                     excludedStrokeIds = emptySet(),
                                     excludedImageIds = emptySet()
                                 )
@@ -2764,7 +2810,7 @@ fun DrawingNoteScreen(
                                         strokeToIndex = strokeToIndex,
                                         imageMap = imageMap,
                                         imageOrder = imageOrder,
-                                        bitmapCache = bitmapCache,
+                                        getBitmap = { path -> imageCache.get(path) },
                                         excludedStrokeIds = emptySet(),
                                         excludedImageIds = emptySet()
                                     )
@@ -3879,7 +3925,7 @@ private fun drawTileVectorFallback(
     strokeToIndex: Map<String, Int>,
     imageMap: Map<String, com.ozon.notes.DrawingImage>,
     imageOrder: List<String>,
-    bitmapCache: Map<String, ImageBitmap>,
+    getBitmap: (String) -> Bitmap?,
     excludedStrokeIds: Set<String>,
     excludedImageIds: Set<String>,
     renderPaint: android.graphics.Paint
@@ -3902,21 +3948,33 @@ private fun drawTileVectorFallback(
     canvas.clipRect(tileRect.left, tileRect.top, tileRect.right, tileRect.bottom)
 
     // 1. Draw Images
+    val imagePaint = android.graphics.Paint().apply {
+        isFilterBitmap = true
+        isAntiAlias = true
+        isDither = true
+    }
+
     imageOrder.forEach { id ->
         if (id in excludedImageIds) return@forEach
         val img = imageMap[id] ?: return@forEach
         val imgRect = Rect(img.offset.x, img.offset.y, img.offset.x + img.scale.x, img.offset.y + img.scale.y)
         if (imgRect.overlaps(tileRect)) {
-            val imgBmp = bitmapCache[img.path]
-            if (imgBmp != null) {
-                val nativeBmp = imgBmp.asAndroidBitmap()
-                val dst = android.graphics.Rect(
-                    img.offset.x.roundToInt(),
-                    img.offset.y.roundToInt(),
-                    (img.offset.x + img.scale.x).roundToInt(),
-                    (img.offset.y + img.scale.y).roundToInt()
+            val nativeBmp = getBitmap(img.path)
+            if (nativeBmp != null && !nativeBmp.isRecycled) {
+                val dst = android.graphics.RectF(
+                    img.offset.x,
+                    img.offset.y,
+                    img.offset.x + img.scale.x,
+                    img.offset.y + img.scale.y
                 )
-                canvas.drawBitmap(nativeBmp, null, dst, null)
+                if (img.rotation != 0f) {
+                    canvas.save()
+                    canvas.rotate(img.rotation, dst.centerX(), dst.centerY())
+                    canvas.drawBitmap(nativeBmp, null, dst, imagePaint)
+                    canvas.restore()
+                } else {
+                    canvas.drawBitmap(nativeBmp, null, dst, imagePaint)
+                }
             }
         }
     }
@@ -4029,7 +4087,11 @@ private fun exportToPng(
         var pfd: ParcelFileDescriptor? = null
         var renderer: PdfRenderer? = null
         try {
-            val file = File(pdfInfo.localPath)
+            var file = File(pdfInfo.localPath)
+            if (!file.exists()) {
+                val fName = pdfInfo.localPath.removePrefix("media/").split("/").last().split("\\").last()
+                file = File(file.parentFile ?: File(""), fName)
+            }
             pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
             renderer = PdfRenderer(pfd)
             var currentY = 0f
@@ -4091,7 +4153,12 @@ private fun drawOverlays(canvas: Canvas, strokes: List<com.ozon.notes.Stroke>, i
         val imgRect = Rect(img.offset.x, img.offset.y, img.offset.x + img.scale.x, img.offset.y + img.scale.y)
         if (clipRect == null || clipRect.overlaps(imgRect)) {
             try {
-                val bitmap = android.graphics.BitmapFactory.decodeFile(img.path)
+                var imgFile = File(img.path)
+                if (!imgFile.exists()) {
+                    val fName = img.path.removePrefix("media/").split("/").last().split("\\").last()
+                    imgFile = File(imgFile.parentFile ?: File(""), fName)
+                }
+                val bitmap = android.graphics.BitmapFactory.decodeFile(imgFile.absolutePath)
                 if (bitmap != null) {
                     val dst = android.graphics.Rect(
                         img.offset.x.toInt(), 
@@ -4145,7 +4212,11 @@ private fun exportToPdf(
         var pfd: ParcelFileDescriptor? = null
         var renderer: PdfRenderer? = null
         try {
-            val file = File(pdfInfo.localPath)
+            var file = File(pdfInfo.localPath)
+            if (!file.exists()) {
+                val fName = pdfInfo.localPath.removePrefix("media/").split("/").last().split("\\").last()
+                file = File(file.parentFile ?: File(""), fName)
+            }
             pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
             renderer = PdfRenderer(pfd)
             var currentY = 0f

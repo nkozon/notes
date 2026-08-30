@@ -19,8 +19,8 @@ android {
         applicationId = "com.ozon.notes"
         minSdk = 30
         targetSdk = 36
-        versionCode = 29
-        versionName = "1.10.3"
+        versionCode = 30
+        versionName = "1.11"
 
         val localProperties = Properties()
         val localPropertiesFile = rootProject.file("local.properties")
@@ -29,6 +29,11 @@ android {
         }
         val tmdbApiKey = localProperties.getProperty("TMDB_API_KEY") ?: "YOUR_API_KEY_HERE"
         buildConfigField("String", "TMDB_API_KEY", "\"$tmdbApiKey\"")
+
+        val dropboxAppKey = localProperties.getProperty("DROPBOX_APP_KEY")
+            ?: localProperties.getProperty("DROPBOX_API_KEY")
+            ?: ""
+        buildConfigField("String", "DROPBOX_APP_KEY", "\"$dropboxAppKey\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -20,40 +20,128 @@ import java.net.URL
 class UpdateManager(private val context: Context) {
 
     private val json = Json { ignoreUnknownKeys = true }
-    private val githubApiUrl = "https://api.github.com/repos/nkozon/notes/releases/latest"
+    private val githubReleasesApiUrl = "https://api.github.com/repos/nkozon/notes/releases?per_page=50"
+    private val githubLatestApiUrl = "https://api.github.com/repos/nkozon/notes/releases/latest"
 
     suspend fun checkForUpdate(): UpdateState = withContext(Dispatchers.IO) {
         try {
-            val url = URL(githubApiUrl)
+            val currentVersion = getCurrentVersion()
+
+            val url = URL(githubReleasesApiUrl)
             val connection = url.openConnection() as HttpURLConnection
             connection.requestMethod = "GET"
+            connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
+            connection.setRequestProperty("User-Agent", "Notes-App")
             connection.connect()
 
             if (connection.responseCode == 200) {
                 val responseBody = connection.inputStream.bufferedReader().use { it.readText() }
-                val release = json.decodeFromString<GitHubRelease>(responseBody)
-                
-                val currentVersion = getCurrentVersion()
-                val latestVersion = release.tagName.removePrefix("v")
-                
-                if (isNewerVersion(latestVersion, currentVersion)) {
-                    val apkAsset = release.assets.find { it.name.endsWith(".apk") }
+                val allReleases = json.decodeFromString<List<GitHubRelease>>(responseBody)
+
+                val newerReleases = allReleases.filter { isNewerVersion(it.tagName, currentVersion) }
+
+                if (newerReleases.isNotEmpty()) {
+                    val sortedReleases = newerReleases.sortedWith { r1, r2 ->
+                        if (isNewerVersion(r1.tagName, r2.tagName)) -1
+                        else if (isNewerVersion(r2.tagName, r1.tagName)) 1
+                        else 0
+                    }
+
+                    val releaseWithApk = sortedReleases.find { rel -> rel.assets.any { it.name.endsWith(".apk") } }
+                    val apkAsset = releaseWithApk?.assets?.find { it.name.endsWith(".apk") }
+
                     if (apkAsset != null) {
+                        val versionChangelogs = sortedReleases.map { rel ->
+                            val rawTag = rel.tagName.trim()
+                            val formattedVersion = if (!rawTag.startsWith("v", ignoreCase = true)) "v$rawTag" else rawTag
+                            VersionChangelog(
+                                version = formattedVersion,
+                                changelogs = parseChangelogBody(rel.body)
+                            )
+                        }
+
                         return@withContext UpdateState.UpdateAvailable(
-                            version = release.tagName,
-                            body = release.body,
-                            downloadUrl = apkAsset.downloadUrl
+                            version = sortedReleases.first().tagName,
+                            body = sortedReleases.first().body,
+                            downloadUrl = apkAsset.downloadUrl,
+                            releases = versionChangelogs
                         )
                     }
                 }
                 return@withContext UpdateState.UpToDate
             } else {
-                return@withContext UpdateState.Error("Server returned code ${connection.responseCode}")
+                return@withContext checkLatestFallback(currentVersion)
             }
         } catch (e: Exception) {
             Log.e("UpdateManager", "Failed to check for update", e)
             return@withContext UpdateState.Error(e.localizedMessage ?: "Unknown error")
         }
+    }
+
+    private suspend fun checkLatestFallback(currentVersion: String): UpdateState = withContext(Dispatchers.IO) {
+        try {
+            val url = URL(githubLatestApiUrl)
+            val connection = url.openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
+            connection.setRequestProperty("User-Agent", "Notes-App")
+            connection.connect()
+
+            if (connection.responseCode == 200) {
+                val responseBody = connection.inputStream.bufferedReader().use { it.readText() }
+                val release = json.decodeFromString<GitHubRelease>(responseBody)
+
+                if (isNewerVersion(release.tagName, currentVersion)) {
+                    val apkAsset = release.assets.find { it.name.endsWith(".apk") }
+                    if (apkAsset != null) {
+                        val rawTag = release.tagName.trim()
+                        val formattedVersion = if (!rawTag.startsWith("v", ignoreCase = true)) "v$rawTag" else rawTag
+                        val changelog = VersionChangelog(
+                            version = formattedVersion,
+                            changelogs = parseChangelogBody(release.body)
+                        )
+                        return@withContext UpdateState.UpdateAvailable(
+                            version = release.tagName,
+                            body = release.body,
+                            downloadUrl = apkAsset.downloadUrl,
+                            releases = listOf(changelog)
+                        )
+                    }
+                }
+                UpdateState.UpToDate
+            } else {
+                UpdateState.Error("Server returned code ${connection.responseCode}")
+            }
+        } catch (e: Exception) {
+            UpdateState.Error(e.localizedMessage ?: "Unknown error")
+        }
+    }
+
+    fun parseChangelogBody(body: String?): List<String> {
+        if (body.isNullOrBlank()) return listOf("Bug fixes and performance improvements")
+
+        val lines = body.lines().map { it.trim() }.filter { it.isNotBlank() }
+        val changelogItems = mutableListOf<String>()
+
+        for (line in lines) {
+            if (line.startsWith("#")) continue
+            if (line.contains("Full Changelog", ignoreCase = true) && line.contains("http")) continue
+            if (line.startsWith("http://") || line.startsWith("https://")) continue
+
+            var cleanLine = line
+            cleanLine = cleanLine.replace(Regex("^[\\*\\-\\+•]\\s*"), "")
+            cleanLine = cleanLine.replace(Regex("^\\d+\\.\\s*"), "")
+            cleanLine = cleanLine.replace(Regex("\\s+by\\s+@[^\\s]+\\s+in\\s+https?://[^\\s]+"), "")
+            cleanLine = cleanLine.replace(Regex("\\s+in\\s+https?://[^\\s]+"), "")
+
+            cleanLine = cleanLine.trim()
+
+            if (cleanLine.isNotBlank() && !cleanLine.startsWith("**") && cleanLine != "---") {
+                changelogItems.add(cleanLine)
+            }
+        }
+
+        return if (changelogItems.isNotEmpty()) changelogItems else listOf(body.trim())
     }
 
     fun downloadAndInstallUpdate(url: String, versionName: String): Long? {
@@ -135,14 +223,19 @@ class UpdateManager(private val context: Context) {
         }
     }
 
-    private fun isNewerVersion(latest: String, current: String): Boolean {
-        val latestParts = latest.split(".").mapNotNull { it.toIntOrNull() }
-        val currentParts = current.split(".").mapNotNull { it.toIntOrNull() }
-        
-        for (i in 0 until minOf(latestParts.size, currentParts.size)) {
-            if (latestParts[i] > currentParts[i]) return true
-            if (latestParts[i] < currentParts[i]) return false
+    fun isNewerVersion(latest: String, current: String): Boolean {
+        val latestClean = latest.removePrefix("v").removePrefix("V").trim()
+        val currentClean = current.removePrefix("v").removePrefix("V").trim()
+        val latestParts = latestClean.split(".").mapNotNull { it.toIntOrNull() }
+        val currentParts = currentClean.split(".").mapNotNull { it.toIntOrNull() }
+
+        val maxLen = maxOf(latestParts.size, currentParts.size)
+        for (i in 0 until maxLen) {
+            val l = latestParts.getOrElse(i) { 0 }
+            val c = currentParts.getOrElse(i) { 0 }
+            if (l > c) return true
+            if (l < c) return false
         }
-        return latestParts.size > currentParts.size
+        return false
     }
 }

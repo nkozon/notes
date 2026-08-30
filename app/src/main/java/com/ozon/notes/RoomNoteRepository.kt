@@ -29,6 +29,14 @@ class RoomNoteRepository(
         encodeDefaults = true
     }
 
+    private val backupEngine = BackupEngine(context, database, this)
+    private val dropboxAuthManager = DropboxAuthManager(context)
+    private val dropboxClient = DropboxClient(dropboxAuthManager)
+
+    override fun getBackupEngine(): BackupEngine = backupEngine
+    override fun getDropboxAuthManager(): DropboxAuthManager = dropboxAuthManager
+    override fun getDropboxClient(): DropboxClient = dropboxClient
+
     private suspend fun saveFile(fileName: String, content: String) = withContext(Dispatchers.IO) {
         context.openFileOutput(fileName, Context.MODE_PRIVATE).use {
             it.write(content.toByteArray())
@@ -508,7 +516,13 @@ class RoomNoteRepository(
                         e.printStackTrace()
                         info 
                     }
-                } else info
+                } else {
+                    val fileName = info.localPath.removePrefix("media/").split("/").last().split("\\").last()
+                    val localFile = File(context.filesDir, fileName)
+                    if (localFile.exists()) {
+                        info.copy(localPath = localFile.absolutePath)
+                    } else info
+                }
             }
 
             val restoredImages = note.drawingData?.images?.map { img ->
@@ -523,7 +537,13 @@ class RoomNoteRepository(
                         e.printStackTrace()
                         img
                     }
-                } else img
+                } else {
+                    val fileName = img.path.removePrefix("media/").split("/").last().split("\\").last()
+                    val localFile = File(context.filesDir, fileName)
+                    if (localFile.exists()) {
+                        img.copy(path = localFile.absolutePath)
+                    } else img
+                }
             } ?: emptyList()
             
             val drawingDataToSave = note.drawingData?.copy(
@@ -733,6 +753,8 @@ class RoomNoteRepository(
 
     // --- Backup & Restore ---
     private val _autoBackupEnabled = MutableStateFlow(prefs.getBoolean("auto_backup_enabled", false))
+    private val _dropboxAutoBackupEnabled = MutableStateFlow(prefs.getBoolean("dropbox_auto_backup_enabled", false))
+    private val _lastDropboxBackupTime = MutableStateFlow(prefs.getLong("last_dropbox_backup_time", 0L))
     private val _backupUri = MutableStateFlow(prefs.getString("backup_uri", null))
     private val _hasPendingChanges = MutableStateFlow(prefs.getBoolean("has_pending_changes", false))
 
@@ -740,6 +762,18 @@ class RoomNoteRepository(
     override suspend fun setAutoBackupEnabled(enabled: Boolean) {
         prefs.edit().putBoolean("auto_backup_enabled", enabled).apply()
         _autoBackupEnabled.value = enabled
+    }
+
+    override fun getDropboxAutoBackupEnabled(): Flow<Boolean> = _dropboxAutoBackupEnabled
+    override suspend fun setDropboxAutoBackupEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("dropbox_auto_backup_enabled", enabled).apply()
+        _dropboxAutoBackupEnabled.value = enabled
+    }
+
+    override fun getLastDropboxBackupTime(): Flow<Long> = _lastDropboxBackupTime
+    override suspend fun setLastDropboxBackupTime(time: Long) {
+        prefs.edit().putLong("last_dropbox_backup_time", time).apply()
+        _lastDropboxBackupTime.value = time
     }
 
     override fun getBackupUri(): Flow<String?> = _backupUri

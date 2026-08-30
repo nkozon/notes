@@ -25,6 +25,7 @@ import com.ozon.notes.ui.theme.NotesTheme
 class MainActivity : ComponentActivity() {
     private val initialListId = mutableStateOf<String?>(null)
     private val rescheduleEntryId = mutableStateOf<String?>(null)
+    private val pendingAuthUri = mutableStateOf<android.net.Uri?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -49,6 +50,17 @@ class MainActivity : ComponentActivity() {
             val checklistViewModel: ChecklistViewModel = viewModel(
                 factory = ChecklistViewModel.provideFactory(repository)
             )
+
+            val authUri by pendingAuthUri
+            LaunchedEffect(authUri) {
+                authUri?.let { uri ->
+                    settingsViewModel.handleDropboxAuthRedirect(uri) { success, error ->
+                        val msg = if (success) "Dropbox connected successfully" else "Dropbox login failed: ${error ?: "Unknown error"}"
+                        android.widget.Toast.makeText(applicationContext, msg, android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                    pendingAuthUri.value = null
+                }
+            }
 
             val appTheme by settingsViewModel.themeState.collectAsStateWithLifecycle()
             val useDynamicColor by settingsViewModel.useDynamicColorState.collectAsStateWithLifecycle()
@@ -125,6 +137,10 @@ class MainActivity : ComponentActivity() {
     private fun handleIntent(intent: Intent?) {
         initialListId.value = intent?.getStringExtra("listId")
         rescheduleEntryId.value = intent?.getStringExtra("rescheduleEntryId")
+        val data = intent?.data
+        if (data?.scheme == "notesapp" && data.host == "dropbox-auth") {
+            pendingAuthUri.value = data
+        }
     }
 
     private fun createNotificationChannel() {

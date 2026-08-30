@@ -32,7 +32,8 @@ data class NoteListEntity(
     val type: String, // "CHECKLIST" or "RATING"
     val timestamp: Long,
     val isPinned: Boolean = false,
-    val sortOrder: String = "ALPHABETICAL"
+    val sortOrder: String = "ALPHABETICAL",
+    val currentSectionName: String? = null
 )
 
 @Entity(
@@ -72,7 +73,11 @@ data class ListEntryEntity(
     val description: String? = null,
     val timestamp: Long,
     val dueDate: Long? = null,
-    val remindMe: Boolean = false
+    val remindMe: Boolean = false,
+    val isCurrentlyWatching: Boolean = false,
+    val currentProgress: Int? = null,
+    val totalProgress: Int? = null,
+    val progressUnit: String? = null
 )
 
 @Entity(
@@ -295,7 +300,7 @@ interface EntryTagCrossRefDao {
 
 @Database(
     entities = [NoteEntity::class, NoteListEntity::class, ListEntryEntity::class, TagEntity::class, EntryTagCrossRef::class],
-    version = 22, 
+    version = 23, 
     exportSchema = false
 )
 abstract class NoteDatabase : RoomDatabase() {
@@ -305,6 +310,15 @@ abstract class NoteDatabase : RoomDatabase() {
     abstract fun entryTagCrossRefDao(): EntryTagCrossRefDao
 
     companion object {
+        val MIGRATION_22_23 = object : androidx.room.migration.Migration(22, 23) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `note_lists` ADD COLUMN `currentSectionName` TEXT")
+                db.execSQL("ALTER TABLE `list_entries` ADD COLUMN `isCurrentlyWatching` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `list_entries` ADD COLUMN `currentProgress` INTEGER")
+                db.execSQL("ALTER TABLE `list_entries` ADD COLUMN `totalProgress` INTEGER")
+                db.execSQL("ALTER TABLE `list_entries` ADD COLUMN `progressUnit` TEXT")
+            }
+        }
         val MIGRATION_21_22 = object : androidx.room.migration.Migration(21, 22) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `list_entries` ADD COLUMN `tmdbPosterPath` TEXT")

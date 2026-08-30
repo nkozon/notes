@@ -7,19 +7,17 @@ import androidx.work.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.ExperimentalSerializationApi
-import kotlinx.serialization.json.encodeToStream
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
- * Background worker responsible for performing automatic JSON backups.
+ * Background worker responsible for performing automatic backups (local and Dropbox cloud).
  * 
  * Why WorkManager?
  * Manual backup triggers in `onPause` can be unreliable if the system kills the app process 
  * immediately. WorkManager ensures that the backup job survives process death and executes 
  * under proper conditions (e.g., storage not low).
  */
-@OptIn(ExperimentalSerializationApi::class)
 class BackupWorker(
     context: Context,
     workerParams: WorkerParameters
@@ -27,39 +25,71 @@ class BackupWorker(
 
     override suspend fun doWork(): ListenableWorker.Result = withContext(Dispatchers.IO) {
         val repository = AppContainer.provideRepository(applicationContext)
-        
-        val enabled = repository.getAutoBackupEnabled().first()
+        val backupEngine = repository.getBackupEngine()
+        val dropboxAuthManager = repository.getDropboxAuthManager()
+        val dropboxClient = repository.getDropboxClient()
+
+        val localEnabled = repository.getAutoBackupEnabled().first()
+        val dropboxEnabled = repository.getDropboxAutoBackupEnabled().first()
         val uriString = repository.getBackupUri().first()
         val hasChanges = repository.getHasPendingChanges().first()
 
-        if (!enabled || uriString == null || !hasChanges) {
+        if (!hasChanges || (!localEnabled && !dropboxEnabled)) {
             return@withContext ListenableWorker.Result.success()
         }
 
-        try {
-            val treeUri = android.net.Uri.parse(uriString)
-            val pickedDir = DocumentFile.fromTreeUri(applicationContext, treeUri) ?: return@withContext ListenableWorker.Result.failure()
-            
-            val fileName = "auto_backup_${System.currentTimeMillis()}.json"
-            val file = pickedDir.createFile("application/json", fileName) ?: return@withContext ListenableWorker.Result.failure()
-            
-            val data = repository.getBackupData()
-            
-            applicationContext.contentResolver.openOutputStream(file.uri)?.use { stream ->
-                val jsonString = kotlinx.serialization.json.Json.encodeToString(data)
-                stream.write(jsonString.toByteArray())
-                stream.flush()
+        var localSuccess = false
+        var dropboxSuccess = false
+
+        // 1. Local Auto Backup
+        if (localEnabled && uriString != null) {
+            try {
+                val treeUri = android.net.Uri.parse(uriString)
+                val pickedDir = DocumentFile.fromTreeUri(applicationContext, treeUri)
+                if (pickedDir != null) {
+                    val fileName = "auto_backup_${System.currentTimeMillis()}.notesbackup"
+                    val file = pickedDir.createFile("application/zip", fileName)
+                    if (file != null) {
+                        applicationContext.contentResolver.openOutputStream(file.uri)?.use { stream ->
+                            backupEngine.createBackup(stream)
+                        }
+                        repository.setLastBackupTime(System.currentTimeMillis())
+                        localSuccess = true
+                        Log.d("BackupWorker", "Local auto backup successful: $fileName")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("BackupWorker", "Local auto backup failed", e)
             }
-            
-            repository.setLastBackupTime(System.currentTimeMillis())
-            repository.setHasPendingChanges(false)
-            
-            Log.d("BackupWorker", "Auto backup successful: $fileName")
-            ListenableWorker.Result.success()
-        } catch (e: Exception) {
-            Log.e("BackupWorker", "Auto backup failed", e)
-            ListenableWorker.Result.retry()
         }
+
+        // 2. Dropbox Cloud Auto Backup
+        if (dropboxEnabled && dropboxAuthManager.isLoggedIn()) {
+            val tempFile = File(applicationContext.cacheDir, "auto_dropbox_backup.notesbackup")
+            try {
+                tempFile.outputStream().use { stream ->
+                    backupEngine.createBackup(stream)
+                }
+                val uploadResult = dropboxClient.uploadBackup(tempFile)
+                if (uploadResult.isSuccess) {
+                    repository.setLastDropboxBackupTime(System.currentTimeMillis())
+                    dropboxSuccess = true
+                    Log.d("BackupWorker", "Dropbox auto backup successful")
+                } else {
+                    Log.e("BackupWorker", "Dropbox auto backup failed: ${uploadResult.exceptionOrNull()?.message}")
+                }
+            } catch (e: Exception) {
+                Log.e("BackupWorker", "Dropbox auto backup exception", e)
+            } finally {
+                tempFile.delete()
+            }
+        }
+
+        if (localSuccess || dropboxSuccess) {
+            repository.setHasPendingChanges(false)
+        }
+
+        ListenableWorker.Result.success()
     }
 
     companion object {

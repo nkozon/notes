@@ -2,6 +2,7 @@ package com.ozon.notes
 
 import kotlinx.serialization.Serializable
 import java.util.UUID
+import java.util.Locale
 
 @Serializable
 enum class CanvasType {
@@ -121,8 +122,13 @@ data class NoteList(
     val type: ListType,
     val timestamp: Long = System.currentTimeMillis(),
     val isPinned: Boolean = false,
-    val sortOrder: ListSortOrder = ListSortOrder.ALPHABETICAL
-)
+    val sortOrder: ListSortOrder = ListSortOrder.ALPHABETICAL,
+    val currentSectionName: String? = null // e.g. "Currently Watching", "Currently Reading", "Currently Playing"
+) {
+    fun getEffectiveCurrentSectionName(): String {
+        return if (!currentSectionName.isNullOrBlank()) currentSectionName else "Currently Watching"
+    }
+}
 
 data class NoteListWithCounts(
     val list: NoteList,
@@ -157,8 +163,35 @@ data class ListEntry(
     val tmdbPosterPath: String? = null,
     val timestamp: Long = System.currentTimeMillis(),
     val dueDate: Long? = null,
-    val remindMe: Boolean = false
-)
+    val remindMe: Boolean = false,
+    val isCurrentlyWatching: Boolean = false,
+    val currentProgress: Int? = null,
+    val totalProgress: Int? = null,
+    val progressUnit: String? = null
+) {
+    fun getProgressLabel(defaultUnit: String = "episodes"): String {
+        val unit = if (!progressUnit.isNullOrBlank()) progressUnit else defaultUnit
+        val cur = currentProgress ?: 0
+        val tot = totalProgress
+        return when {
+            tot != null && tot > 0 -> {
+                val left = (tot - cur).coerceAtLeast(0)
+                if (left == 0) "Completed"
+                else if (left == 1) {
+                    val singleUnit = if (unit.endsWith("s", ignoreCase = true) && unit.length > 1) unit.dropLast(1) else unit
+                    "1 $singleUnit left"
+                } else {
+                    "$left $unit left"
+                }
+            }
+            currentProgress != null -> {
+                val singleUnit = if (unit.endsWith("s", ignoreCase = true) && unit.length > 1) unit.dropLast(1) else unit
+                "${singleUnit.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }} $cur"
+            }
+            else -> ""
+        }
+    }
+}
 
 @Serializable
 enum class ListSortOrder {
@@ -220,3 +253,43 @@ data class BackupData(
     val entries: List<ListEntry>,
     val tags: List<Tag> = emptyList()
 )
+
+@Serializable
+data class BackupManifest(
+    val version: Int = 1,
+    val appVersion: String = "1.10.3",
+    val timestamp: Long = System.currentTimeMillis(),
+    val noteCount: Int = 0,
+    val listCount: Int = 0,
+    val entryCount: Int = 0,
+    val tagCount: Int = 0,
+    val mediaCount: Int = 0
+)
+
+@Serializable
+data class ExportedListBundle(
+    val list: NoteList,
+    val entries: List<ListEntry>,
+    val tags: List<Tag> = emptyList()
+)
+
+@androidx.compose.runtime.Immutable
+@Serializable
+data class DropboxAuthState(
+    val isConnected: Boolean = false,
+    val accountName: String? = null,
+    val accountEmail: String? = null,
+    val usedSpace: Long = 0L,
+    val totalSpace: Long = 0L,
+    val latestBackupSize: Long? = null,
+    val latestBackupTime: Long? = null,
+    val autoBackupEnabled: Boolean = false,
+    val isConfigured: Boolean = true
+)
+
+sealed interface DropboxSyncStatus {
+    data object Idle : DropboxSyncStatus
+    data class Syncing(val message: String) : DropboxSyncStatus
+    data class Success(val message: String) : DropboxSyncStatus
+    data class Error(val message: String) : DropboxSyncStatus
+}

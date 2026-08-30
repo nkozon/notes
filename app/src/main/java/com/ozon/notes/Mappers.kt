@@ -61,7 +61,8 @@ fun NoteListEntity.toDomain(): NoteList {
         type = try { ListType.valueOf(type) } catch (e: Exception) { ListType.CHECKLIST },
         timestamp = timestamp,
         isPinned = isPinned,
-        sortOrder = try { ListSortOrder.valueOf(sortOrder) } catch (e: Exception) { ListSortOrder.ALPHABETICAL }
+        sortOrder = try { ListSortOrder.valueOf(sortOrder) } catch (e: Exception) { ListSortOrder.ALPHABETICAL },
+        currentSectionName = currentSectionName
     )
 }
 
@@ -81,7 +82,8 @@ fun NoteList.toEntity(): NoteListEntity {
         type = type.name,
         timestamp = timestamp,
         isPinned = isPinned,
-        sortOrder = sortOrder.name
+        sortOrder = sortOrder.name,
+        currentSectionName = currentSectionName
     )
 }
 
@@ -102,7 +104,11 @@ fun ListEntryEntity.toDomain(tagIds: List<String>): ListEntry {
         tmdbPosterPath = tmdbPosterPath,
         timestamp = timestamp,
         dueDate = dueDate,
-        remindMe = remindMe
+        remindMe = remindMe,
+        isCurrentlyWatching = isCurrentlyWatching,
+        currentProgress = currentProgress,
+        totalProgress = totalProgress,
+        progressUnit = progressUnit
     )
 }
 
@@ -124,7 +130,11 @@ fun ListEntry.toEntity(): ListEntryEntity {
         tmdbPosterPath = tmdbPosterPath,
         timestamp = timestamp,
         dueDate = dueDate,
-        remindMe = remindMe
+        remindMe = remindMe,
+        isCurrentlyWatching = isCurrentlyWatching,
+        currentProgress = currentProgress,
+        totalProgress = totalProgress,
+        progressUnit = progressUnit
     )
 }
 

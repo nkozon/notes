@@ -4,6 +4,8 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
@@ -468,8 +470,8 @@ fun NoteListScreen(
         show = showCreateListDialog,
         initialType = initialListType,
         onDismiss = { showCreateListDialog = false },
-        onConfirm = { title, type ->
-            notesViewModel.onEvent(NoteEvent.SaveList(NoteList(title = title, type = type)))
+        onConfirm = { title, type, sectionName ->
+            notesViewModel.onEvent(NoteEvent.SaveList(NoteList(title = title, type = type, currentSectionName = sectionName)))
             showCreateListDialog = false
         }
     )
@@ -477,8 +479,8 @@ fun NoteListScreen(
     RenameListDialog(
         list = listToRename,
         onDismiss = { listToRename = null },
-        onConfirm = { list, newTitle ->
-            notesViewModel.onEvent(NoteEvent.SaveList(list.copy(title = newTitle)))
+        onConfirm = { list, newTitle, sectionName ->
+            notesViewModel.onEvent(NoteEvent.SaveList(list.copy(title = newTitle, currentSectionName = sectionName)))
             listToRename = null
         }
     )
@@ -653,7 +655,7 @@ private fun MarginSlider(label: String, value: Float, onValueChange: (Float) -> 
 private fun RenameListDialog(
     list: NoteList?,
     onDismiss: () -> Unit,
-    onConfirm: (NoteList, String) -> Unit
+    onConfirm: (NoteList, String, String?) -> Unit
 ) {
     if (list != null) {
         var newTitle by remember { 
@@ -664,36 +666,75 @@ private fun RenameListDialog(
                 )
             ) 
         }
+        var sectionName by remember {
+            mutableStateOf(list.currentSectionName ?: "Currently Watching")
+        }
         val focusRequester = remember { FocusRequester() }
         val keyboardController = LocalSoftwareKeyboardController.current
 
         AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("Rename List") },
+            title = { Text(if (list.type == ListType.RATING) "Edit Rating List" else "Rename List") },
             text = {
-                OutlinedTextField(
-                    value = newTitle,
-                    onValueChange = { newTitle = it },
-                    label = { Text("New Title") },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester),
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
-                )
-                LaunchedEffect(Unit) {
-                    focusRequester.requestFocus()
-                    keyboardController?.show()
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedTextField(
+                        value = newTitle,
+                        onValueChange = { newTitle = it },
+                        label = { Text("List Title") },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester),
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
+                    )
+                    LaunchedEffect(Unit) {
+                        focusRequester.requestFocus()
+                        keyboardController?.show()
+                    }
+
+                    if (list.type == ListType.RATING) {
+                        Spacer(Modifier.height(4.dp))
+                        Text("Active Section Title", style = MaterialTheme.typography.labelMedium)
+                        OutlinedTextField(
+                            value = sectionName,
+                            onValueChange = { sectionName = it },
+                            placeholder = { Text("e.g. Currently Watching") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
+                        )
+                        val presetSuggestions = listOf(
+                            "Currently Watching",
+                            "Currently Reading",
+                            "Currently Playing",
+                            "Currently Listening"
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            presetSuggestions.forEach { preset ->
+                                FilterChip(
+                                    selected = sectionName == preset,
+                                    onClick = { sectionName = preset },
+                                    label = { Text(preset) }
+                                )
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
                 TextButton(
                     onClick = {
                         if (newTitle.text.isNotBlank()) {
-                            onConfirm(list, newTitle.text)
+                            onConfirm(list, newTitle.text, sectionName.takeIf { list.type == ListType.RATING && it.isNotBlank() })
                         }
                     }
-                ) { Text("Rename") }
+                ) { Text("Save") }
             },
             dismissButton = {
                 TextButton(onClick = onDismiss) { Text("Cancel") }
@@ -755,7 +796,7 @@ private fun CreateListDialog(
     show: Boolean,
     initialType: ListType = ListType.CHECKLIST,
     onDismiss: () -> Unit,
-    onConfirm: (String, ListType) -> Unit
+    onConfirm: (String, ListType, String?) -> Unit
 ) {
     if (show) {
         var listTitle by remember { 
@@ -767,6 +808,7 @@ private fun CreateListDialog(
             ) 
         }
         var listType by remember(initialType) { mutableStateOf(initialType) }
+        var sectionName by remember { mutableStateOf("Currently Watching") }
         val focusRequester = remember { FocusRequester() }
         val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -774,7 +816,10 @@ private fun CreateListDialog(
             onDismissRequest = onDismiss,
             title = { Text("Create New List") },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     OutlinedTextField(
                         value = listTitle,
                         onValueChange = { listTitle = it },
@@ -842,13 +887,44 @@ private fun CreateListDialog(
                             Text("Upcoming List")
                         }
                     }
+
+                    if (listType == ListType.RATING) {
+                        Spacer(Modifier.height(4.dp))
+                        Text("Active Section Title", style = MaterialTheme.typography.labelMedium)
+                        OutlinedTextField(
+                            value = sectionName,
+                            onValueChange = { sectionName = it },
+                            placeholder = { Text("Currently Watching") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
+                        )
+                        val presetSuggestions = listOf(
+                            "Currently Watching",
+                            "Currently Reading",
+                            "Currently Playing",
+                            "Currently Listening"
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            presetSuggestions.forEach { preset ->
+                                FilterChip(
+                                    selected = sectionName == preset,
+                                    onClick = { sectionName = preset },
+                                    label = { Text(preset) }
+                                )
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
                 TextButton(
                     onClick = {
                         if (listTitle.text.isNotBlank()) {
-                            onConfirm(listTitle.text, listType)
+                            onConfirm(listTitle.text, listType, sectionName.takeIf { listType == ListType.RATING && it.isNotBlank() })
                         }
                     }
                 ) { Text("Create") }

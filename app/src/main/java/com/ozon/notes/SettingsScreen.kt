@@ -450,47 +450,12 @@ fun SettingsScreen(
     }
 
     showUpdateDialog?.let { update ->
-        AlertDialog(
-            onDismissRequest = { showUpdateDialog = null },
-            title = { Text("New Version Available") },
-            text = {
-                Column {
-                    Text("Version ${update.version} is available to download.")
-                    if (!update.body.isNullOrBlank()) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = update.body,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.onEvent(NoteEvent.InstallUpdate(update.downloadUrl, update.version))
-                        showUpdateDialog = null
-                    },
-                    enabled = updateState !is UpdateState.Downloading
-                ) {
-                    if (updateState is UpdateState.Downloading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.onPrimary
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text("Downloading...")
-                    } else {
-                        Text("Download & Install")
-                    }
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showUpdateDialog = null }) {
-                    Text("Later")
-                }
+        UpdateDialog(
+            update = update,
+            updateState = updateState,
+            onDismiss = { showUpdateDialog = null },
+            onInstall = { url, version ->
+                viewModel.onEvent(NoteEvent.InstallUpdate(url, version))
             }
         )
     }

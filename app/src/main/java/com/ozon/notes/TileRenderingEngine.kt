@@ -202,19 +202,25 @@ class TileRenderEngine(
         val baseChildY = key.y * 2
         val childWorldSize = getTileWorldSize(childLod)
         
-        val c00 = tileCache.get(TileKey(childLod, baseChildX, baseChildY)) ?: return emptyList()
-        val c10 = tileCache.get(TileKey(childLod, baseChildX + 1, baseChildY)) ?: return emptyList()
-        val c01 = tileCache.get(TileKey(childLod, baseChildX, baseChildY + 1)) ?: return emptyList()
-        val c11 = tileCache.get(TileKey(childLod, baseChildX + 1, baseChildY + 1)) ?: return emptyList()
-        
-        if (c00.isRecycled || c10.isRecycled || c01.isRecycled || c11.isRecycled) return emptyList()
+        val results = mutableListOf<Pair<Bitmap, Rect>>()
+        val c00 = tileCache.get(TileKey(childLod, baseChildX, baseChildY))
+        if (c00 != null && !c00.isRecycled) {
+            results.add(c00 to Rect(baseChildX * childWorldSize, baseChildY * childWorldSize, (baseChildX + 1) * childWorldSize, (baseChildY + 1) * childWorldSize))
+        }
+        val c10 = tileCache.get(TileKey(childLod, baseChildX + 1, baseChildY))
+        if (c10 != null && !c10.isRecycled) {
+            results.add(c10 to Rect((baseChildX + 1) * childWorldSize, baseChildY * childWorldSize, (baseChildX + 2) * childWorldSize, (baseChildY + 1) * childWorldSize))
+        }
+        val c01 = tileCache.get(TileKey(childLod, baseChildX, baseChildY + 1))
+        if (c01 != null && !c01.isRecycled) {
+            results.add(c01 to Rect(baseChildX * childWorldSize, (baseChildY + 1) * childWorldSize, (baseChildX + 1) * childWorldSize, (baseChildY + 2) * childWorldSize))
+        }
+        val c11 = tileCache.get(TileKey(childLod, baseChildX + 1, baseChildY + 1))
+        if (c11 != null && !c11.isRecycled) {
+            results.add(c11 to Rect((baseChildX + 1) * childWorldSize, (baseChildY + 1) * childWorldSize, (baseChildX + 2) * childWorldSize, (baseChildY + 2) * childWorldSize))
+        }
 
-        return listOf(
-            c00 to Rect(baseChildX * childWorldSize, baseChildY * childWorldSize, (baseChildX + 1) * childWorldSize, (baseChildY + 1) * childWorldSize),
-            c10 to Rect((baseChildX + 1) * childWorldSize, baseChildY * childWorldSize, (baseChildX + 2) * childWorldSize, (baseChildY + 1) * childWorldSize),
-            c01 to Rect(baseChildX * childWorldSize, (baseChildY + 1) * childWorldSize, (baseChildX + 1) * childWorldSize, (baseChildY + 2) * childWorldSize),
-            c11 to Rect((baseChildX + 1) * childWorldSize, (baseChildY + 1) * childWorldSize, (baseChildX + 2) * childWorldSize, (baseChildY + 2) * childWorldSize)
-        )
+        return results
     }
 
     fun invalidateArea(area: Rect) {
@@ -245,7 +251,7 @@ class TileRenderEngine(
         strokeToIndex: Map<String, Int>,
         imageMap: Map<String, DrawingImage>,
         imageOrder: List<String>,
-        bitmapCache: Map<String, ImageBitmap>,
+        getBitmap: (String) -> Bitmap?,
         excludedStrokeIds: Set<String> = emptySet(),
         excludedImageIds: Set<String> = emptySet()
     ): Bitmap? {
@@ -297,18 +303,30 @@ class TileRenderEngine(
         canvas.scale(tileScale, tileScale)
         canvas.translate(-tileRect.left, -tileRect.top)
 
-        // 1. Draw images
+        // 1. Draw images with anti-aliasing and bilinear filtering
+        val imagePaint = Paint().apply {
+            isFilterBitmap = true
+            isAntiAlias = true
+            isDither = true
+        }
+
         visibleImages.forEach { img ->
-            val imgBmp = bitmapCache[img.path]
-            if (imgBmp != null) {
-                val nativeBmp = imgBmp.asAndroidBitmap()
-                val dst = android.graphics.Rect(
-                    img.offset.x.roundToInt(),
-                    img.offset.y.roundToInt(),
-                    (img.offset.x + img.scale.x).roundToInt(),
-                    (img.offset.y + img.scale.y).roundToInt()
+            val nativeBmp = getBitmap(img.path)
+            if (nativeBmp != null && !nativeBmp.isRecycled) {
+                val dst = android.graphics.RectF(
+                    img.offset.x,
+                    img.offset.y,
+                    img.offset.x + img.scale.x,
+                    img.offset.y + img.scale.y
                 )
-                canvas.drawBitmap(nativeBmp, null, dst, null)
+                if (img.rotation != 0f) {
+                    canvas.save()
+                    canvas.rotate(img.rotation, dst.centerX(), dst.centerY())
+                    canvas.drawBitmap(nativeBmp, null, dst, imagePaint)
+                    canvas.restore()
+                } else {
+                    canvas.drawBitmap(nativeBmp, null, dst, imagePaint)
+                }
             }
         }
 

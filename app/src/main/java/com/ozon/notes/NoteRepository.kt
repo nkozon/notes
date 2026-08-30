@@ -76,8 +76,15 @@ interface NoteRepository {
     suspend fun setLastBackupTime(time: Long)
 
     // --- Backup & Restore ---
+    fun getBackupEngine(): BackupEngine
+    fun getDropboxAuthManager(): DropboxAuthManager
+    fun getDropboxClient(): DropboxClient
     fun getAutoBackupEnabled(): Flow<Boolean>
     suspend fun setAutoBackupEnabled(enabled: Boolean)
+    fun getDropboxAutoBackupEnabled(): Flow<Boolean>
+    suspend fun setDropboxAutoBackupEnabled(enabled: Boolean)
+    fun getLastDropboxBackupTime(): Flow<Long>
+    suspend fun setLastDropboxBackupTime(time: Long)
     fun getBackupUri(): Flow<String?>
     suspend fun setBackupUri(uri: String?)
     fun getHasPendingChanges(): Flow<Boolean>
@@ -177,7 +184,8 @@ object AppContainer {
             NoteDatabase.MIGRATION_18_19,
             NoteDatabase.MIGRATION_19_20,
             NoteDatabase.MIGRATION_20_21,
-            NoteDatabase.MIGRATION_21_22
+            NoteDatabase.MIGRATION_21_22,
+            NoteDatabase.MIGRATION_22_23
         )
             .fallbackToDestructiveMigration()
             .build().also { database = it }
