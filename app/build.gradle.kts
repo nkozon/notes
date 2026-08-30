@@ -19,8 +19,8 @@ android {
         applicationId = "com.ozon.notes"
         minSdk = 30
         targetSdk = 36
-        versionCode = 30
-        versionName = "1.11"
+        versionCode = 31
+        versionName = "1.11.1"
 
         val localProperties = Properties()
         val localPropertiesFile = rootProject.file("local.properties")
