@@ -101,7 +101,7 @@ class BackupWorker(
             }
         }
 
-        if (localSuccess || dropboxSuccess) {
+        if (localSuccess) {
             repository.setHasPendingChanges(false)
         }
 

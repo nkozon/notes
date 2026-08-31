@@ -626,14 +626,14 @@ class RoomNoteRepository(
             }
 
             if (allEntryEntities.isNotEmpty()) {
-                database.listDao().upsertEntries(allEntryEntities.map { it.copy(parentId = null) })
+                database.listDao().upsertEntries(allEntryEntities.map { it.copy(parentId = null, linkedEntryId = null) })
                 
                 val updates = allEntryEntities
-                    .filter { it.parentId != null }
-                    .map { it.id to it.parentId }
+                    .filter { it.parentId != null || it.linkedEntryId != null }
+                    .map { Triple(it.id, it.parentId, it.linkedEntryId) }
                 
                 if (updates.isNotEmpty()) {
-                    database.listDao().updateEntriesParents(updates)
+                    database.listDao().updateEntriesRelationships(updates)
                 }
 
                 val crossRefs = entriesToRestore.flatMap { entry ->
@@ -771,16 +771,16 @@ class RoomNoteRepository(
                 )
             }
 
-            // Pass 1: Insert all entries as top-level (parentId = null). 
-            database.listDao().upsertEntries(allEntryEntities.map { it.copy(parentId = null) })
+            // Pass 1: Insert all entries as top-level (parentId = null, linkedEntryId = null). 
+            database.listDao().upsertEntries(allEntryEntities.map { it.copy(parentId = null, linkedEntryId = null) })
             
-            // Pass 2: Update the parentId links.
+            // Pass 2: Update the parentId and linkedEntryId links.
             val updates = allEntryEntities
-                .filter { it.parentId != null }
-                .map { it.id to it.parentId }
+                .filter { it.parentId != null || it.linkedEntryId != null }
+                .map { Triple(it.id, it.parentId, it.linkedEntryId) }
             
             if (updates.isNotEmpty()) {
-                database.listDao().updateEntriesParents(updates)
+                database.listDao().updateEntriesRelationships(updates)
             }
 
             // Pass 3: Restore Tag CrossRefs
@@ -898,11 +898,13 @@ class RoomNoteRepository(
                 )
             }
 
-            database.listDao().upsertEntries(allEntryEntities.map { it.copy(parentId = null) })
+            database.listDao().upsertEntries(allEntryEntities.map { it.copy(parentId = null, linkedEntryId = null) })
 
-            val updates = allEntryEntities.filter { it.parentId != null }.map { it.id to it.parentId }
+            val updates = allEntryEntities
+                .filter { it.parentId != null || it.linkedEntryId != null }
+                .map { Triple(it.id, it.parentId, it.linkedEntryId) }
             if (updates.isNotEmpty()) {
-                database.listDao().updateEntriesParents(updates)
+                database.listDao().updateEntriesRelationships(updates)
             }
 
             // Update CrossRefs

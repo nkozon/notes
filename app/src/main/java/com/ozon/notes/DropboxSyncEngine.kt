@@ -319,7 +319,6 @@ class DropboxSyncEngine(
                 if (!hasChanges) {
                     val now = System.currentTimeMillis()
                     repository.setLastDropboxSyncTime(now)
-                    repository.setHasPendingChanges(false)
                     return@withContext SyncResult.Success("Up to date")
                 }
 
@@ -345,7 +344,6 @@ class DropboxSyncEngine(
             val now = System.currentTimeMillis()
             repository.setLastDropboxSyncTime(now)
             repository.setLastDropboxBackupTime(now)
-            repository.setHasPendingChanges(false)
 
             SyncResult.Success("Live sync completed with Dropbox")
         } catch (e: Exception) {
@@ -390,7 +388,6 @@ class DropboxSyncEngine(
 
             val now = System.currentTimeMillis()
             repository.setLastDropboxSyncTime(now)
-            repository.setHasPendingChanges(false)
         } catch (e: Exception) {
             Log.e("DropboxSyncEngine", "Error executing queued sync", e)
         } finally {
@@ -526,6 +523,9 @@ class DropboxSyncEngine(
             }
         }
 
+        if (entries.isNotEmpty()) {
+            repository.setHasPendingChanges(true)
+        }
         repository.setDropboxSyncCursor(listing.cursor)
         SyncResult.Success("Remote updates applied")
     }
@@ -598,14 +598,23 @@ class DropboxSyncEngine(
                 }
             }
             if (pkg.entries.isNotEmpty()) {
+                val validEntryIds = pkg.entries.map { it.id }.toSet()
                 database.listDao().upsertEntries(pkg.entries.map { entry ->
                     entry.description?.let { saveLocalFile("${entry.id}.desc", it) }
-                    entry.toEntity().copy(description = null, parentId = null)
+                    entry.toEntity().copy(description = null, parentId = null, linkedEntryId = null)
                 })
 
-                val updates = pkg.entries.filter { it.parentId != null }.map { it.id to it.parentId }
+                val updates = pkg.entries
+                    .filter { it.parentId != null || it.linkedEntryId != null }
+                    .map { entry ->
+                        Triple(
+                            entry.id,
+                            entry.parentId?.takeIf { p -> p in validEntryIds },
+                            entry.linkedEntryId?.takeIf { l -> l in validEntryIds }
+                        )
+                    }
                 if (updates.isNotEmpty()) {
-                    database.listDao().updateEntriesParents(updates)
+                    database.listDao().updateEntriesRelationships(updates)
                 }
 
                 val existingTagIds = database.tagDao().getAllTagsList().map { it.id }.toSet()

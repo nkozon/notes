@@ -261,10 +261,20 @@ interface ListDao {
     @Query("UPDATE list_entries SET parentId = :parentId WHERE id = :entryId")
     suspend fun updateEntryParent(entryId: String, parentId: String?)
 
+    @Query("UPDATE list_entries SET parentId = :parentId, linkedEntryId = :linkedEntryId WHERE id = :entryId")
+    suspend fun updateEntryRelationships(entryId: String, parentId: String?, linkedEntryId: String?)
+
     @Transaction
     suspend fun updateEntriesParents(updates: List<Pair<String, String?>>) {
         updates.forEach { (id, parentId) ->
             updateEntryParent(id, parentId)
+        }
+    }
+
+    @Transaction
+    suspend fun updateEntriesRelationships(updates: List<Triple<String, String?, String?>>) {
+        updates.forEach { (id, parentId, linkedEntryId) ->
+            updateEntryRelationships(id, parentId, linkedEntryId)
         }
     }
 
