@@ -1,5 +1,6 @@
 package com.ozon.notes
 
+import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
 import android.util.Log
@@ -11,8 +12,16 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.ExperimentalSerializationApi
 import java.io.File
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+
+enum class InitialSyncDialogType {
+    NONE,
+    NEW_DEVICE_CLOUD_FOUND,
+    CONFLICTING_DATA_MERGE,
+    MANUAL_OPTIONS
+}
 
 /**
  * ViewModel responsible for app-wide settings, data management, and cloud backup.
@@ -66,6 +75,22 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
     val dropboxAutoBackupEnabled: StateFlow<Boolean> = repository.getDropboxAutoBackupEnabled()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    val dropboxSyncWifiOnly: StateFlow<Boolean> = repository.getDropboxSyncWifiOnly()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    private val _mobileDataDownloadPrompt = MutableStateFlow<Long?>(null)
+    val mobileDataDownloadPrompt = _mobileDataDownloadPrompt.asStateFlow()
+
+    fun dismissMobileDataPrompt() {
+        _mobileDataDownloadPrompt.value = null
+        _dropboxSyncStatus.value = DropboxSyncStatus.Idle
+    }
+
+    fun confirmMobileDataSync() {
+        _mobileDataDownloadPrompt.value = null
+        syncWithDropbox(silent = false, forceMobileData = true)
+    }
+
     val lastDropboxBackupTimeState: StateFlow<Long> = repository.getLastDropboxBackupTime()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
 
@@ -112,7 +137,29 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
     private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
     val updateState = _updateState.asStateFlow()
 
-    // --- Dropbox State ---
+    val lastDropboxBackupTime: StateFlow<Long> = repository.getLastDropboxBackupTime()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+    val lastDropboxSyncTime: StateFlow<Long> = repository.getLastDropboxSyncTime()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+    val syncingItems: StateFlow<List<SyncItemInfo>> = repository.getDropboxSyncingItems()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _initialSyncDialogType = MutableStateFlow(InitialSyncDialogType.NONE)
+    val initialSyncDialogType = _initialSyncDialogType.asStateFlow()
+
+    val showInitialSyncDialog = _initialSyncDialogType.map { it != InitialSyncDialogType.NONE }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    fun setShowInitialSyncDialog(show: Boolean) {
+        _initialSyncDialogType.value = if (show) InitialSyncDialogType.MANUAL_OPTIONS else InitialSyncDialogType.NONE
+    }
+
+    fun dismissInitialSyncDialog() {
+        _initialSyncDialogType.value = InitialSyncDialogType.NONE
+    }
+
     private val _dropboxAuthState = MutableStateFlow(
         DropboxAuthState(
             isConnected = dropboxAuthManager.isLoggedIn(),
@@ -138,6 +185,22 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
         }
     }
 
+    fun checkPendingInitialSync() {
+        viewModelScope.launch {
+            if (dropboxAuthManager.isLoggedIn()) {
+                val lastSyncTime = repository.getLastDropboxSyncTime().first()
+                if (lastSyncTime == 0L && _initialSyncDialogType.value == InitialSyncDialogType.NONE) {
+                    val syncCheck = repository.checkDropboxSyncState()
+                    if (syncCheck.remoteExists && !syncCheck.localHasData) {
+                        _initialSyncDialogType.value = InitialSyncDialogType.NEW_DEVICE_CLOUD_FOUND
+                    } else if (syncCheck.remoteExists && syncCheck.localHasData) {
+                        _initialSyncDialogType.value = InitialSyncDialogType.CONFLICTING_DATA_MERGE
+                    }
+                }
+            }
+        }
+    }
+
     fun refreshDropboxState() {
         val configured = dropboxAuthManager.isConfigured()
         if (!dropboxAuthManager.isLoggedIn()) {
@@ -152,6 +215,7 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
             val accountResult = dropboxClient.getAccountInfo()
             val spaceResult = dropboxClient.getSpaceUsage()
             val metadataResult = dropboxClient.getBackupMetadata()
+            val syncTime = repository.getLastDropboxSyncTime().first()
 
             val account = accountResult.getOrNull()
             val space = spaceResult.getOrNull()
@@ -167,7 +231,9 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
                 totalSpace = space?.allocation?.allocated ?: 0L,
                 latestBackupSize = metadata?.size,
                 latestBackupTime = latestModified,
-                isConfigured = configured
+                autoBackupEnabled = repository.getDropboxAutoBackupEnabled().first(),
+                isConfigured = configured,
+                lastSyncTime = syncTime
             )
         }
     }
@@ -181,7 +247,21 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
             val result = dropboxAuthManager.handleRedirectUri(uri)
             if (result.isSuccess) {
                 refreshDropboxState()
-                onResult(true, null)
+                val syncCheck = repository.checkDropboxSyncState()
+                if (syncCheck.remoteExists && !syncCheck.localHasData) {
+                    // Scenario A: New/empty device, existing Dropbox data found -> Ask user to Download vs Clear Cloud
+                    _initialSyncDialogType.value = InitialSyncDialogType.NEW_DEVICE_CLOUD_FOUND
+                    onResult(true, null)
+                } else if (syncCheck.remoteExists && syncCheck.localHasData) {
+                    // Scenario B: Device has notes AND Dropbox has data -> Ask user to Merge vs Overwrite
+                    _initialSyncDialogType.value = InitialSyncDialogType.CONFLICTING_DATA_MERGE
+                    onResult(true, null)
+                } else {
+                    // Dropbox is empty: safe to initialize and upload local notes (if any)
+                    resolveInitialSync(InitialSyncMode.OVERWRITE_REMOTE) { success, err ->
+                        onResult(success, err)
+                    }
+                }
             } else {
                 val err = result.exceptionOrNull()?.message ?: "Authentication failed"
                 onResult(false, err)
@@ -189,12 +269,85 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
         }
     }
 
+    fun resolveInitialSync(mode: InitialSyncMode, onComplete: (Boolean, String?) -> Unit = { _, _ -> }) {
+        viewModelScope.launch {
+            _initialSyncDialogType.value = InitialSyncDialogType.NONE
+            val statusMsg = when (mode) {
+                InitialSyncMode.MERGE -> "Merging notes & lists with Dropbox..."
+                InitialSyncMode.OVERWRITE_LOCAL -> "Downloading notes & lists from Dropbox..."
+                InitialSyncMode.OVERWRITE_REMOTE -> "Uploading notes & lists to Dropbox..."
+            }
+            _dropboxSyncStatus.value = DropboxSyncStatus.Syncing(statusMsg)
+            val result = repository.resolveInitialSync(mode)
+            when (result) {
+                is SyncResult.Success -> {
+                    _dropboxSyncStatus.value = DropboxSyncStatus.Success(result.message)
+                    refreshDropboxState()
+                    updateEstimatedBackupSize()
+                    onComplete(true, null)
+                }
+                is SyncResult.ConfirmationRequired -> {
+                    _dropboxSyncStatus.value = DropboxSyncStatus.Idle
+                    _mobileDataDownloadPrompt.value = result.downloadBytes
+                    onComplete(false, null)
+                }
+                is SyncResult.NoOp -> {
+                    _dropboxSyncStatus.value = DropboxSyncStatus.Idle
+                    onComplete(true, null)
+                }
+                is SyncResult.Error -> {
+                    _dropboxSyncStatus.value = DropboxSyncStatus.Error(result.message)
+                    onComplete(false, result.message)
+                }
+            }
+        }
+    }
+
     fun disconnectDropbox() {
         dropboxAuthManager.logout()
+        BackupWorker.cancelPeriodic(repository.getContext())
         _dropboxAuthState.value = DropboxAuthState(
             isConnected = false,
             isConfigured = dropboxAuthManager.isConfigured()
         )
+    }
+
+    fun syncWithDropbox(
+        silent: Boolean = false,
+        forceMobileData: Boolean = false,
+        onComplete: (Boolean, String?) -> Unit = { _, _ -> }
+    ) {
+        viewModelScope.launch {
+            if (!silent) {
+                _dropboxSyncStatus.value = DropboxSyncStatus.Syncing("Syncing with Dropbox...")
+            }
+            val result = repository.syncWithDropbox(forceMobileData)
+            when (result) {
+                is SyncResult.Success -> {
+                    _dropboxSyncStatus.value = DropboxSyncStatus.Success(result.message)
+                    refreshDropboxState()
+                    updateEstimatedBackupSize()
+                    onComplete(true, null)
+                }
+                is SyncResult.ConfirmationRequired -> {
+                    _dropboxSyncStatus.value = DropboxSyncStatus.Idle
+                    if (!silent) {
+                        _mobileDataDownloadPrompt.value = result.downloadBytes
+                    }
+                    onComplete(false, null)
+                }
+                is SyncResult.NoOp -> {
+                    if (!silent) {
+                        _dropboxSyncStatus.value = DropboxSyncStatus.Idle
+                    }
+                    onComplete(true, null)
+                }
+                is SyncResult.Error -> {
+                    _dropboxSyncStatus.value = DropboxSyncStatus.Error(result.message)
+                    onComplete(false, result.message)
+                }
+            }
+        }
     }
 
     fun backupToDropbox(onComplete: (Boolean, String?) -> Unit = { _, _ -> }) {
@@ -210,6 +363,7 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
                 if (uploadResult.isSuccess) {
                     val currentTime = System.currentTimeMillis()
                     repository.setLastDropboxBackupTime(currentTime)
+                    repository.setLastDropboxSyncTime(currentTime)
                     repository.setHasPendingChanges(false)
                     _dropboxSyncStatus.value = DropboxSyncStatus.Success("Backup uploaded successfully")
                     refreshDropboxState()
@@ -263,57 +417,120 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
         }
     }
 
-    fun createLocalBackup(outputStream: OutputStream, onComplete: (Boolean) -> Unit) {
-        viewModelScope.launch {
+    fun createLocalBackup(uri: Uri, contentResolver: ContentResolver, onComplete: (Boolean, String?) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
-                backupEngine.createBackup(outputStream)
+                val stream = contentResolver.openOutputStream(uri)
+                    ?: throw IOException("Failed to open destination file for writing")
+                stream.use { out ->
+                    backupEngine.createBackup(out)
+                }
                 repository.setLastBackupTime(System.currentTimeMillis())
                 repository.setHasPendingChanges(false)
                 updateEstimatedBackupSize()
-                onComplete(true)
+                withContext(Dispatchers.Main) {
+                    onComplete(true, null)
+                }
             } catch (e: Exception) {
                 Log.e("SettingsViewModel", "Local backup failed", e)
-                onComplete(false)
+                withContext(Dispatchers.Main) {
+                    onComplete(false, e.localizedMessage ?: "Unknown error")
+                }
             }
         }
     }
 
-    fun restoreLocalBackup(inputStream: InputStream, onComplete: (Boolean) -> Unit) {
-        viewModelScope.launch {
+    fun restoreLocalBackup(uri: Uri, contentResolver: ContentResolver, onComplete: (Boolean, String?) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
-                val success = backupEngine.restoreBackup(inputStream, isMerge = false)
+                val stream = contentResolver.openInputStream(uri)
+                    ?: throw IOException("Failed to open backup file for reading")
+                val success = stream.use { input ->
+                    backupEngine.restoreBackup(input, isMerge = false)
+                }
                 if (success) {
                     updateEstimatedBackupSize()
+                    withContext(Dispatchers.Main) {
+                        onComplete(true, null)
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        onComplete(false, "Invalid or unreadable backup file")
+                    }
                 }
-                onComplete(success)
             } catch (e: Exception) {
                 Log.e("SettingsViewModel", "Local restore failed", e)
-                onComplete(false)
+                withContext(Dispatchers.Main) {
+                    onComplete(false, e.localizedMessage ?: "Unknown error")
+                }
             }
         }
     }
 
-    fun exportGranularNote(noteId: String, outputStream: OutputStream, onComplete: (Boolean) -> Unit) {
-        viewModelScope.launch {
-            val success = backupEngine.exportNote(noteId, outputStream)
-            onComplete(success)
-        }
-    }
-
-    fun exportGranularList(listId: String, outputStream: OutputStream, onComplete: (Boolean) -> Unit) {
-        viewModelScope.launch {
-            val success = backupEngine.exportList(listId, outputStream)
-            onComplete(success)
-        }
-    }
-
-    fun importGranularBackup(inputStream: InputStream, onComplete: (Boolean) -> Unit) {
-        viewModelScope.launch {
-            val success = backupEngine.restoreBackup(inputStream, isMerge = true)
-            if (success) {
-                updateEstimatedBackupSize()
+    fun exportGranularNote(noteId: String, uri: Uri, contentResolver: ContentResolver, onComplete: (Boolean, String?) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val stream = contentResolver.openOutputStream(uri)
+                    ?: throw IOException("Failed to open destination file for writing")
+                val success = stream.use { out ->
+                    backupEngine.exportNote(noteId, out)
+                }
+                withContext(Dispatchers.Main) {
+                    onComplete(success, if (success) null else "Note export failed")
+                }
+            } catch (e: Exception) {
+                Log.e("SettingsViewModel", "Note export failed", e)
+                withContext(Dispatchers.Main) {
+                    onComplete(false, e.localizedMessage ?: "Export failed")
+                }
             }
-            onComplete(success)
+        }
+    }
+
+    fun exportGranularList(listId: String, uri: Uri, contentResolver: ContentResolver, onComplete: (Boolean, String?) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val stream = contentResolver.openOutputStream(uri)
+                    ?: throw IOException("Failed to open destination file for writing")
+                val success = stream.use { out ->
+                    backupEngine.exportList(listId, out)
+                }
+                withContext(Dispatchers.Main) {
+                    onComplete(success, if (success) null else "List export failed")
+                }
+            } catch (e: Exception) {
+                Log.e("SettingsViewModel", "List export failed", e)
+                withContext(Dispatchers.Main) {
+                    onComplete(false, e.localizedMessage ?: "Export failed")
+                }
+            }
+        }
+    }
+
+    fun importGranularBackup(uri: Uri, contentResolver: ContentResolver, onComplete: (Boolean, String?) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val stream = contentResolver.openInputStream(uri)
+                    ?: throw IOException("Failed to open backup file for reading")
+                val success = stream.use { input ->
+                    backupEngine.restoreBackup(input, isMerge = true)
+                }
+                if (success) {
+                    updateEstimatedBackupSize()
+                    withContext(Dispatchers.Main) {
+                        onComplete(true, null)
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        onComplete(false, "Could not import backup data")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("SettingsViewModel", "Granular import failed", e)
+                withContext(Dispatchers.Main) {
+                    onComplete(false, e.localizedMessage ?: "Import failed")
+                }
+            }
         }
     }
 
@@ -329,7 +546,27 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
             is NoteEvent.UpdateChecklistBehavior -> viewModelScope.launch { repository.setChecklistBehavior(event.behavior) }
             is NoteEvent.UpdateShowEntryCount -> viewModelScope.launch { repository.setShowEntryCount(event.show) }
             is NoteEvent.UpdateAutoBackupEnabled -> viewModelScope.launch { repository.setAutoBackupEnabled(event.enabled) }
-            is NoteEvent.UpdateDropboxAutoBackupEnabled -> viewModelScope.launch { repository.setDropboxAutoBackupEnabled(event.enabled) }
+            is NoteEvent.UpdateDropboxAutoBackupEnabled -> viewModelScope.launch { 
+                repository.setDropboxAutoBackupEnabled(event.enabled)
+                if (event.enabled) {
+                    BackupWorker.schedulePeriodic(repository.getContext())
+                    val syncCheck = repository.checkDropboxSyncState()
+                    if (repository.getLastDropboxSyncTime().first() == 0L) {
+                        if (syncCheck.remoteExists && !syncCheck.localHasData) {
+                            _initialSyncDialogType.value = InitialSyncDialogType.NEW_DEVICE_CLOUD_FOUND
+                        } else if (syncCheck.remoteExists && syncCheck.localHasData) {
+                            _initialSyncDialogType.value = InitialSyncDialogType.CONFLICTING_DATA_MERGE
+                        } else {
+                            syncWithDropbox(silent = false)
+                        }
+                    } else {
+                        syncWithDropbox(silent = false)
+                    }
+                } else {
+                    BackupWorker.cancelPeriodic(repository.getContext())
+                }
+            }
+            is NoteEvent.UpdateDropboxSyncWifiOnly -> viewModelScope.launch { repository.setDropboxSyncWifiOnly(event.enabled) }
             is NoteEvent.UpdateLastDropboxBackupTime -> viewModelScope.launch { repository.setLastDropboxBackupTime(event.time) }
             is NoteEvent.UpdateBackupUri -> viewModelScope.launch { repository.setBackupUri(event.uri) }
             is NoteEvent.UpdateRatingIndicatorsEnabled -> viewModelScope.launch { repository.setRatingIndicatorsEnabled(event.enabled) }

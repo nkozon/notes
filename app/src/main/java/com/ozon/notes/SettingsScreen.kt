@@ -49,6 +49,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel,
     onNavigateToTheme: () -> Unit,
     onNavigateToMoviePosters: () -> Unit,
+    onNavigateToCloudSync: () -> Unit,
     onNavigateToBackupRestore: () -> Unit,
     onNavigateToGranularBackup: () -> Unit,
     onNavigateToAbout: () -> Unit,
@@ -307,8 +308,8 @@ fun SettingsScreen(
             }
 
             // Data Management Section
-            SettingsSection(title = "Data Management") {
-                SettingsItemContainer(index = 0, total = 2, onClick = onNavigateToBackupRestore) {
+            SettingsSection(title = "Data & Sync") {
+                SettingsItemContainer(index = 0, total = 3, onClick = onNavigateToCloudSync) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -316,16 +317,33 @@ fun SettingsScreen(
                         Icon(Icons.Rounded.CloudSync, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.width(16.dp))
                         Column {
-                            Text("Full Backup & Restore", style = MaterialTheme.typography.titleMedium)
+                            Text("Cloud Sync", style = MaterialTheme.typography.titleMedium)
                             Text(
-                                text = "Configure automatic and manual full backups",
+                                text = "Sync notes and lists across devices with Dropbox",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
                 }
-                SettingsItemContainer(index = 1, total = 2, onClick = onNavigateToGranularBackup) {
+                SettingsItemContainer(index = 1, total = 3, onClick = onNavigateToBackupRestore) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Rounded.Backup, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(16.dp))
+                        Column {
+                            Text("Full Backup & Restore", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                text = "Create and restore local compressed backup archives",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+                SettingsItemContainer(index = 2, total = 3, onClick = onNavigateToGranularBackup) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically

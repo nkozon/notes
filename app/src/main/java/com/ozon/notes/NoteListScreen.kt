@@ -100,11 +100,30 @@ fun NoteListScreen(
     val listsWithCounts by notesViewModel.listsWithCountsState.collectAsStateWithLifecycle()
     val showEntryCount by settingsViewModel.showEntryCountState.collectAsStateWithLifecycle()
     val importProgress by notesViewModel.importProgress.collectAsStateWithLifecycle()
+    val isDropboxSyncing by notesViewModel.isDropboxSyncing.collectAsStateWithLifecycle()
+    val dropboxSyncingItems by notesViewModel.dropboxSyncingItems.collectAsStateWithLifecycle()
+    val dropboxAuthState by settingsViewModel.dropboxAuthState.collectAsStateWithLifecycle()
+    val dropboxSyncWifiOnly by settingsViewModel.dropboxSyncWifiOnly.collectAsStateWithLifecycle()
+    val hasPendingChanges by settingsViewModel.hasPendingChanges.collectAsStateWithLifecycle()
+    val mobileDataPrompt by settingsViewModel.mobileDataDownloadPrompt.collectAsStateWithLifecycle()
 
     val context = androidx.compose.ui.platform.LocalContext.current
 
+    val networkState by remember(context) { NetworkHelper.observeNetworkState(context) }.collectAsStateWithLifecycle(
+        initialValue = NetworkState(
+            isConnected = NetworkHelper.isNetworkConnected(context),
+            isWifi = NetworkHelper.isWifiConnected(context),
+            isCellular = NetworkHelper.isCellularConnected(context)
+        )
+    )
+
+    val isSyncActive = isDropboxSyncing
+    val isCellularAndWifiOnly = dropboxAuthState.isConnected && dropboxSyncWifiOnly && !networkState.isWifi
+    val showMobileDataSyncButton = !isSyncActive && isCellularAndWifiOnly && (hasPendingChanges || dropboxSyncingItems.isNotEmpty())
+
     var selectedPdfUri by remember { mutableStateOf<Uri?>(null) }
     var showMarginDialog by remember { mutableStateOf(false) }
+    var showSyncDetailsDialog by remember { mutableStateOf(false) }
 
     val pdfPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -236,6 +255,64 @@ fun NoteListScreen(
                                 modifier = Modifier.padding(end = 16.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                if (isSyncActive) {
+                                    val count = dropboxSyncingItems.size
+                                    Surface(
+                                        onClick = { showSyncDetailsDialog = true },
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.height(44.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 14.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(16.dp),
+                                                strokeWidth = 2.dp,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = if (count > 0) "Syncing ($count)" else "Syncing...",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                } else if (showMobileDataSyncButton) {
+                                    Surface(
+                                        onClick = {
+                                            settingsViewModel.syncWithDropbox(silent = false, forceMobileData = false)
+                                        },
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.height(44.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 14.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.CloudUpload,
+                                                contentDescription = "Sync Now",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "Sync Now",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                }
+
                                 SortDropdown(
                                     selectedOrder = noteSortOrder,
                                     onOrderSelected = { notesViewModel.onEvent(NoteEvent.UpdateNoteSortOrder(it)) },
@@ -589,6 +666,330 @@ fun NoteListScreen(
                 }
             },
             confirmButton = { }
+        )
+    }
+
+    if (showSyncDetailsDialog) {
+        AlertDialog(
+            onDismissRequest = { showSyncDetailsDialog = false },
+            icon = {
+                Icon(
+                    Icons.Rounded.CloudSync,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            },
+            title = { Text("Cloud Synchronization") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = if (dropboxSyncingItems.isNotEmpty()) {
+                            "The following changed items are currently being synchronized with Dropbox:"
+                        } else {
+                            "Live delta synchronization in progress..."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    if (dropboxSyncingItems.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(12.dp))
+                                Text("Synchronizing changes...", style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    } else {
+                        dropboxSyncingItems.forEach { item ->
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = when (item.type) {
+                                                "Note" -> Icons.Rounded.Description
+                                                "List" -> Icons.AutoMirrored.Rounded.List
+                                                "Tags" -> Icons.Rounded.Sell
+                                                else -> Icons.Rounded.DeleteSweep
+                                            },
+                                            contentDescription = null,
+                                            tint = if (item.status == "Completed") Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(Modifier.width(10.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = item.title.ifBlank { "Untitled ${item.type}" },
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            Text(
+                                                text = item.type,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Spacer(Modifier.width(8.dp))
+
+                                        val (badgeBg, badgeFg, badgeText) = when (item.status) {
+                                            "Completed" -> Triple(Color(0xFFE8F5E9), Color(0xFF2E7D32), "Completed")
+                                            "Syncing", "Uploading" -> Triple(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer, "Syncing")
+                                            "Downloading" -> Triple(MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer, "Downloading")
+                                            "Deleting" -> Triple(MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer, "Deleting")
+                                            else -> Triple(MaterialTheme.colorScheme.surfaceContainerHighest, MaterialTheme.colorScheme.onSurfaceVariant, "Pending")
+                                        }
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = badgeBg
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                if (item.status == "Completed") {
+                                                    Icon(
+                                                        Icons.Rounded.Check,
+                                                        contentDescription = null,
+                                                        tint = badgeFg,
+                                                        modifier = Modifier.size(12.dp)
+                                                    )
+                                                    Spacer(Modifier.width(4.dp))
+                                                }
+                                                Text(
+                                                    text = badgeText,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = badgeFg
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(Modifier.height(8.dp))
+
+                                    // Individual Progress Bar for each item
+                                    when (item.status) {
+                                        "Completed" -> {
+                                            LinearProgressIndicator(
+                                                progress = { 1f },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(4.dp)
+                                                    .clip(RoundedCornerShape(2.dp)),
+                                                color = Color(0xFF2E7D32),
+                                                trackColor = Color(0xFFC8E6C9),
+                                            )
+                                        }
+                                        "Syncing", "Uploading", "Downloading", "Deleting" -> {
+                                            LinearProgressIndicator(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(4.dp)
+                                                    .clip(RoundedCornerShape(2.dp)),
+                                                color = MaterialTheme.colorScheme.primary,
+                                                trackColor = MaterialTheme.colorScheme.primaryContainer
+                                            )
+                                        }
+                                        else -> {
+                                            // Pending (0%)
+                                            LinearProgressIndicator(
+                                                progress = { 0f },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .height(4.dp)
+                                                    .clip(RoundedCornerShape(2.dp)),
+                                                color = MaterialTheme.colorScheme.outlineVariant,
+                                                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showSyncDetailsDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+
+    // Mobile Data Warning / Confirmation Dialog with itemized list of changes
+    mobileDataPrompt?.let { downloadBytes ->
+        val sizeText = settingsViewModel.backupEngine.formatSize(downloadBytes)
+        AlertDialog(
+            onDismissRequest = { settingsViewModel.dismissMobileDataPrompt() },
+            icon = {
+                Icon(
+                    Icons.Rounded.SignalCellularAlt,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp)
+                )
+            },
+            title = { Text("Sync on Mobile Data?") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = if (downloadBytes > 0) {
+                            "The following items have pending changes. Syncing will download/upload approximately $sizeText over cellular data:"
+                        } else {
+                            "The following items have pending changes and will be synchronized over cellular mobile data:"
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    if (dropboxSyncingItems.isNotEmpty()) {
+                        Text(
+                            text = "Items to sync (${dropboxSyncingItems.size}):",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        dropboxSyncingItems.forEach { item ->
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = when {
+                                            item.status == "Incoming Download" -> Icons.Rounded.CloudDownload
+                                            item.status == "Incoming Deletion" -> Icons.Rounded.DeleteSweep
+                                            item.type == "Note" -> Icons.Rounded.Description
+                                            item.type == "List" -> Icons.AutoMirrored.Rounded.List
+                                            item.type == "Tags" -> Icons.Rounded.Sell
+                                            else -> Icons.Rounded.CloudUpload
+                                        },
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = item.title.ifBlank { "Untitled ${item.type}" },
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = item.type,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    
+                                    val (badgeBg, badgeFg, badgeText) = when (item.status) {
+                                        "Incoming Download" -> Triple(MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.colorScheme.onSecondaryContainer, "Download")
+                                        "Incoming Deletion" -> Triple(MaterialTheme.colorScheme.errorContainer, MaterialTheme.colorScheme.onErrorContainer, "Deletion")
+                                        else -> Triple(MaterialTheme.colorScheme.surfaceContainerHighest, MaterialTheme.colorScheme.onSurfaceVariant, "Upload")
+                                    }
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = badgeBg
+                                    ) {
+                                        Text(
+                                            text = badgeText,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = badgeFg,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else if (downloadBytes > 0) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Rounded.CloudDownload,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Cloud Updates",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(
+                                        text = "Remote delta catalog & files",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer
+                                ) {
+                                    Text(
+                                        text = sizeText,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { settingsViewModel.confirmMobileDataSync() }) {
+                    Text(if (downloadBytes > 0) "Sync ($sizeText)" else "Sync Now")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { settingsViewModel.dismissMobileDataPrompt() }) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 }

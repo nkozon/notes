@@ -18,8 +18,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import com.ozon.notes.ui.theme.NotesTheme
 
 class MainActivity : ComponentActivity() {
@@ -92,11 +95,26 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // Auto-backup trigger using WorkManager
+            // Auto-backup and auto-sync trigger using WorkManager and Lifecycle
             DisposableEffect(lifecycle) {
                 val observer = LifecycleEventObserver { _, event ->
-                    if (event == Lifecycle.Event.ON_PAUSE) {
-                        BackupWorker.enqueue(applicationContext)
+                    when (event) {
+                        Lifecycle.Event.ON_RESUME -> {
+                            lifecycleScope.launch {
+                                if (settingsViewModel.dropboxAuthManager.isLoggedIn()) {
+                                    val autoBackupEnabled = repository.getDropboxAutoBackupEnabled().first()
+                                    val wifiOnly = repository.getDropboxSyncWifiOnly().first()
+                                    val isWifi = NetworkHelper.isWifiConnected(applicationContext)
+                                    if (autoBackupEnabled && (!wifiOnly || isWifi)) {
+                                        settingsViewModel.syncWithDropbox(silent = true)
+                                    }
+                                }
+                            }
+                        }
+                        Lifecycle.Event.ON_PAUSE -> {
+                            BackupWorker.enqueue(applicationContext)
+                        }
+                        else -> {}
                     }
                 }
                 lifecycle.addObserver(observer)
@@ -124,6 +142,19 @@ class MainActivity : ComponentActivity() {
                         initialListId = listId,
                         rescheduleEntryId = entryId
                     )
+
+                    val showInitialSyncDialog by settingsViewModel.showInitialSyncDialog.collectAsStateWithLifecycle()
+                    if (showInitialSyncDialog) {
+                        InitialSyncResolutionDialog(
+                            onDismissRequest = { settingsViewModel.setShowInitialSyncDialog(false) },
+                            onConfirm = { mode ->
+                                settingsViewModel.resolveInitialSync(mode) { success, error ->
+                                    val msg = if (success) "Sync resolved successfully" else "Sync resolution failed: ${error ?: ""}"
+                                    android.widget.Toast.makeText(applicationContext, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }

@@ -75,16 +75,32 @@ interface NoteRepository {
     fun getLastBackupTime(): Flow<Long>
     suspend fun setLastBackupTime(time: Long)
 
-    // --- Backup & Restore ---
+    // --- Backup & Restore & Sync ---
     fun getBackupEngine(): BackupEngine
     fun getDropboxAuthManager(): DropboxAuthManager
     fun getDropboxClient(): DropboxClient
+    fun getDropboxSyncEngine(): DropboxSyncEngine
+    fun getDropboxIsSyncing(): Flow<Boolean>
+    fun getDropboxSyncingItems(): Flow<List<SyncItemInfo>>
     fun getAutoBackupEnabled(): Flow<Boolean>
     suspend fun setAutoBackupEnabled(enabled: Boolean)
     fun getDropboxAutoBackupEnabled(): Flow<Boolean>
     suspend fun setDropboxAutoBackupEnabled(enabled: Boolean)
+    fun getDropboxSyncWifiOnly(): Flow<Boolean>
+    suspend fun setDropboxSyncWifiOnly(enabled: Boolean)
+    fun getDropboxSyncCursor(): Flow<String?>
+    suspend fun setDropboxSyncCursor(cursor: String?)
     fun getLastDropboxBackupTime(): Flow<Long>
     suspend fun setLastDropboxBackupTime(time: Long)
+    fun getLastDropboxSyncTime(): Flow<Long>
+    suspend fun setLastDropboxSyncTime(time: Long)
+    fun getLastKnownRemoteRev(): Flow<String?>
+    suspend fun setLastKnownRemoteRev(rev: String?)
+    suspend fun estimateDropboxDownloadSize(): Long
+    suspend fun syncWithDropbox(forceMobileData: Boolean = false): SyncResult
+    suspend fun resolveInitialSync(mode: InitialSyncMode): SyncResult
+    suspend fun checkDropboxSyncState(): DropboxSyncCheck
+    suspend fun applyMergedBackupData(data: BackupData)
     fun getBackupUri(): Flow<String?>
     suspend fun setBackupUri(uri: String?)
     fun getHasPendingChanges(): Flow<Boolean>
@@ -185,7 +201,8 @@ object AppContainer {
             NoteDatabase.MIGRATION_19_20,
             NoteDatabase.MIGRATION_20_21,
             NoteDatabase.MIGRATION_21_22,
-            NoteDatabase.MIGRATION_22_23
+            NoteDatabase.MIGRATION_22_23,
+            NoteDatabase.MIGRATION_23_24
         )
             .fallbackToDestructiveMigration()
             .build().also { database = it }

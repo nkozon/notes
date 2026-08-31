@@ -45,6 +45,7 @@ sealed class DetailRoute {
     data class Drawing(val id: String?) : DetailRoute()
     data class List(val id: String, val initialEntryId: String? = null) : DetailRoute()
     data object BackupRestore : DetailRoute()
+    data object CloudSync : DetailRoute()
     data object GranularBackup : DetailRoute()
     data object Settings : DetailRoute()
     data object Theme : DetailRoute()
@@ -246,25 +247,34 @@ enum class SmoothingStrength {
     NONE, LIGHT, MODERATE, HEAVY
 }
 
+@Serializable
+data class DeletedItem(
+    val id: String,
+    val type: String, // "NOTE", "LIST", "ENTRY", "TAG"
+    val deletedAt: Long = System.currentTimeMillis()
+)
+
 @androidx.compose.runtime.Immutable
 @Serializable
 data class BackupData(
     val notes: List<Note>,
     val lists: List<NoteList>,
     val entries: List<ListEntry>,
-    val tags: List<Tag> = emptyList()
+    val tags: List<Tag> = emptyList(),
+    val deletedItems: List<DeletedItem> = emptyList()
 )
 
 @Serializable
 data class BackupManifest(
-    val version: Int = 1,
+    val version: Int = 2,
     val appVersion: String = "1.10.3",
     val timestamp: Long = System.currentTimeMillis(),
     val noteCount: Int = 0,
     val listCount: Int = 0,
     val entryCount: Int = 0,
     val tagCount: Int = 0,
-    val mediaCount: Int = 0
+    val mediaCount: Int = 0,
+    val deletionCount: Int = 0
 )
 
 @Serializable
@@ -285,7 +295,8 @@ data class DropboxAuthState(
     val latestBackupSize: Long? = null,
     val latestBackupTime: Long? = null,
     val autoBackupEnabled: Boolean = false,
-    val isConfigured: Boolean = true
+    val isConfigured: Boolean = true,
+    val lastSyncTime: Long? = null
 )
 
 sealed interface DropboxSyncStatus {
@@ -294,3 +305,4 @@ sealed interface DropboxSyncStatus {
     data class Success(val message: String) : DropboxSyncStatus
     data class Error(val message: String) : DropboxSyncStatus
 }
+

@@ -124,6 +124,16 @@ data class TagEntity(
     val position: Int = 0
 )
 
+@Entity(
+    tableName = "deleted_items",
+    primaryKeys = ["id", "type"]
+)
+data class DeletedItemEntity(
+    val id: String,
+    val type: String, // "NOTE", "LIST", "ENTRY", "TAG"
+    val deletedAt: Long
+)
+
 // --- WRAPPERS FOR OPTIMIZED QUERIES ---
 
 data class NoteListEntityWithCounts(
@@ -298,11 +308,32 @@ interface EntryTagCrossRefDao {
     suspend fun getAllCrossRefsList(): List<EntryTagCrossRef>
 }
 
+@Dao
+interface DeletedItemDao {
+    @Query("SELECT * FROM deleted_items")
+    suspend fun getAllDeletedItems(): List<DeletedItemEntity>
+
+    @Upsert
+    suspend fun upsertDeletedItems(items: List<DeletedItemEntity>)
+
+    @Upsert
+    suspend fun upsertDeletedItem(item: DeletedItemEntity)
+
+    @Query("DELETE FROM deleted_items WHERE id = :id AND type = :type")
+    suspend fun deleteDeletedItem(id: String, type: String)
+
+    @Query("DELETE FROM deleted_items WHERE deletedAt < :cutoffTime")
+    suspend fun pruneDeletedItems(cutoffTime: Long)
+
+    @Query("DELETE FROM deleted_items")
+    suspend fun clearAll()
+}
+
 // --- DATABASE ---
 
 @Database(
-    entities = [NoteEntity::class, NoteListEntity::class, ListEntryEntity::class, TagEntity::class, EntryTagCrossRef::class],
-    version = 23, 
+    entities = [NoteEntity::class, NoteListEntity::class, ListEntryEntity::class, TagEntity::class, EntryTagCrossRef::class, DeletedItemEntity::class],
+    version = 24, 
     exportSchema = false
 )
 abstract class NoteDatabase : RoomDatabase() {
@@ -310,8 +341,21 @@ abstract class NoteDatabase : RoomDatabase() {
     abstract fun listDao(): ListDao
     abstract fun tagDao(): TagDao
     abstract fun entryTagCrossRefDao(): EntryTagCrossRefDao
+    abstract fun deletedItemDao(): DeletedItemDao
 
     companion object {
+        val MIGRATION_23_24 = object : androidx.room.migration.Migration(23, 24) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `deleted_items` (
+                        `id` TEXT NOT NULL,
+                        `type` TEXT NOT NULL,
+                        `deletedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`, `type`)
+                    )
+                """.trimIndent())
+            }
+        }
         val MIGRATION_22_23 = object : androidx.room.migration.Migration(22, 23) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `note_lists` ADD COLUMN `currentSectionName` TEXT")

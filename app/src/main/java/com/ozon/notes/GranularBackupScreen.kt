@@ -48,6 +48,7 @@ fun GranularBackupScreen(
 
     var pendingExportNoteId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingExportListId by rememberSaveable { mutableStateOf<String?>(null) }
+    var activeOperationMessage by remember { mutableStateOf<String?>(null) }
     
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/zip")
@@ -55,31 +56,29 @@ fun GranularBackupScreen(
         uri?.let { targetUri ->
             val noteId = pendingExportNoteId
             val listId = pendingExportListId
-            scope.launch {
-                val success = withContext(Dispatchers.IO) {
-                    try {
-                        context.contentResolver.openOutputStream(targetUri)?.use { outputStream ->
-                            var result = false
-                            if (noteId != null) {
-                                settingsViewModel.exportGranularNote(noteId, outputStream) { res -> result = res }
-                            } else if (listId != null) {
-                                settingsViewModel.exportGranularList(listId, outputStream) { res -> result = res }
-                            }
-                            result
-                        } ?: false
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        false
+            if (noteId != null) {
+                activeOperationMessage = "Exporting Note..."
+                settingsViewModel.exportGranularNote(noteId, targetUri, context.contentResolver) { success, error ->
+                    activeOperationMessage = null
+                    if (success) {
+                        Toast.makeText(context, "Export successful", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Export failed: ${error ?: "Unknown error"}", Toast.LENGTH_SHORT).show()
                     }
                 }
-                if (success) {
-                    Toast.makeText(context, "Export successful", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "Export failed", Toast.LENGTH_SHORT).show()
+            } else if (listId != null) {
+                activeOperationMessage = "Exporting List..."
+                settingsViewModel.exportGranularList(listId, targetUri, context.contentResolver) { success, error ->
+                    activeOperationMessage = null
+                    if (success) {
+                        Toast.makeText(context, "Export successful", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Export failed: ${error ?: "Unknown error"}", Toast.LENGTH_SHORT).show()
+                    }
                 }
-                pendingExportNoteId = null
-                pendingExportListId = null
             }
+            pendingExportNoteId = null
+            pendingExportListId = null
         }
     }
 
@@ -87,23 +86,13 @@ fun GranularBackupScreen(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let { fileUri ->
-            scope.launch {
-                val success = withContext(Dispatchers.IO) {
-                    try {
-                        context.contentResolver.openInputStream(fileUri)?.use { inputStream ->
-                            var result = false
-                            settingsViewModel.importGranularBackup(inputStream) { res -> result = res }
-                            result
-                        } ?: false
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        false
-                    }
-                }
+            activeOperationMessage = "Importing Data..."
+            settingsViewModel.importGranularBackup(fileUri, context.contentResolver) { success, error ->
+                activeOperationMessage = null
                 if (success) {
                     Toast.makeText(context, "Import successful", Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(context, "Import failed", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Import failed: ${error ?: "Unknown error"}", Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -236,6 +225,17 @@ fun GranularBackupScreen(
             SystemBarGradients(
                 modifier = Modifier.zIndex(1f),
                 topAlpha = topAlpha
+            )
+        }
+
+        activeOperationMessage?.let { msg ->
+            BackupLoadingDialog(
+                title = msg,
+                subTitle = if (msg.contains("Import", ignoreCase = true)) {
+                    "Please wait while your data is being imported..."
+                } else {
+                    "Please wait while files are being compressed..."
+                }
             )
         }
     }

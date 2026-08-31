@@ -35,6 +35,7 @@ sealed interface NoteEvent {
     data class UpdateLastBackupTime(val time: Long) : NoteEvent
     data class UpdateAutoBackupEnabled(val enabled: Boolean) : NoteEvent
     data class UpdateDropboxAutoBackupEnabled(val enabled: Boolean) : NoteEvent
+    data class UpdateDropboxSyncWifiOnly(val enabled: Boolean) : NoteEvent
     data class UpdateLastDropboxBackupTime(val time: Long) : NoteEvent
     data class UpdateBackupUri(val uri: String?) : NoteEvent
     data class UpdateHasPendingChanges(val hasChanges: Boolean) : NoteEvent

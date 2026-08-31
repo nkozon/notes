@@ -27,22 +27,21 @@ class BackupWorker(
         val repository = AppContainer.provideRepository(applicationContext)
         val backupEngine = repository.getBackupEngine()
         val dropboxAuthManager = repository.getDropboxAuthManager()
-        val dropboxClient = repository.getDropboxClient()
 
         val localEnabled = repository.getAutoBackupEnabled().first()
         val dropboxEnabled = repository.getDropboxAutoBackupEnabled().first()
         val uriString = repository.getBackupUri().first()
         val hasChanges = repository.getHasPendingChanges().first()
 
-        if (!hasChanges || (!localEnabled && !dropboxEnabled)) {
+        if (!localEnabled && !dropboxEnabled) {
             return@withContext ListenableWorker.Result.success()
         }
 
         var localSuccess = false
         var dropboxSuccess = false
 
-        // 1. Local Auto Backup
-        if (localEnabled && uriString != null) {
+        // 1. Local Auto Backup (only needed when there are local pending changes)
+        if (localEnabled && hasChanges && uriString != null) {
             try {
                 val treeUri = android.net.Uri.parse(uriString)
                 val pickedDir = DocumentFile.fromTreeUri(applicationContext, treeUri)
@@ -56,6 +55,20 @@ class BackupWorker(
                         repository.setLastBackupTime(System.currentTimeMillis())
                         localSuccess = true
                         Log.d("BackupWorker", "Local auto backup successful: $fileName")
+
+                        // Keep rolling window of last 10 auto-backups to prevent storage exhaustion
+                        try {
+                            val autoBackups = pickedDir.listFiles()
+                                .filter { it.name?.startsWith("auto_backup_") == true && it.name?.endsWith(".notesbackup") == true }
+                                .sortedByDescending { it.lastModified() }
+                            if (autoBackups.size > 10) {
+                                autoBackups.drop(10).forEach { oldBackup ->
+                                    oldBackup.delete()
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e("BackupWorker", "Error pruning old auto backups", e)
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -63,25 +76,28 @@ class BackupWorker(
             }
         }
 
-        // 2. Dropbox Cloud Auto Backup
+        // 2. Dropbox Cloud Auto-Sync (bidirectional sync across devices)
         if (dropboxEnabled && dropboxAuthManager.isLoggedIn()) {
-            val tempFile = File(applicationContext.cacheDir, "auto_dropbox_backup.notesbackup")
             try {
-                tempFile.outputStream().use { stream ->
-                    backupEngine.createBackup(stream)
-                }
-                val uploadResult = dropboxClient.uploadBackup(tempFile)
-                if (uploadResult.isSuccess) {
-                    repository.setLastDropboxBackupTime(System.currentTimeMillis())
-                    dropboxSuccess = true
-                    Log.d("BackupWorker", "Dropbox auto backup successful")
-                } else {
-                    Log.e("BackupWorker", "Dropbox auto backup failed: ${uploadResult.exceptionOrNull()?.message}")
+                Log.d("BackupWorker", "Triggering Dropbox auto-sync...")
+                val syncResult = repository.syncWithDropbox()
+                when (syncResult) {
+                    is SyncResult.Success -> {
+                        dropboxSuccess = true
+                        Log.d("BackupWorker", "Dropbox auto-sync completed: ${syncResult.message}")
+                    }
+                    is SyncResult.ConfirmationRequired -> {
+                        Log.d("BackupWorker", "Dropbox auto-sync skipped: Wi-Fi only or cellular data confirmation required")
+                    }
+                    is SyncResult.NoOp -> {
+                        Log.d("BackupWorker", "Dropbox auto-sync skipped (already in progress)")
+                    }
+                    is SyncResult.Error -> {
+                        Log.e("BackupWorker", "Dropbox auto-sync error: ${syncResult.message}")
+                    }
                 }
             } catch (e: Exception) {
-                Log.e("BackupWorker", "Dropbox auto backup exception", e)
-            } finally {
-                tempFile.delete()
+                Log.e("BackupWorker", "Dropbox auto-sync exception", e)
             }
         }
 
@@ -94,6 +110,7 @@ class BackupWorker(
 
     companion object {
         private const val WORK_NAME = "auto_backup_work"
+        private const val PERIODIC_WORK_NAME = "periodic_dropbox_sync_work"
 
         fun enqueue(context: Context) {
             val constraints = Constraints.Builder()
@@ -111,6 +128,28 @@ class BackupWorker(
                 ExistingWorkPolicy.REPLACE,
                 request
             )
+        }
+
+        fun schedulePeriodic(context: Context) {
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .setRequiresStorageNotLow(true)
+                .build()
+
+            val periodicRequest = PeriodicWorkRequestBuilder<BackupWorker>(1, TimeUnit.HOURS)
+                .setConstraints(constraints)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 5, TimeUnit.MINUTES)
+                .build()
+
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                PERIODIC_WORK_NAME,
+                ExistingPeriodicWorkPolicy.UPDATE,
+                periodicRequest
+            )
+        }
+
+        fun cancelPeriodic(context: Context) {
+            WorkManager.getInstance(context).cancelUniqueWork(PERIODIC_WORK_NAME)
         }
     }
 }

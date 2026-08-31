@@ -94,11 +94,27 @@ class BackupEngine(
             val desc = readFile("${entity.id}.desc") ?: entity.description
             entity.toDomain(tagIds).copy(description = desc)
         }
+        val deletions = database.deletedItemDao().getAllDeletedItems().map { it.toDomain() }
 
+        val backupData = BackupData(
+            notes = notes,
+            lists = lists,
+            entries = entries,
+            tags = tags,
+            deletedItems = deletions
+        )
+
+        createBackupFromData(backupData, outputStream)
+    }
+
+    /**
+     * Creates a modular compressed ZIP archive from any given BackupData.
+     */
+    suspend fun createBackupFromData(data: BackupData, outputStream: OutputStream) = withContext(Dispatchers.IO) {
         val mediaFilesToInclude = mutableMapOf<String, File>() // relative path in zip -> actual file
 
         // Process notes and collect media files
-        val cleanedNotes = notes.map { note ->
+        val cleanedNotes = data.notes.map { note ->
             var drawingData = note.drawingData
             if (drawingData != null) {
                 val updatedPdfInfo = drawingData.pdfInfo?.let { info ->
@@ -125,14 +141,15 @@ class BackupEngine(
         ZipOutputStream(BufferedOutputStream(outputStream)).use { zipOut ->
             // 1. Manifest
             val manifest = BackupManifest(
-                version = 1,
+                version = 2,
                 appVersion = "1.10.3",
                 timestamp = System.currentTimeMillis(),
                 noteCount = cleanedNotes.size,
-                listCount = lists.size,
-                entryCount = entries.size,
-                tagCount = tags.size,
-                mediaCount = mediaFilesToInclude.size
+                listCount = data.lists.size,
+                entryCount = data.entries.size,
+                tagCount = data.tags.size,
+                mediaCount = mediaFilesToInclude.size,
+                deletionCount = data.deletedItems.size
             )
             zipOut.putNextEntry(ZipEntry("manifest.json"))
             zipOut.write(json.encodeToString(manifest).toByteArray(Charsets.UTF_8))
@@ -140,10 +157,17 @@ class BackupEngine(
 
             // 2. Tags
             zipOut.putNextEntry(ZipEntry("tags/tags.json"))
-            zipOut.write(json.encodeToString(tags).toByteArray(Charsets.UTF_8))
+            zipOut.write(json.encodeToString(data.tags).toByteArray(Charsets.UTF_8))
             zipOut.closeEntry()
 
-            // 3. Notes (individual files)
+            // 3. Deletions / Tombstones
+            if (data.deletedItems.isNotEmpty()) {
+                zipOut.putNextEntry(ZipEntry("deletions/deletions.json"))
+                zipOut.write(json.encodeToString(data.deletedItems).toByteArray(Charsets.UTF_8))
+                zipOut.closeEntry()
+            }
+
+            // 4. Notes (individual files)
             cleanedNotes.forEach { note ->
                 zipOut.putNextEntry(ZipEntry("notes/${note.id}.json"))
                 zipOut.write(json.encodeToString(note).toByteArray(Charsets.UTF_8))
@@ -170,12 +194,12 @@ class BackupEngine(
                 }
             }
 
-            // 4. Lists (individual files with their entries)
-            val entriesByList = entries.groupBy { it.listId }
-            lists.forEach { list ->
+            // 5. Lists (individual files with their entries)
+            val entriesByList = data.entries.groupBy { it.listId }
+            data.lists.forEach { list ->
                 val listEntries = entriesByList[list.id] ?: emptyList()
                 val listTagIds = listEntries.flatMap { it.tagIds }.toSet()
-                val listTags = tags.filter { it.listId == list.id || it.id in listTagIds }
+                val listTags = data.tags.filter { it.listId == list.id || it.id in listTagIds }
                 val bundle = ExportedListBundle(list, listEntries, listTags)
 
                 zipOut.putNextEntry(ZipEntry("lists/${list.id}.json"))
@@ -183,17 +207,16 @@ class BackupEngine(
                 zipOut.closeEntry()
 
                 listEntries.forEach { entry ->
-                    entry.description?.let { desc ->
-                        if (desc.isNotEmpty()) {
-                            zipOut.putNextEntry(ZipEntry("lists/${entry.id}.desc"))
-                            zipOut.write(desc.toByteArray(Charsets.UTF_8))
-                            zipOut.closeEntry()
-                        }
+                    val desc = entry.description ?: readFile("${entry.id}.desc")
+                    if (!desc.isNullOrEmpty()) {
+                        zipOut.putNextEntry(ZipEntry("lists/${entry.id}.desc"))
+                        zipOut.write(desc.toByteArray(Charsets.UTF_8))
+                        zipOut.closeEntry()
                     }
                 }
             }
 
-            // 5. Media attachments
+            // 6. Media attachments
             mediaFilesToInclude.forEach { (zipPath, file) ->
                 zipOut.putNextEntry(ZipEntry(zipPath))
                 file.inputStream().use { fileIn ->
@@ -205,6 +228,7 @@ class BackupEngine(
             zipOut.finish()
         }
     }
+
 
     /**
      * Exports a single note as a standalone ZIP archive.
@@ -368,10 +392,24 @@ class BackupEngine(
     }
 
     private suspend fun restoreFromZip(inputStream: InputStream, isMerge: Boolean) {
+        val backupData = readBackupFromZip(inputStream)
+        if (!isMerge) {
+            repository.restoreBackupData(backupData)
+        } else {
+            repository.importBackupData(backupData)
+        }
+    }
+
+    /**
+     * Reads and parses a modern ZIP backup archive into BackupData,
+     * extracting any media attachments to context.filesDir.
+     */
+    suspend fun readBackupFromZip(inputStream: InputStream): BackupData = withContext(Dispatchers.IO) {
         val restoredNotes = mutableListOf<Note>()
         val restoredLists = mutableListOf<NoteList>()
         val restoredEntries = mutableListOf<ListEntry>()
         val restoredTags = mutableListOf<Tag>()
+        val restoredDeletedItems = mutableListOf<DeletedItem>()
 
         val noteContents = mutableMapOf<String, String>()
         val noteHtmls = mutableMapOf<String, String>()
@@ -392,13 +430,22 @@ class BackupEngine(
                     }
                     name == "tags/tags.json" -> {
                         val text = readEntryText(zipIn)
-                        val tags = json.decodeFromString<List<Tag>>(text)
+                        val tags = try { json.decodeFromString<List<Tag>>(text) } catch (e: Exception) { emptyList() }
                         restoredTags.addAll(tags)
+                    }
+                    name == "deletions/deletions.json" -> {
+                        val text = readEntryText(zipIn)
+                        val deletions = try { json.decodeFromString<List<DeletedItem>>(text) } catch (e: Exception) { emptyList() }
+                        restoredDeletedItems.addAll(deletions)
                     }
                     name.startsWith("notes/") && name.endsWith(".json") -> {
                         val text = readEntryText(zipIn)
-                        val note = json.decodeFromString<Note>(text)
-                        restoredNotes.add(note)
+                        try {
+                            val note = json.decodeFromString<Note>(text)
+                            restoredNotes.add(note)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
                     }
                     name.startsWith("notes/") && name.endsWith(".content") -> {
                         val noteId = name.removePrefix("notes/").removeSuffix(".content")
@@ -422,10 +469,14 @@ class BackupEngine(
                     }
                     name.startsWith("lists/") && name.endsWith(".json") -> {
                         val text = readEntryText(zipIn)
-                        val bundle = json.decodeFromString<ExportedListBundle>(text)
-                        restoredLists.add(bundle.list)
-                        restoredEntries.addAll(bundle.entries)
-                        restoredTags.addAll(bundle.tags)
+                        try {
+                            val bundle = json.decodeFromString<ExportedListBundle>(text)
+                            restoredLists.add(bundle.list)
+                            restoredEntries.addAll(bundle.entries)
+                            restoredTags.addAll(bundle.tags)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
                     }
                     name.startsWith("lists/") && name.endsWith(".desc") -> {
                         val entryId = name.removePrefix("lists/").removeSuffix(".desc")
@@ -468,19 +519,15 @@ class BackupEngine(
             entry.copy(description = desc)
         }
 
-        val backupData = BackupData(
+        BackupData(
             notes = finalNotes,
             lists = restoredLists.distinctBy { it.id },
             entries = finalEntries,
-            tags = restoredTags.distinctBy { it.id }
+            tags = restoredTags.distinctBy { it.id },
+            deletedItems = restoredDeletedItems.distinctBy { "${it.type}_${it.id}" }
         )
-
-        if (!isMerge) {
-            repository.restoreBackupData(backupData)
-        } else {
-            repository.importBackupData(backupData)
-        }
     }
+
 
     private fun readFile(fileName: String): String? {
         val file = File(context.filesDir, fileName)

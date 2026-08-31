@@ -101,6 +101,7 @@ private fun MobileNavHost(
                 viewModel = settingsViewModel,
                 onNavigateToTheme = { navController.navigate("theme") },
                 onNavigateToMoviePosters = { navController.navigate("moviePosters") },
+                onNavigateToCloudSync = { navController.navigate("cloudSync") },
                 onNavigateToBackupRestore = { navController.navigate("backupRestore") },
                 onNavigateToGranularBackup = { navController.navigate("granularBackup") },
                 onNavigateToAbout = { navController.navigate("about") },
@@ -112,6 +113,9 @@ private fun MobileNavHost(
         }
         composable("moviePosters") {
             MoviePostersScreen(viewModel = settingsViewModel, onNavigateUp = { navController.popBackStack() })
+        }
+        composable("cloudSync") {
+            DropboxSyncScreen(viewModel = settingsViewModel, onNavigateUp = { navController.popBackStack() })
         }
         composable("backupRestore") {
             BackupRestoreScreen(viewModel = settingsViewModel, onNavigateUp = { navController.popBackStack() })
@@ -266,6 +270,7 @@ private fun TabletSplitScreen(
                             onNavigateToSettings = { currentDetailRoute = DetailRoute.Settings },
                             onNavigateToTheme = { currentDetailRoute = DetailRoute.Theme },
                             onNavigateToMoviePosters = { currentDetailRoute = DetailRoute.MoviePosters },
+                            onNavigateToCloudSync = { currentDetailRoute = DetailRoute.CloudSync },
                             onNavigateToBackup = { currentDetailRoute = DetailRoute.BackupRestore },
                             onNavigateToGranularBackup = { currentDetailRoute = DetailRoute.GranularBackup },
                             onNavigateToAbout = { currentDetailRoute = DetailRoute.About }
@@ -325,6 +330,7 @@ private fun DetailPaneContent(
     onNavigateToSettings: () -> Unit,
     onNavigateToTheme: () -> Unit,
     onNavigateToMoviePosters: () -> Unit,
+    onNavigateToCloudSync: () -> Unit,
     onNavigateToBackup: () -> Unit,
     onNavigateToGranularBackup: () -> Unit,
     onNavigateToAbout: () -> Unit
@@ -357,6 +363,7 @@ private fun DetailPaneContent(
                 viewModel = settingsViewModel,
                 onNavigateToTheme = onNavigateToTheme,
                 onNavigateToMoviePosters = onNavigateToMoviePosters,
+                onNavigateToCloudSync = onNavigateToCloudSync,
                 onNavigateToBackupRestore = onNavigateToBackup,
                 onNavigateToGranularBackup = onNavigateToGranularBackup,
                 onNavigateToAbout = onNavigateToAbout,
@@ -368,6 +375,9 @@ private fun DetailPaneContent(
         }
         is DetailRoute.MoviePosters -> {
             MoviePostersScreen(viewModel = settingsViewModel, onNavigateUp = onNavigateToSettings)
+        }
+        is DetailRoute.CloudSync -> {
+            DropboxSyncScreen(viewModel = settingsViewModel, onNavigateUp = onNavigateToSettings)
         }
         is DetailRoute.BackupRestore -> {
             BackupRestoreScreen(viewModel = settingsViewModel, onNavigateUp = onNavigateToSettings)

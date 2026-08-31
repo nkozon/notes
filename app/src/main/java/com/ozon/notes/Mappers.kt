@@ -160,3 +160,22 @@ fun Tag.toEntity(): TagEntity {
         position = position
     )
 }
+
+// --- DeletedItem Mappers ---
+
+fun DeletedItemEntity.toDomain(): DeletedItem {
+    return DeletedItem(
+        id = id,
+        type = type,
+        deletedAt = deletedAt
+    )
+}
+
+fun DeletedItem.toEntity(): DeletedItemEntity {
+    return DeletedItemEntity(
+        id = id,
+        type = type,
+        deletedAt = deletedAt
+    )
+}
+

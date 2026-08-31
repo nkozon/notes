@@ -101,6 +101,12 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
     val toolbarAnchor: StateFlow<ToolbarAnchor> = repository.getToolbarAnchor()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ToolbarAnchor.BOTTOM)
 
+    val isDropboxSyncing: StateFlow<Boolean> = repository.getDropboxIsSyncing()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val dropboxSyncingItems: StateFlow<List<SyncItemInfo>> = repository.getDropboxSyncingItems()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private val _isSidePanelVisible = MutableStateFlow(true)
     val isSidePanelVisible = _isSidePanelVisible.asStateFlow()
 
