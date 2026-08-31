@@ -434,6 +434,8 @@ class RoomNoteRepository(
             _isOledMode.value = false
             _checklistBehavior.value = ChecklistBehavior.GREY_OUT
             _showEntryCount.value = false
+            _showNotesTab.value = true
+            _showListsTab.value = true
             _listsSortOrder.value = ListSortOrder.NEWEST
             _autoBackupEnabled.value = false
             _backupUri.value = null
@@ -1048,6 +1050,20 @@ class RoomNoteRepository(
     override suspend fun setShowEntryCount(show: Boolean) {
         prefs.edit().putBoolean("show_entry_count", show).apply()
         _showEntryCount.value = show
+    }
+
+    private val _showNotesTab = MutableStateFlow(prefs.getBoolean("show_notes_tab", true))
+    override fun getShowNotesTab(): Flow<Boolean> = _showNotesTab
+    override suspend fun setShowNotesTab(show: Boolean) {
+        prefs.edit().putBoolean("show_notes_tab", show).apply()
+        _showNotesTab.value = show
+    }
+
+    private val _showListsTab = MutableStateFlow(prefs.getBoolean("show_lists_tab", true))
+    override fun getShowListsTab(): Flow<Boolean> = _showListsTab
+    override suspend fun setShowListsTab(show: Boolean) {
+        prefs.edit().putBoolean("show_lists_tab", show).apply()
+        _showListsTab.value = show
     }
 
     private val _lastBackupTime = MutableStateFlow(prefs.getLong("last_backup_time", 0L))

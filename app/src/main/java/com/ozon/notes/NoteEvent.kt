@@ -32,6 +32,8 @@ sealed interface NoteEvent {
     data class RestoreData(val data: com.ozon.notes.BackupData) : NoteEvent
     data class UpdateChecklistBehavior(val behavior: ChecklistBehavior) : NoteEvent
     data class UpdateShowEntryCount(val show: Boolean) : NoteEvent
+    data class UpdateShowNotesTab(val show: Boolean) : NoteEvent
+    data class UpdateShowListsTab(val show: Boolean) : NoteEvent
     data class UpdateLastBackupTime(val time: Long) : NoteEvent
     data class UpdateAutoBackupEnabled(val enabled: Boolean) : NoteEvent
     data class UpdateDropboxAutoBackupEnabled(val enabled: Boolean) : NoteEvent

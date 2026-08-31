@@ -515,10 +515,19 @@ class DropboxSyncEngine(
                 path.contains("/sync/notes/") -> {
                     val id = entry.name.substringBefore(".")
                     database.noteDao().deleteNote(id)
+                    deleteLocalFile("$id.content")
+                    deleteLocalFile("$id.html")
+                    deleteLocalFile("$id.drawing")
+                    deleteLocalFile("$id.thumb")
                 }
                 path.contains("/sync/lists/") -> {
                     val id = entry.name.substringBefore(".")
-                    database.listDao().deleteList(id)
+                    val existingEntries = database.listDao().getEntriesForListSync(id)
+                    existingEntries.forEach { e ->
+                        NotificationHelper.cancelNotification(context, e.id)
+                        deleteLocalFile("${e.id}.desc")
+                    }
+                    database.listDao().deleteListAndEntries(id)
                 }
             }
         }
@@ -586,19 +595,43 @@ class DropboxSyncEngine(
         val pkg = try {
             json.decodeFromString<SyncListPackage>(bytes.decodeToString())
         } catch (e: Exception) {
+            Log.e("DropboxSyncEngine", "Failed to parse SyncListPackage for list $listId", e)
             return
         }
 
         database.withTransaction {
+            // 1. Upsert list metadata
             database.listDao().upsertList(pkg.list.toEntity())
-            if (pkg.tags.isNotEmpty()) {
-                val listTags = pkg.tags.filter { it.listId == pkg.list.id }
-                if (listTags.isNotEmpty()) {
-                    database.tagDao().upsertTags(listTags.map { it.toEntity() })
+
+            // 2. Sync list tags: delete local tags for this list that no longer exist remotely
+            val incomingListTags = pkg.tags.filter { it.listId == pkg.list.id }
+            val incomingTagIds = incomingListTags.map { it.id }.toSet()
+            val existingListTags = database.tagDao().getAllTagsList().filter { it.listId == pkg.list.id }
+            existingListTags.forEach { existingTag ->
+                if (existingTag.id !in incomingTagIds) {
+                    database.tagDao().deleteTag(existingTag.id)
                 }
             }
+            if (incomingListTags.isNotEmpty()) {
+                database.tagDao().upsertTags(incomingListTags.map { it.toEntity() })
+            }
+
+            // 3. Sync entries: delete obsolete local entries that were deleted remotely
+            val existingEntries = database.listDao().getEntriesForListSync(listId)
+            val incomingEntryIds = pkg.entries.map { it.id }.toSet()
+
+            existingEntries.forEach { existingEntry ->
+                if (existingEntry.id !in incomingEntryIds) {
+                    NotificationHelper.cancelNotification(context, existingEntry.id)
+                    deleteLocalFile("${existingEntry.id}.desc")
+                    database.listDao().deleteEntry(existingEntry.id)
+                    database.entryTagCrossRefDao().deleteByEntryId(existingEntry.id)
+                }
+            }
+
+            // 4. Upsert incoming entries and rebuild relationships & tags
             if (pkg.entries.isNotEmpty()) {
-                val validEntryIds = pkg.entries.map { it.id }.toSet()
+                val validEntryIds = incomingEntryIds
                 database.listDao().upsertEntries(pkg.entries.map { entry ->
                     entry.description?.let { saveLocalFile("${entry.id}.desc", it) }
                     entry.toEntity().copy(description = null, parentId = null, linkedEntryId = null)
@@ -618,11 +651,22 @@ class DropboxSyncEngine(
                 }
 
                 val existingTagIds = database.tagDao().getAllTagsList().map { it.id }.toSet()
+                pkg.entries.forEach { entry ->
+                    database.entryTagCrossRefDao().deleteByEntryId(entry.id)
+                }
                 val crossRefs = pkg.entries.flatMap { entry ->
                     entry.tagIds.filter { it in existingTagIds }.map { EntryTagCrossRef(entry.id, it) }
                 }
                 if (crossRefs.isNotEmpty()) {
                     database.entryTagCrossRefDao().insertAll(crossRefs)
+                }
+
+                pkg.entries.forEach { entry ->
+                    if (entry.remindMe && !entry.isChecked) {
+                        NotificationHelper.scheduleNotification(context, entry)
+                    } else {
+                        NotificationHelper.cancelNotification(context, entry.id)
+                    }
                 }
             }
         }
@@ -638,9 +682,17 @@ class DropboxSyncEngine(
         } catch (e: Exception) {
             return
         }
-        if (tags.isNotEmpty()) {
-            val existingListIds = database.listDao().getAllListsList().map { it.id }.toSet()
-            val validTags = tags.filter { it.listId in existingListIds }
+        val existingListIds = database.listDao().getAllListsList().map { it.id }.toSet()
+        val validTags = tags.filter { it.listId in existingListIds }
+        val validTagIds = validTags.map { it.id }.toSet()
+
+        database.withTransaction {
+            val allExistingTags = database.tagDao().getAllTagsList()
+            allExistingTags.forEach { existingTag ->
+                if (existingTag.id !in validTagIds && existingTag.listId in existingListIds) {
+                    database.tagDao().deleteTag(existingTag.id)
+                }
+            }
             if (validTags.isNotEmpty()) {
                 database.tagDao().upsertTags(validTags.map { it.toEntity() })
             }
@@ -899,6 +951,14 @@ class DropboxSyncEngine(
             }
         } catch (e: Exception) {
             Log.e("DropboxSyncEngine", "Failed to save local file $fileName", e)
+        }
+    }
+
+    private fun deleteLocalFile(fileName: String) {
+        try {
+            context.deleteFile(fileName)
+        } catch (e: Exception) {
+            Log.e("DropboxSyncEngine", "Failed to delete local file $fileName", e)
         }
     }
 

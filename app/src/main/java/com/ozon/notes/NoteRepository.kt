@@ -72,6 +72,10 @@ interface NoteRepository {
     suspend fun setChecklistBehavior(behavior: ChecklistBehavior)
     fun getShowEntryCount(): Flow<Boolean>
     suspend fun setShowEntryCount(show: Boolean)
+    fun getShowNotesTab(): Flow<Boolean>
+    suspend fun setShowNotesTab(show: Boolean)
+    fun getShowListsTab(): Flow<Boolean>
+    suspend fun setShowListsTab(show: Boolean)
     fun getLastBackupTime(): Flow<Long>
     suspend fun setLastBackupTime(time: Long)
 

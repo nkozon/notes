@@ -59,6 +59,8 @@ fun SettingsScreen(
     val tabletMode by viewModel.tabletModeState.collectAsStateWithLifecycle()
     val checklistBehavior by viewModel.checklistBehaviorState.collectAsStateWithLifecycle()
     val showEntryCount by viewModel.showEntryCountState.collectAsStateWithLifecycle()
+    val showNotesTab by viewModel.showNotesTabState.collectAsStateWithLifecycle()
+    val showListsTab by viewModel.showListsTabState.collectAsStateWithLifecycle()
     val smoothingStrength by viewModel.smoothingStrength.collectAsStateWithLifecycle()
     
     val ratingIndicatorsEnabled by viewModel.ratingIndicatorsEnabled.collectAsStateWithLifecycle()
@@ -70,6 +72,7 @@ fun SettingsScreen(
     val forceStylusOnly by viewModel.forceStylusOnly.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
 
+    val context = LocalContext.current
     var showClearDataDialog by remember { mutableStateOf(false) }
     var showUpdateDialog by remember { mutableStateOf<UpdateState.UpdateAvailable?>(null) }
 
@@ -162,6 +165,73 @@ fun SettingsScreen(
                                 )
                             }
                         }
+                    }
+                }
+            }
+
+            // Main Screen Tabs Section
+            SettingsSection(title = "Main Screen Tabs") {
+                SettingsItemContainer(index = 0, total = 2) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Notes Tab",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                text = "Show Notes tab on the main screen",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = showNotesTab,
+                            onCheckedChange = { checked ->
+                                if (!checked && !showListsTab) {
+                                    Toast.makeText(context, "At least one tab must remain enabled", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    viewModel.onEvent(NoteEvent.UpdateShowNotesTab(checked))
+                                }
+                            }
+                        )
+                    }
+                }
+
+                SettingsItemContainer(index = 1, total = 2) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Lists Tab",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                text = "Show Lists tab on the main screen",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = showListsTab,
+                            onCheckedChange = { checked ->
+                                if (!checked && !showNotesTab) {
+                                    Toast.makeText(context, "At least one tab must remain enabled", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    viewModel.onEvent(NoteEvent.UpdateShowListsTab(checked))
+                                }
+                            }
+                        )
                     }
                 }
             }

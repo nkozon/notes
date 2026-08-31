@@ -163,4 +163,101 @@ class ExampleUnitTest {
         assertEquals(0, domain.checkedCount)
         assertEquals(2, domain.watchingCount)
     }
+
+    @Test
+    fun testSyncListPackageChecklistSerializationRoundtrip() {
+        val json = kotlinx.serialization.json.Json {
+            ignoreUnknownKeys = true
+            coerceInputValues = true
+            encodeDefaults = true
+        }
+
+        val checklist = NoteList(
+            id = "cl_1",
+            title = "Groceries",
+            type = ListType.CHECKLIST,
+            isPinned = true,
+            sortOrder = ListSortOrder.ALPHABETICAL
+        )
+
+        val tag = Tag(
+            id = "tag_1",
+            listId = "cl_1",
+            name = "Urgent",
+            colorArgb = 0xFFFF0000.toInt(),
+            position = 0
+        )
+
+        val entry1 = ListEntry(
+            id = "e1",
+            listId = "cl_1",
+            title = "Apples",
+            isChecked = true,
+            isPinned = false,
+            tagIds = listOf("tag_1"),
+            description = "Honeycrisp preferred"
+        )
+        val entry2 = ListEntry(
+            id = "e2",
+            listId = "cl_1",
+            title = "Milk",
+            isChecked = false,
+            isPinned = true,
+            tagIds = emptyList()
+        )
+
+        val pkg = SyncListPackage(
+            list = checklist,
+            entries = listOf(entry1, entry2),
+            tags = listOf(tag)
+        )
+
+        val serialized = json.encodeToString(pkg)
+        assertTrue(serialized.contains("Groceries"))
+        assertTrue(serialized.contains("CHECKLIST"))
+        assertTrue(serialized.contains("Apples"))
+        assertTrue(serialized.contains("Milk"))
+        assertTrue(serialized.contains("Urgent"))
+
+        val deserialized = json.decodeFromString<SyncListPackage>(serialized)
+        assertEquals("cl_1", deserialized.list.id)
+        assertEquals("Groceries", deserialized.list.title)
+        assertEquals(ListType.CHECKLIST, deserialized.list.type)
+        assertEquals(2, deserialized.entries.size)
+        assertEquals("Apples", deserialized.entries[0].title)
+        assertTrue(deserialized.entries[0].isChecked)
+        assertEquals("Honeycrisp preferred", deserialized.entries[0].description)
+        assertEquals("Milk", deserialized.entries[1].title)
+        assertFalse(deserialized.entries[1].isChecked)
+        assertEquals(1, deserialized.tags.size)
+        assertEquals("Urgent", deserialized.tags[0].name)
+    }
+
+    @Test
+    fun testSyncListPackageEmptyEntriesRoundtrip() {
+        val json = kotlinx.serialization.json.Json {
+            ignoreUnknownKeys = true
+            coerceInputValues = true
+            encodeDefaults = true
+        }
+
+        val emptyChecklist = NoteList(
+            id = "cl_empty",
+            title = "Empty Checklist",
+            type = ListType.CHECKLIST
+        )
+
+        val pkg = SyncListPackage(
+            list = emptyChecklist,
+            entries = emptyList(),
+            tags = emptyList()
+        )
+
+        val serialized = json.encodeToString(pkg)
+        val deserialized = json.decodeFromString<SyncListPackage>(serialized)
+        assertEquals("cl_empty", deserialized.list.id)
+        assertEquals(ListType.CHECKLIST, deserialized.list.type)
+        assertTrue(deserialized.entries.isEmpty())
+        assertTrue(deserialized.tags.isEmpty())
+    }
 }

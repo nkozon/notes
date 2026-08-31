@@ -248,6 +248,11 @@ enum class SmoothingStrength {
 }
 
 @Serializable
+enum class MainTab {
+    NOTES, LISTS
+}
+
+@Serializable
 data class DeletedItem(
     val id: String,
     val type: String, // "NOTE", "LIST", "ENTRY", "TAG"

@@ -66,6 +66,12 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
     val showEntryCountState: StateFlow<Boolean> = repository.getShowEntryCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    val showNotesTabState: StateFlow<Boolean> = repository.getShowNotesTab()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
+    val showListsTabState: StateFlow<Boolean> = repository.getShowListsTab()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
     val lastBackupTimeState: StateFlow<Long> = repository.getLastBackupTime()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
 
@@ -545,6 +551,8 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
             is NoteEvent.UpdateTabletMode -> viewModelScope.launch { repository.setTabletMode(event.mode) }
             is NoteEvent.UpdateChecklistBehavior -> viewModelScope.launch { repository.setChecklistBehavior(event.behavior) }
             is NoteEvent.UpdateShowEntryCount -> viewModelScope.launch { repository.setShowEntryCount(event.show) }
+            is NoteEvent.UpdateShowNotesTab -> viewModelScope.launch { repository.setShowNotesTab(event.show) }
+            is NoteEvent.UpdateShowListsTab -> viewModelScope.launch { repository.setShowListsTab(event.show) }
             is NoteEvent.UpdateAutoBackupEnabled -> viewModelScope.launch { repository.setAutoBackupEnabled(event.enabled) }
             is NoteEvent.UpdateDropboxAutoBackupEnabled -> viewModelScope.launch { 
                 repository.setDropboxAutoBackupEnabled(event.enabled)

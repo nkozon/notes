@@ -1,9 +1,15 @@
 package com.ozon.notes
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -95,10 +101,13 @@ fun NoteListScreen(
 ) {
     val notes by notesViewModel.notesState.collectAsStateWithLifecycle()
     val noteSortOrder by notesViewModel.noteSortOrder.collectAsStateWithLifecycle()
+    val listsSortOrder by notesViewModel.listsSortOrder.collectAsStateWithLifecycle()
     val searchQuery by notesViewModel.searchQuery.collectAsStateWithLifecycle()
     
     val listsWithCounts by notesViewModel.listsWithCountsState.collectAsStateWithLifecycle()
     val showEntryCount by settingsViewModel.showEntryCountState.collectAsStateWithLifecycle()
+    val showNotesTab by settingsViewModel.showNotesTabState.collectAsStateWithLifecycle()
+    val showListsTab by settingsViewModel.showListsTabState.collectAsStateWithLifecycle()
     val importProgress by notesViewModel.importProgress.collectAsStateWithLifecycle()
     val isDropboxSyncing by notesViewModel.isDropboxSyncing.collectAsStateWithLifecycle()
     val dropboxSyncingItems by notesViewModel.dropboxSyncingItems.collectAsStateWithLifecycle()
@@ -106,6 +115,24 @@ fun NoteListScreen(
     val dropboxSyncWifiOnly by settingsViewModel.dropboxSyncWifiOnly.collectAsStateWithLifecycle()
     val hasPendingChanges by settingsViewModel.hasPendingChanges.collectAsStateWithLifecycle()
     val mobileDataPrompt by settingsViewModel.mobileDataDownloadPrompt.collectAsStateWithLifecycle()
+
+    var selectedTab by rememberSaveable { mutableStateOf(MainTab.NOTES) }
+
+    LaunchedEffect(showNotesTab, showListsTab) {
+        if (!showNotesTab && showListsTab) {
+            selectedTab = MainTab.LISTS
+        } else if (showNotesTab && !showListsTab) {
+            selectedTab = MainTab.NOTES
+        }
+    }
+
+    LaunchedEffect(activeRoute) {
+        if (activeRoute is DetailRoute.List && showListsTab) {
+            selectedTab = MainTab.LISTS
+        } else if ((activeRoute is DetailRoute.Note || activeRoute is DetailRoute.Drawing) && showNotesTab) {
+            selectedTab = MainTab.NOTES
+        }
+    }
 
     val context = androidx.compose.ui.platform.LocalContext.current
 
@@ -168,13 +195,15 @@ fun NoteListScreen(
 
     val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val headerHeight = 64.dp
+    val hasTabBar = showNotesTab && showListsTab
+    val topHeaderHeight = if (hasTabBar) headerHeight + 52.dp + 8.dp else headerHeight
 
     @Suppress("UnusedMaterial3ScaffoldPaddingParameter")
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = { 
-            Box(modifier = Modifier.fillMaxWidth().zIndex(3f)) {
+            Column(modifier = Modifier.fillMaxWidth().zIndex(3f)) {
                 if (isSearchActive) {
                     Box(
                         modifier = Modifier
@@ -210,7 +239,9 @@ fun NoteListScreen(
                                 TextField(
                                     value = searchQuery,
                                     onValueChange = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
-                                    placeholder = { Text("Search your notes...") },
+                                    placeholder = { 
+                                        Text(if (selectedTab == MainTab.NOTES) "Search your notes..." else "Search your lists...") 
+                                    },
                                     modifier = Modifier.weight(1f).focusRequester(dummyFocusRequester),
                                     textStyle = LocalTextStyle.current.copy(textAlign = TextAlign.Start),
                                     colors = TextFieldDefaults.colors(
@@ -313,9 +344,16 @@ fun NoteListScreen(
                                     Spacer(modifier = Modifier.width(12.dp))
                                 }
 
+                                val currentSortOrder = if (selectedTab == MainTab.NOTES) noteSortOrder else listsSortOrder
                                 SortDropdown(
-                                    selectedOrder = noteSortOrder,
-                                    onOrderSelected = { notesViewModel.onEvent(NoteEvent.UpdateNoteSortOrder(it)) },
+                                    selectedOrder = currentSortOrder,
+                                    onOrderSelected = { order ->
+                                        if (selectedTab == MainTab.NOTES) {
+                                            notesViewModel.onEvent(NoteEvent.UpdateNoteSortOrder(order))
+                                        } else {
+                                            notesViewModel.onEvent(NoteEvent.UpdateListsSortOrder(order))
+                                        }
+                                    },
                                     availableOrders = listOf(
                                         ListSortOrder.ALPHABETICAL, 
                                         ListSortOrder.REVERSE_ALPHABETICAL,
@@ -340,6 +378,20 @@ fun NoteListScreen(
                         }
                     ) 
                 }
+
+                if (hasTabBar) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .padding(bottom = 8.dp)
+                    ) {
+                        MainScreenTabBar(
+                            selectedTab = selectedTab,
+                            onTabSelected = { selectedTab = it }
+                        )
+                    }
+                }
             }
         }
     ) { _ ->
@@ -353,7 +405,7 @@ fun NoteListScreen(
                 columns = StaggeredGridCells.Fixed(1),
                 contentPadding = PaddingValues(
                     start = 16.dp, 
-                    top = topPadding + headerHeight + 16.dp, 
+                    top = topPadding + topHeaderHeight + 16.dp, 
                     end = 16.dp, 
                     bottom = bottomPadding + 100.dp
                 ),
@@ -361,160 +413,182 @@ fun NoteListScreen(
                 verticalItemSpacing = 0.dp,
                 modifier = Modifier.fillMaxSize()
             ) {
-                // NOTES SECTION
-                item(span = StaggeredGridItemSpan.FullLine) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                            .padding(top = 16.dp, bottom = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Notes",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TooltipIconButton(
-                                onClick = { onAddClick(notesViewModel.createNewNote()) },
+                if (selectedTab == MainTab.NOTES) {
+                    // NOTES SECTION
+                    item(span = StaggeredGridItemSpan.FullLine) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                                .padding(top = 8.dp, bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Notes",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TooltipIconButton(
+                                    onClick = { onAddClick(notesViewModel.createNewNote()) },
+                                    icon = Icons.Rounded.Description,
+                                    tooltip = "New Text Note"
+                                )
+                                TooltipIconButton(
+                                    onClick = { showDrawingTypeDialog = true },
+                                    icon = Icons.Rounded.Brush,
+                                    tooltip = "New Drawing"
+                                )
+                                TooltipIconButton(
+                                    onClick = { pdfPickerLauncher.launch(arrayOf("application/pdf")) },
+                                    icon = Icons.Rounded.PictureAsPdf,
+                                    tooltip = "Import PDF"
+                                )
+                            }
+                        }
+                    }
+
+                    if (notes.isEmpty()) {
+                        item(span = StaggeredGridItemSpan.FullLine) {
+                            EmptyTabState(
                                 icon = Icons.Rounded.Description,
-                                tooltip = "New Text Note"
-                            )
-                            TooltipIconButton(
-                                onClick = { showDrawingTypeDialog = true },
-                                icon = Icons.Rounded.Brush,
-                                tooltip = "New Drawing"
-                            )
-                            TooltipIconButton(
-                                onClick = { pdfPickerLauncher.launch(arrayOf("application/pdf")) },
-                                icon = Icons.Rounded.PictureAsPdf,
-                                tooltip = "Import PDF"
+                                message = if (searchQuery.isNotEmpty()) "No notes found" else "No notes yet",
+                                subMessage = if (searchQuery.isNotEmpty()) "Try searching with a different keyword" else "Tap a button above to create a new text note, drawing, or import a PDF"
                             )
                         }
+                    } else {
+                        items(notes.size, key = { i -> "note_${notes[i].id}" }) { index ->
+                            val note = notes[index]
+                            val isSelected = (activeRoute is DetailRoute.Note && activeRoute.id == note.id) ||
+                                             (activeRoute is DetailRoute.Drawing && activeRoute.id == note.id)
+                            
+                            val isFirst = index == 0 || notes.size == 1
+                            val isLast = index == notes.size - 1 || notes.size == 1
+                            
+                            val targetTopRadius = if (isSelected) 32.dp else if (isFirst) 28.dp else 4.dp
+                            val targetBottomRadius = if (isSelected) 32.dp else if (isLast) 28.dp else 4.dp
+
+                            val topRadius by animateDpAsState(targetValue = targetTopRadius, label = "topRadius")
+                            val bottomRadius by animateDpAsState(targetValue = targetBottomRadius, label = "bottomRadius")
+                            
+                            val shape = remember(topRadius, bottomRadius) {
+                                RoundedCornerShape(topRadius, topRadius, bottomRadius, bottomRadius)
+                            }
+
+                            SwipeActionWrapper(
+                                onDelete = { noteToDelete = note },
+                                onPin = { notesViewModel.onEvent(NoteEvent.TogglePinNote(note.id)) },
+                                isPinned = note.isPinned,
+                                shape = shape,
+                                modifier = Modifier.padding(bottom = 4.dp).animateItem()
+                            ) {
+                                NoteCard(
+                                    note = note,
+                                    onClick = { onNoteClick(note.id, note.type) },
+                                    shape = shape,
+                                    isSelected = isSelected
+                                )
+                            }
+                        }
                     }
-                }
-
-                items(notes.size, key = { i -> "note_${notes[i].id}" }) { index ->
-                    val note = notes[index]
-                    val isSelected = (activeRoute is DetailRoute.Note && activeRoute.id == note.id) ||
-                                     (activeRoute is DetailRoute.Drawing && activeRoute.id == note.id)
-                    
-                    val isFirst = index == 0 || notes.size == 1
-                    val isLast = index == notes.size - 1 || notes.size == 1
-                    
-                    val targetTopRadius = if (isSelected) 32.dp else if (isFirst) 28.dp else 4.dp
-                    val targetBottomRadius = if (isSelected) 32.dp else if (isLast) 28.dp else 4.dp
-
-                    val topRadius by animateDpAsState(targetValue = targetTopRadius, label = "topRadius")
-                    val bottomRadius by animateDpAsState(targetValue = targetBottomRadius, label = "bottomRadius")
-                    
-                    val shape = remember(topRadius, bottomRadius) {
-                        RoundedCornerShape(topRadius, topRadius, bottomRadius, bottomRadius)
+                } else {
+                    // LISTS SECTION
+                    item(span = StaggeredGridItemSpan.FullLine) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                                .padding(top = 8.dp, bottom = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Lists",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TooltipIconButton(
+                                    onClick = { 
+                                        initialListType = ListType.CHECKLIST
+                                        showCreateListDialog = true 
+                                    },
+                                    icon = Icons.AutoMirrored.Rounded.List,
+                                    tooltip = "New Checklist"
+                                )
+                                TooltipIconButton(
+                                    onClick = { 
+                                        initialListType = ListType.RATING
+                                        showCreateListDialog = true 
+                                    },
+                                    icon = Icons.Rounded.Star,
+                                    tooltip = "New Rating List"
+                                )
+                                TooltipIconButton(
+                                    onClick = { 
+                                        initialListType = ListType.UPCOMING
+                                        showCreateListDialog = true 
+                                    },
+                                    icon = Icons.Rounded.Event,
+                                    tooltip = "New Upcoming List"
+                                )
+                            }
+                        }
                     }
 
-                    SwipeActionWrapper(
-                        onDelete = { noteToDelete = note },
-                        onPin = { notesViewModel.onEvent(NoteEvent.TogglePinNote(note.id)) },
-                        isPinned = note.isPinned,
-                        shape = shape,
-                        modifier = Modifier.padding(bottom = 4.dp).animateItem()
-                    ) {
-                        NoteCard(
-                            note = note,
-                            onClick = { onNoteClick(note.id, note.type) },
-                            shape = shape,
-                            isSelected = isSelected
-                        )
-                    }
-                }
-
-                // LISTS SECTION
-                item(span = StaggeredGridItemSpan.FullLine) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                            .padding(top = 24.dp, bottom = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Lists",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TooltipIconButton(
-                                onClick = { 
-                                    initialListType = ListType.CHECKLIST
-                                    showCreateListDialog = true 
-                                },
+                    if (listsWithCounts.isEmpty()) {
+                        item(span = StaggeredGridItemSpan.FullLine) {
+                            EmptyTabState(
                                 icon = Icons.AutoMirrored.Rounded.List,
-                                tooltip = "New Checklist"
-                            )
-                            TooltipIconButton(
-                                onClick = { 
-                                    initialListType = ListType.RATING
-                                    showCreateListDialog = true 
-                                },
-                                icon = Icons.Rounded.Star,
-                                tooltip = "New Rating List"
-                            )
-                            TooltipIconButton(
-                                onClick = { 
-                                    initialListType = ListType.UPCOMING
-                                    showCreateListDialog = true 
-                                },
-                                icon = Icons.Rounded.Event,
-                                tooltip = "New Upcoming List"
+                                message = if (searchQuery.isNotEmpty()) "No lists found" else "No lists yet",
+                                subMessage = if (searchQuery.isNotEmpty()) "Try searching with a different keyword" else "Tap a button above to create a new checklist, rating list, or upcoming list"
                             )
                         }
-                    }
-                }
+                    } else {
+                        items(
+                            count = listsWithCounts.size,
+                            key = { i -> "list_${listsWithCounts[i].list.id}" },
+                            span = { StaggeredGridItemSpan.FullLine }
+                        ) { index ->
+                            val listWithCounts = listsWithCounts[index]
+                            val list = listWithCounts.list
+                            val isSelected = activeRoute is DetailRoute.List && activeRoute.id == list.id
+                            
+                            val isFirst = index == 0 || listsWithCounts.size == 1
+                            val isLast = index == listsWithCounts.size - 1 || listsWithCounts.size == 1
+                            
+                            val targetTopRadius = if (isSelected) 32.dp else if (isFirst) 28.dp else 4.dp
+                            val targetBottomRadius = if (isSelected) 32.dp else if (isLast) 28.dp else 4.dp
 
-                items(
-                    count = listsWithCounts.size,
-                    key = { i -> "list_${listsWithCounts[i].list.id}" },
-                    span = { StaggeredGridItemSpan.FullLine }
-                ) { index ->
-                    val listWithCounts = listsWithCounts[index]
-                    val list = listWithCounts.list
-                    val isSelected = activeRoute is DetailRoute.List && activeRoute.id == list.id
-                    
-                    val isFirst = index == 0 || listsWithCounts.size == 1
-                    val isLast = index == listsWithCounts.size - 1 || listsWithCounts.size == 1
-                    
-                    val targetTopRadius = if (isSelected) 32.dp else if (isFirst) 28.dp else 4.dp
-                    val targetBottomRadius = if (isSelected) 32.dp else if (isLast) 28.dp else 4.dp
+                            val topRadius by animateDpAsState(targetValue = targetTopRadius, label = "listTopRadius")
+                            val bottomRadius by animateDpAsState(targetValue = targetBottomRadius, label = "listBottomRadius")
+                            
+                            val shape = remember(topRadius, bottomRadius) {
+                                RoundedCornerShape(topRadius, topRadius, bottomRadius, bottomRadius)
+                            }
 
-                    val topRadius by animateDpAsState(targetValue = targetTopRadius, label = "listTopRadius")
-                    val bottomRadius by animateDpAsState(targetValue = targetBottomRadius, label = "listBottomRadius")
-                    
-                    val shape = remember(topRadius, bottomRadius) {
-                        RoundedCornerShape(topRadius, topRadius, bottomRadius, bottomRadius)
-                    }
-
-                    SwipeActionWrapper(
-                        onDelete = { listToDelete = list },
-                        onPin = { notesViewModel.onEvent(NoteEvent.TogglePinList(list.id)) },
-                        isPinned = list.isPinned,
-                        shape = shape,
-                        modifier = Modifier.padding(bottom = 4.dp).animateItem()
-                    ) {
-                        ListCard(
-                            list = list,
-                            entryCount = listWithCounts.entryCount,
-                            subEntryCount = listWithCounts.subEntryCount,
-                            checkedCount = listWithCounts.checkedCount,
-                            watchingCount = listWithCounts.watchingCount,
-                            showCounts = showEntryCount,
-                            onClick = { onListClick(list.id) },
-                            onLongClick = { listToRename = list },
-                            shape = shape,
-                            isSelected = isSelected
-                        )
+                            SwipeActionWrapper(
+                                onDelete = { listToDelete = list },
+                                onPin = { notesViewModel.onEvent(NoteEvent.TogglePinList(list.id)) },
+                                isPinned = list.isPinned,
+                                shape = shape,
+                                modifier = Modifier.padding(bottom = 4.dp).animateItem()
+                            ) {
+                                ListCard(
+                                    list = list,
+                                    entryCount = listWithCounts.entryCount,
+                                    subEntryCount = listWithCounts.subEntryCount,
+                                    checkedCount = listWithCounts.checkedCount,
+                                    watchingCount = listWithCounts.watchingCount,
+                                    showCounts = showEntryCount,
+                                    onClick = { onListClick(list.id) },
+                                    onLongClick = { listToRename = list },
+                                    shape = shape,
+                                    isSelected = isSelected
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -1532,3 +1606,131 @@ fun DrawingPreview(strokes: List<com.ozon.notes.Stroke>) {
         )
     }
 }
+
+@Composable
+fun MainScreenTabBar(
+    selectedTab: MainTab,
+    onTabSelected: (MainTab) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(52.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        MainTabItem(
+            title = "Notes",
+            isSelected = selectedTab == MainTab.NOTES,
+            onClick = { onTabSelected(MainTab.NOTES) },
+            modifier = Modifier.weight(1f)
+        )
+        MainTabItem(
+            title = "Lists",
+            isSelected = selectedTab == MainTab.LISTS,
+            onClick = { onTabSelected(MainTab.LISTS) },
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun MainTabItem(
+    title: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val cornerRadius by animateDpAsState(
+        targetValue = if (isSelected) 28.dp else 12.dp,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "tabCornerRadius"
+    )
+    val backgroundColor by animateColorAsState(
+        targetValue = if (isSelected) {
+            MaterialTheme.colorScheme.primaryContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHigh
+        },
+        animationSpec = tween(durationMillis = 200),
+        label = "tabBackground"
+    )
+    val textColor by animateColorAsState(
+        targetValue = if (isSelected) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.primary
+        },
+        animationSpec = tween(durationMillis = 200),
+        label = "tabText"
+    )
+
+    Surface(
+        onClick = onClick,
+        modifier = modifier.fillMaxHeight(),
+        shape = RoundedCornerShape(cornerRadius),
+        color = backgroundColor,
+        tonalElevation = if (isSelected) 2.dp else 0.dp
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                    fontSize = 18.sp
+                ),
+                color = textColor
+            )
+        }
+    }
+}
+
+@Composable
+private fun EmptyTabState(
+    icon: ImageVector,
+    message: String,
+    subMessage: String,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 48.dp, horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier.size(72.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(36.dp)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = message,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = subMessage,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
