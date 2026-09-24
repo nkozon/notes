@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -62,6 +63,7 @@ fun SettingsScreen(
     val showNotesTab by viewModel.showNotesTabState.collectAsStateWithLifecycle()
     val showListsTab by viewModel.showListsTabState.collectAsStateWithLifecycle()
     val hideUncreatedTabs by viewModel.hideUncreatedTabsState.collectAsStateWithLifecycle()
+    val showTabLabels by viewModel.showTabLabelsState.collectAsStateWithLifecycle()
     val tabOrder by viewModel.tabOrderState.collectAsStateWithLifecycle()
     val smoothingStrength by viewModel.smoothingStrength.collectAsStateWithLifecycle()
     
@@ -109,6 +111,18 @@ fun SettingsScreen(
                 (scrollState.value / 100f).coerceIn(0f, 1f)
             }
         }
+
+        val isAtEnd by remember {
+            derivedStateOf {
+                !scrollState.canScrollForward
+            }
+        }
+
+        val bottomFadeAlpha by animateFloatAsState(
+            targetValue = if (isAtEnd) 0f else 1f,
+            animationSpec = tween(durationMillis = 200),
+            label = "bottomFadeAlpha"
+        )
 
         Box(modifier = Modifier.fillMaxSize()) {
             Column(
@@ -173,7 +187,7 @@ fun SettingsScreen(
 
             // Main Screen Tabs Section
             SettingsSection(title = "Main Screen Tabs") {
-                SettingsItemContainer(index = 0, total = 4) {
+                SettingsItemContainer(index = 0, total = 5) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -205,7 +219,7 @@ fun SettingsScreen(
                     }
                 }
 
-                SettingsItemContainer(index = 1, total = 4) {
+                SettingsItemContainer(index = 1, total = 5) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -237,7 +251,7 @@ fun SettingsScreen(
                     }
                 }
 
-                SettingsItemContainer(index = 2, total = 4) {
+                SettingsItemContainer(index = 2, total = 5) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -265,7 +279,35 @@ fun SettingsScreen(
                     }
                 }
 
-                SettingsItemContainer(index = 3, total = 4) {
+                SettingsItemContainer(index = 3, total = 5) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Show Tab Labels",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                text = "Show text labels next to icons on tab buttons",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = showTabLabels,
+                            onCheckedChange = { checked ->
+                                viewModel.onEvent(NoteEvent.UpdateShowTabLabels(checked))
+                            }
+                        )
+                    }
+                }
+
+                SettingsItemContainer(index = 4, total = 5) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -618,7 +660,8 @@ fun SettingsScreen(
 
             SystemBarGradients(
                 modifier = Modifier.zIndex(1f),
-                topAlpha = topAlpha
+                topAlpha = topAlpha,
+                bottomAlpha = bottomFadeAlpha
             )
         }
     }

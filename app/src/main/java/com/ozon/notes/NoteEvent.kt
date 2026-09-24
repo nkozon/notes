@@ -3,6 +3,7 @@ package com.ozon.notes
 sealed interface NoteEvent {
     data class SaveNote(val note: Note) : NoteEvent
     data class TogglePinNote(val noteId: String) : NoteEvent
+    data class ToggleHideNoteContent(val noteId: String) : NoteEvent
     data class DeleteNote(val noteId: String) : NoteEvent
     data class UpdateSearchQuery(val query: String) : NoteEvent
     data class SaveList(val list: NoteList) : NoteEvent
@@ -36,6 +37,7 @@ sealed interface NoteEvent {
     data class UpdateShowListsTab(val show: Boolean) : NoteEvent
     data class UpdateLastSelectedTab(val tab: MainTab) : NoteEvent
     data class UpdateHideUncreatedTabs(val hide: Boolean) : NoteEvent
+    data class UpdateShowTabLabels(val show: Boolean) : NoteEvent
     data class UpdateTabOrder(val order: List<MainTab>) : NoteEvent
     data class UpdateLastBackupTime(val time: Long) : NoteEvent
     data class UpdateAutoBackupEnabled(val enabled: Boolean) : NoteEvent

@@ -33,7 +33,8 @@ fun NoteEntity.toDomain(includeDrawingData: Boolean = false): Note {
             }
         } else null,
         timestamp = timestamp,
-        isPinned = isPinned
+        isPinned = isPinned,
+        isContentHidden = isContentHidden
     )
 }
 
@@ -48,7 +49,8 @@ fun Note.toEntity(): NoteEntity {
         type = type.name,
         drawingData = drawingData?.let { json.encodeToString(it) },
         timestamp = timestamp,
-        isPinned = isPinned
+        isPinned = isPinned,
+        isContentHidden = isContentHidden
     )
 }
 

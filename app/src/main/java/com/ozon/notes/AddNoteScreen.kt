@@ -87,6 +87,7 @@ private fun AddNoteScreenContent(
     var timestamp by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     LaunchedEffect(noteId) {
         if (noteId != null) {
@@ -96,9 +97,20 @@ private fun AddNoteScreenContent(
                 richTextState.setHtml(note.contentHtml ?: "")
                 isPinned = note.isPinned
                 timestamp = note.timestamp
+                if (note.title.isEmpty()) {
+                    kotlinx.coroutines.delay(100)
+                    try {
+                        focusRequester.requestFocus()
+                        keyboardController?.show()
+                    } catch (_: Exception) {}
+                }
             }
         } else {
-            focusRequester.requestFocus()
+            kotlinx.coroutines.delay(100)
+            try {
+                focusRequester.requestFocus()
+                keyboardController?.show()
+            } catch (_: Exception) {}
         }
     }
 
@@ -107,7 +119,7 @@ private fun AddNoteScreenContent(
         if (viewModel.deletingIds.value.contains(id)) return
 
         val noteStillExists = viewModel.notesState.value.any { it.id == id }
-        if (noteStillExists && !isDeleted && (title.text.isNotBlank() || richTextState.annotatedString.text.isNotBlank())) {
+        if (noteStillExists && !isDeleted) {
             val now = System.currentTimeMillis()
             viewModel.onEvent(
                 NoteEvent.SaveNote(

@@ -202,6 +202,12 @@ class RoomNoteRepository(
         dropboxSyncEngine.enqueueNoteSync(noteId)
     }
 
+    override suspend fun toggleHideNoteContent(noteId: String) {
+        database.noteDao().toggleHideContent(noteId)
+        setHasPendingChanges(true)
+        dropboxSyncEngine.enqueueNoteSync(noteId)
+    }
+
     override suspend fun deleteNote(noteId: String) {
         withContext(Dispatchers.IO) {
             val note = database.noteDao().getNoteById(noteId)
@@ -1080,6 +1086,13 @@ class RoomNoteRepository(
     override suspend fun setHideUncreatedTabs(hide: Boolean) {
         prefs.edit().putBoolean("hide_uncreated_tabs", hide).apply()
         _hideUncreatedTabs.value = hide
+    }
+
+    private val _showTabLabels = MutableStateFlow(prefs.getBoolean("show_tab_labels", true))
+    override fun getShowTabLabels(): StateFlow<Boolean> = _showTabLabels.asStateFlow()
+    override suspend fun setShowTabLabels(show: Boolean) {
+        prefs.edit().putBoolean("show_tab_labels", show).apply()
+        _showTabLabels.value = show
     }
 
     private val _tabOrder = MutableStateFlow(

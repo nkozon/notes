@@ -5,9 +5,13 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.rememberScrollState
@@ -117,6 +121,7 @@ fun NoteListScreen(
     val showNotesTab by settingsViewModel.showNotesTabState.collectAsStateWithLifecycle()
     val showListsTab by settingsViewModel.showListsTabState.collectAsStateWithLifecycle()
     val hideUncreatedTabs by settingsViewModel.hideUncreatedTabsState.collectAsStateWithLifecycle()
+    val showTabLabels by settingsViewModel.showTabLabelsState.collectAsStateWithLifecycle()
     val tabOrder by settingsViewModel.tabOrderState.collectAsStateWithLifecycle()
     val importProgress by notesViewModel.importProgress.collectAsStateWithLifecycle()
     val isDropboxSyncing by notesViewModel.isDropboxSyncing.collectAsStateWithLifecycle()
@@ -330,7 +335,9 @@ fun NoteListScreen(
                                 CircleIconButton(
                                     onClick = { isSearchActive = true },
                                     icon = Icons.Rounded.Search,
-                                    contentDescription = "Search"
+                                    contentDescription = "Search",
+                                    containerColor = Color.Transparent,
+                                    contentColor = MaterialTheme.colorScheme.onSurface
                                 )
                             }
                         },
@@ -426,10 +433,10 @@ fun NoteListScreen(
                                     shape = if (activeRoute is DetailRoute.Settings) RoundedCornerShape(12.dp) else CircleShape,
                                     containerColor = if (activeRoute is DetailRoute.Settings) 
                                         MaterialTheme.colorScheme.primaryContainer 
-                                    else MaterialTheme.colorScheme.secondaryContainer,
+                                    else Color.Transparent,
                                     contentColor = if (activeRoute is DetailRoute.Settings)
                                         MaterialTheme.colorScheme.onPrimaryContainer
-                                    else MaterialTheme.colorScheme.onSecondaryContainer
+                                    else MaterialTheme.colorScheme.onSurface
                                 )
                             }
                         }
@@ -454,6 +461,7 @@ fun NoteListScreen(
                             hasRatings = listsWithCounts.any { it.list.type == ListType.RATING },
                             hasUpcoming = listsWithCounts.any { it.list.type == ListType.UPCOMING },
                             hideUncreatedTabs = hideUncreatedTabs,
+                            showTabLabels = showTabLabels,
                             tabOrder = tabOrder,
                             onAddClick = { onAddClick(notesViewModel.createNewNote()) },
                             showDrawingTypeDialog = { showDrawingTypeDialog = true },
@@ -521,6 +529,7 @@ fun NoteListScreen(
                                 RoundedCornerShape(topRadius, topRadius, bottomRadius, bottomRadius)
                             }
 
+                            val haptics = LocalHapticFeedback.current
                             SwipeActionWrapper(
                                 onDelete = { noteToDelete = note },
                                 onPin = { notesViewModel.onEvent(NoteEvent.TogglePinNote(note.id)) },
@@ -531,6 +540,12 @@ fun NoteListScreen(
                                 NoteCard(
                                     note = note,
                                     onClick = { onNoteClick(note.id, note.type) },
+                                    onLongClick = if (note.type == NoteType.TEXT) {
+                                        {
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            notesViewModel.onEvent(NoteEvent.ToggleHideNoteContent(note.id))
+                                        }
+                                    } else null,
                                     shape = shape,
                                     isSelected = isSelected
                                 )
@@ -1261,7 +1276,7 @@ private fun DeleteNoteDialog(
         AlertDialog(
             onDismissRequest = onDismiss,
             title = { Text("Delete Note?") },
-            text = { Text("Are you sure you want to delete '${note.title}'?") },
+            text = { Text("Are you sure you want to delete '${note.title.ifBlank { "New Note" }}'?") },
             confirmButton = {
                 TextButton(
                     onClick = { onConfirm(note) },
@@ -1396,11 +1411,12 @@ private fun CreateListDialog(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun NoteCard(
     note: Note,
     onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
     shape: Shape = RoundedCornerShape(12.dp),
     isSelected: Boolean = false
 ) {
@@ -1412,13 +1428,20 @@ fun NoteCard(
         MaterialTheme.colorScheme.surfaceContainerLow
     }
 
+    val displayContent = note.previewText?.takeIf { it.isNotBlank() } ?: note.content
+    val hasSupportingContent = isDrawing || (!note.isContentHidden && displayContent.isNotBlank())
+
     Card(
         modifier = Modifier
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            .clip(shape)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = cardColor),
-        border = null,
-        onClick = onClick
+        border = null
     ) {
         ListItem(
             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
@@ -1441,7 +1464,7 @@ fun NoteCard(
             headlineContent = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = note.title,
+                        text = note.title.ifBlank { "New Note" },
                         style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -1458,17 +1481,16 @@ fun NoteCard(
                     }
                 }
             },
-            supportingContent = {
-                if (isDrawing) {
-                    Text(
-                        text = "Drawing",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontStyle = FontStyle.Italic,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                    )
-                } else {
-                    val displayContent = note.previewText?.takeIf { it.isNotBlank() } ?: note.content
-                    if (displayContent.isNotBlank()) {
+            supportingContent = if (hasSupportingContent) {
+                {
+                    if (isDrawing) {
+                        Text(
+                            text = "Drawing",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontStyle = FontStyle.Italic,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        )
+                    } else if (!note.isContentHidden && displayContent.isNotBlank()) {
                         val firstSentence = remember(displayContent) {
                             displayContent.split(Regex("(?<=[.!?])\\s+")).firstOrNull() ?: displayContent
                         }
@@ -1481,7 +1503,7 @@ fun NoteCard(
                         )
                     }
                 }
-            },
+            } else null,
             trailingContent = if (isDrawing && (note.previewImage != null || note.drawingData?.strokes?.isNotEmpty() == true)) {
                 {
                     Box(
@@ -1513,6 +1535,15 @@ fun NoteCard(
                             DrawingPreview(strokes = note.drawingData?.strokes ?: emptyList())
                         }
                     }
+                }
+            } else if (!isDrawing && note.isContentHidden) {
+                {
+                    Icon(
+                        imageVector = Icons.Rounded.VisibilityOff,
+                        contentDescription = "Hidden",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             } else null
         )
@@ -1604,6 +1635,7 @@ fun MainScreenTabBar(
     hasRatings: Boolean = false,
     hasUpcoming: Boolean = false,
     hideUncreatedTabs: Boolean = true,
+    showTabLabels: Boolean = true,
     tabOrder: List<MainTab> = listOf(MainTab.TEXT, MainTab.DRAWINGS, MainTab.CHECKLISTS, MainTab.RATINGS, MainTab.UPCOMING),
     onAddClick: () -> Unit,
     showDrawingTypeDialog: () -> Unit,
@@ -1670,7 +1702,8 @@ fun MainScreenTabBar(
                         title = tab.getTitle(),
                         icon = tab.getIcon(),
                         isSelected = selectedTab == tab,
-                        onClick = { onTabSelected(tab) }
+                        onClick = { onTabSelected(tab) },
+                        showLabels = showTabLabels
                     )
                 }
             }
@@ -1684,12 +1717,14 @@ fun MainScreenTabBar(
             Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
                 Surface(
                     onClick = { showAddMenu = true },
-                    modifier = Modifier.fillMaxHeight(),
+                    modifier = if (showTabLabels) Modifier.fillMaxHeight() else Modifier.fillMaxHeight().aspectRatio(1f),
                     shape = RoundedCornerShape(12.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerHigh
                 ) {
                     Box(
-                        modifier = Modifier.fillMaxHeight().padding(horizontal = 16.dp),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(if (showTabLabels) Modifier.padding(horizontal = 16.dp) else Modifier),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(Icons.Rounded.Add, contentDescription = "Create new item")
@@ -1778,6 +1813,7 @@ private fun MainTabItem(
     icon: ImageVector,
     isSelected: Boolean,
     onClick: () -> Unit,
+    showLabels: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val cornerRadius by animateDpAsState(
@@ -1806,13 +1842,15 @@ private fun MainTabItem(
 
     Surface(
         onClick = onClick,
-        modifier = modifier.fillMaxHeight(),
+        modifier = if (showLabels) modifier.fillMaxHeight() else modifier.fillMaxHeight().aspectRatio(1f),
         shape = RoundedCornerShape(cornerRadius),
         color = backgroundColor,
         tonalElevation = if (isSelected) 2.dp else 0.dp
     ) {
         Box(
-            modifier = Modifier.fillMaxHeight().padding(horizontal = 24.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .then(if (showLabels) Modifier.padding(horizontal = 24.dp) else Modifier),
             contentAlignment = Alignment.Center
         ) {
             Row(
@@ -1821,18 +1859,20 @@ private fun MainTabItem(
             ) {
                 Icon(
                     imageVector = icon,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
+                    contentDescription = if (showLabels) null else title,
+                    modifier = Modifier.size(if (showLabels) 18.dp else 22.dp),
                     tint = textColor
                 )
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                        fontSize = 18.sp
-                    ),
-                    color = textColor
-                )
+                if (showLabels) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                            fontSize = 18.sp
+                        ),
+                        color = textColor
+                    )
+                }
             }
         }
     }

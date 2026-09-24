@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.clickable
@@ -85,7 +86,8 @@ fun SortDropdown(
     selectedOrder: ListSortOrder,
     onOrderSelected: (ListSortOrder) -> Unit,
     availableOrders: List<ListSortOrder> = listOf(ListSortOrder.ALPHABETICAL, ListSortOrder.REVERSE_ALPHABETICAL),
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -93,24 +95,28 @@ fun SortDropdown(
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .height(44.dp)
+                .height(34.dp)
                 .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.secondaryContainer)
-                .clickable { expanded = true }
-                .padding(horizontal = 16.dp)
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                    shape = CircleShape
+                )
+                .clickable(enabled = enabled) { expanded = true }
+                .padding(horizontal = 12.dp)
         ) {
             Text(
                 text = selectedOrder.toShortLabel(),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.Medium
             )
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(4.dp))
             Icon(
                 imageVector = Icons.Rounded.KeyboardArrowDown,
                 contentDescription = "Sort",
-                modifier = Modifier.size(24.dp),
-                tint = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
 
@@ -568,7 +574,9 @@ fun SystemBarGradients(
     color: Color = MaterialTheme.colorScheme.background,
     showTop: Boolean = true,
     showBottom: Boolean = true,
-    topAlpha: Float = 1f
+    topAlpha: Float = 1f,
+    bottomAlpha: Float = 1f,
+    bottomHeight: Dp? = null
 ) {
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navigationBarHeight = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -595,10 +603,12 @@ fun SystemBarGradients(
 
         // Navigation Bar Gradient
         if (showBottom) {
+            val effBottomHeight = bottomHeight ?: maxOf(navigationBarHeight * 5f, 160.dp)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(navigationBarHeight * 3f)
+                    .height(effBottomHeight)
+                    .graphicsLayer(alpha = bottomAlpha)
                     .background(
                         brush = Brush.verticalGradient(
                             colors = listOf(

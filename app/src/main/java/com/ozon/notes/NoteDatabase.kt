@@ -19,7 +19,8 @@ data class NoteEntity(
     val previewText: String? = null, // First few lines for the list view
     val previewImage: String? = null, // Path to thumbnail
     val timestamp: Long,
-    val isPinned: Boolean = false
+    val isPinned: Boolean = false,
+    val isContentHidden: Boolean = false
 )
 
 @Entity(
@@ -179,6 +180,9 @@ interface NoteDao {
 
     @Query("UPDATE notes SET isPinned = NOT isPinned WHERE id = :noteId")
     suspend fun togglePin(noteId: String)
+
+    @Query("UPDATE notes SET isContentHidden = NOT isContentHidden WHERE id = :noteId")
+    suspend fun toggleHideContent(noteId: String)
 
     @Query("DELETE FROM notes WHERE id = :noteId")
     suspend fun deleteNote(noteId: String)
@@ -343,7 +347,7 @@ interface DeletedItemDao {
 
 @Database(
     entities = [NoteEntity::class, NoteListEntity::class, ListEntryEntity::class, TagEntity::class, EntryTagCrossRef::class, DeletedItemEntity::class],
-    version = 24, 
+    version = 25, 
     exportSchema = false
 )
 abstract class NoteDatabase : RoomDatabase() {
@@ -354,6 +358,11 @@ abstract class NoteDatabase : RoomDatabase() {
     abstract fun deletedItemDao(): DeletedItemDao
 
     companion object {
+        val MIGRATION_24_25 = object : androidx.room.migration.Migration(24, 25) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `notes` ADD COLUMN `isContentHidden` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
         val MIGRATION_23_24 = object : androidx.room.migration.Migration(23, 24) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("""

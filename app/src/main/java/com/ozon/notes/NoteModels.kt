@@ -66,7 +66,8 @@ data class Note(
     val drawingData: DrawingData? = null,
     val timestamp: Long = System.currentTimeMillis(),
     val attachments: List<String> = emptyList(),
-    val isPinned: Boolean = false
+    val isPinned: Boolean = false,
+    val isContentHidden: Boolean = false
 )
 
 @Serializable

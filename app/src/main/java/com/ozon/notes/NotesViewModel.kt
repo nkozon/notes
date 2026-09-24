@@ -125,7 +125,7 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
 
     fun createNewNote(): String {
         val id = UUID.randomUUID().toString()
-        val newNote = Note(id = id, title = "New Note", content = "", type = NoteType.TEXT)
+        val newNote = Note(id = id, title = "", content = "", type = NoteType.TEXT)
         viewModelScope.launch { repository.saveNote(newNote) }
         return id
     }
@@ -225,6 +225,7 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
                 repository.saveNote(event.note) 
             }
             is NoteEvent.TogglePinNote -> viewModelScope.launch { repository.togglePinNote(event.noteId) }
+            is NoteEvent.ToggleHideNoteContent -> viewModelScope.launch { repository.toggleHideNoteContent(event.noteId) }
             is NoteEvent.DeleteNote -> {
                 _deletingIds.update { it + event.noteId }
                 viewModelScope.launch { 

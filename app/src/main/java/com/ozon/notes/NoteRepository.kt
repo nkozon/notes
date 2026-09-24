@@ -12,6 +12,7 @@ interface NoteRepository {
     suspend fun getNoteById(id: String): Note?
     suspend fun saveNote(note: Note)
     suspend fun togglePinNote(noteId: String)
+    suspend fun toggleHideNoteContent(noteId: String)
     suspend fun deleteNote(noteId: String)
     suspend fun deleteNotes(noteIds: List<String>)
 
@@ -83,6 +84,9 @@ interface NoteRepository {
 
     fun getHideUncreatedTabs(): StateFlow<Boolean>
     suspend fun setHideUncreatedTabs(hide: Boolean)
+
+    fun getShowTabLabels(): StateFlow<Boolean>
+    suspend fun setShowTabLabels(show: Boolean)
 
     fun getTabOrder(): StateFlow<List<MainTab>>
     suspend fun setTabOrder(order: List<MainTab>)
@@ -216,7 +220,8 @@ object AppContainer {
             NoteDatabase.MIGRATION_20_21,
             NoteDatabase.MIGRATION_21_22,
             NoteDatabase.MIGRATION_22_23,
-            NoteDatabase.MIGRATION_23_24
+            NoteDatabase.MIGRATION_23_24,
+            NoteDatabase.MIGRATION_24_25
         )
             .fallbackToDestructiveMigration()
             .build().also { database = it }

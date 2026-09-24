@@ -76,6 +76,8 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
 
     val hideUncreatedTabsState: StateFlow<Boolean> = repository.getHideUncreatedTabs()
 
+    val showTabLabelsState: StateFlow<Boolean> = repository.getShowTabLabels()
+
     val tabOrderState: StateFlow<List<MainTab>> = repository.getTabOrder()
 
     val lastBackupTimeState: StateFlow<Long> = repository.getLastBackupTime()
@@ -561,6 +563,7 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
             is NoteEvent.UpdateShowListsTab -> viewModelScope.launch { repository.setShowListsTab(event.show) }
             is NoteEvent.UpdateLastSelectedTab -> viewModelScope.launch { repository.setLastSelectedTab(event.tab) }
             is NoteEvent.UpdateHideUncreatedTabs -> viewModelScope.launch { repository.setHideUncreatedTabs(event.hide) }
+            is NoteEvent.UpdateShowTabLabels -> viewModelScope.launch { repository.setShowTabLabels(event.show) }
             is NoteEvent.UpdateTabOrder -> viewModelScope.launch { repository.setTabOrder(event.order) }
             is NoteEvent.UpdateAutoBackupEnabled -> viewModelScope.launch { repository.setAutoBackupEnabled(event.enabled) }
             is NoteEvent.UpdateDropboxAutoBackupEnabled -> viewModelScope.launch { 
