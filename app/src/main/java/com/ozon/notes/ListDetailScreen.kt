@@ -718,14 +718,28 @@ fun ListDetailScreen(
                                         onDelete = { entryToDelete = it },
                                         onIncrement = { item ->
                                             val next = (item.currentProgress ?: 0) + 1
-                                            checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(currentProgress = next)))
+                                            if (item.totalProgress != null && next >= item.totalProgress) {
+                                                checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(
+                                                    isCurrentlyWatching = false,
+                                                    currentProgress = null,
+                                                    totalProgress = null,
+                                                    progressUnit = null
+                                                )))
+                                            } else {
+                                                checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(currentProgress = next)))
+                                            }
                                         },
                                         onDecrement = { item ->
                                             val prev = ((item.currentProgress ?: 0) - 1).coerceAtLeast(0)
                                             checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(currentProgress = prev)))
                                         },
                                         onFinish = { item ->
-                                            checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(isCurrentlyWatching = false)))
+                                            checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(
+                                                isCurrentlyWatching = false,
+                                                currentProgress = null,
+                                                totalProgress = null,
+                                                progressUnit = null
+                                            )))
                                         },
                                         onLongClick = { previewEntry = entry },
                                         shape = shape

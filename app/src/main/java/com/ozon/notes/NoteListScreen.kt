@@ -12,6 +12,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
@@ -35,7 +38,12 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -108,6 +116,8 @@ fun NoteListScreen(
     val showEntryCount by settingsViewModel.showEntryCountState.collectAsStateWithLifecycle()
     val showNotesTab by settingsViewModel.showNotesTabState.collectAsStateWithLifecycle()
     val showListsTab by settingsViewModel.showListsTabState.collectAsStateWithLifecycle()
+    val hideUncreatedTabs by settingsViewModel.hideUncreatedTabsState.collectAsStateWithLifecycle()
+    val tabOrder by settingsViewModel.tabOrderState.collectAsStateWithLifecycle()
     val importProgress by notesViewModel.importProgress.collectAsStateWithLifecycle()
     val isDropboxSyncing by notesViewModel.isDropboxSyncing.collectAsStateWithLifecycle()
     val dropboxSyncingItems by notesViewModel.dropboxSyncingItems.collectAsStateWithLifecycle()
@@ -116,21 +126,33 @@ fun NoteListScreen(
     val hasPendingChanges by settingsViewModel.hasPendingChanges.collectAsStateWithLifecycle()
     val mobileDataPrompt by settingsViewModel.mobileDataDownloadPrompt.collectAsStateWithLifecycle()
 
-    var selectedTab by rememberSaveable { mutableStateOf(MainTab.NOTES) }
+    val lastSelectedTab by settingsViewModel.lastSelectedTabState.collectAsStateWithLifecycle()
+    var selectedTab by rememberSaveable { mutableStateOf(settingsViewModel.lastSelectedTabState.value) }
+
+    LaunchedEffect(selectedTab) {
+        if (selectedTab != settingsViewModel.lastSelectedTabState.value) {
+            settingsViewModel.onEvent(NoteEvent.UpdateLastSelectedTab(selectedTab))
+        }
+    }
 
     LaunchedEffect(showNotesTab, showListsTab) {
-        if (!showNotesTab && showListsTab) {
-            selectedTab = MainTab.LISTS
-        } else if (showNotesTab && !showListsTab) {
-            selectedTab = MainTab.NOTES
+        if (!showNotesTab && showListsTab && (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS)) {
+            selectedTab = MainTab.CHECKLISTS
+        } else if (showNotesTab && !showListsTab && (selectedTab == MainTab.CHECKLISTS || selectedTab == MainTab.RATINGS || selectedTab == MainTab.UPCOMING)) {
+            selectedTab = MainTab.TEXT
         }
     }
 
     LaunchedEffect(activeRoute) {
         if (activeRoute is DetailRoute.List && showListsTab) {
-            selectedTab = MainTab.LISTS
+            val list = listsWithCounts.find { it.list.id == activeRoute.id }?.list
+            if (list?.type == ListType.RATING) selectedTab = MainTab.RATINGS
+            else if (list?.type == ListType.UPCOMING) selectedTab = MainTab.UPCOMING
+            else selectedTab = MainTab.CHECKLISTS
         } else if ((activeRoute is DetailRoute.Note || activeRoute is DetailRoute.Drawing) && showNotesTab) {
-            selectedTab = MainTab.NOTES
+            val note = notes.find { it.id == (activeRoute as? DetailRoute.Note)?.id ?: (activeRoute as? DetailRoute.Drawing)?.id }
+            if (note?.type == NoteType.DRAWING) selectedTab = MainTab.DRAWINGS
+            else selectedTab = MainTab.TEXT
         }
     }
 
@@ -195,12 +217,47 @@ fun NoteListScreen(
 
     val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val headerHeight = 64.dp
-    val hasTabBar = showNotesTab && showListsTab
+    val hasTabBar = showNotesTab || showListsTab
     val topHeaderHeight = if (hasTabBar) headerHeight + 52.dp + 8.dp else headerHeight
 
     @Suppress("UnusedMaterial3ScaffoldPaddingParameter")
     Scaffold(
         containerColor = Color.Transparent,
+        floatingActionButton = {
+            LargeFloatingActionButton(
+                onClick = {
+                    when (selectedTab) {
+                        MainTab.TEXT -> onAddClick(notesViewModel.createNewNote())
+                        MainTab.DRAWINGS -> showDrawingTypeDialog = true
+                        MainTab.CHECKLISTS -> {
+                            initialListType = ListType.CHECKLIST
+                            showCreateListDialog = true
+                        }
+                        MainTab.RATINGS -> {
+                            initialListType = ListType.RATING
+                            showCreateListDialog = true
+                        }
+                        MainTab.UPCOMING -> {
+                            initialListType = ListType.UPCOMING
+                            showCreateListDialog = true
+                        }
+                    }
+                },
+                shape = CircleShape,
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier
+                    .navigationBarsPadding()
+                    .padding(bottom = 16.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Add,
+                    contentDescription = "Add Item",
+                    modifier = Modifier.size(36.dp)
+                )
+            }
+        },
+        floatingActionButtonPosition = androidx.compose.material3.FabPosition.Center,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = { 
             Column(modifier = Modifier.fillMaxWidth().zIndex(3f)) {
@@ -240,7 +297,7 @@ fun NoteListScreen(
                                     value = searchQuery,
                                     onValueChange = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
                                     placeholder = { 
-                                        Text(if (selectedTab == MainTab.NOTES) "Search your notes..." else "Search your lists...") 
+                                        Text(if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) "Search your notes..." else "Search your lists...") 
                                     },
                                     modifier = Modifier.weight(1f).focusRequester(dummyFocusRequester),
                                     textStyle = LocalTextStyle.current.copy(textAlign = TextAlign.Start),
@@ -344,11 +401,11 @@ fun NoteListScreen(
                                     Spacer(modifier = Modifier.width(12.dp))
                                 }
 
-                                val currentSortOrder = if (selectedTab == MainTab.NOTES) noteSortOrder else listsSortOrder
+                                val currentSortOrder = if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) noteSortOrder else listsSortOrder
                                 SortDropdown(
                                     selectedOrder = currentSortOrder,
                                     onOrderSelected = { order ->
-                                        if (selectedTab == MainTab.NOTES) {
+                                        if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) {
                                             notesViewModel.onEvent(NoteEvent.UpdateNoteSortOrder(order))
                                         } else {
                                             notesViewModel.onEvent(NoteEvent.UpdateListsSortOrder(order))
@@ -388,7 +445,23 @@ fun NoteListScreen(
                     ) {
                         MainScreenTabBar(
                             selectedTab = selectedTab,
-                            onTabSelected = { selectedTab = it }
+                            onTabSelected = { selectedTab = it },
+                            showNotesTab = showNotesTab,
+                            showListsTab = showListsTab,
+                            hasTextNotes = notes.any { it.type == NoteType.TEXT },
+                            hasDrawings = notes.any { it.type == NoteType.DRAWING },
+                            hasChecklists = listsWithCounts.any { it.list.type == ListType.CHECKLIST },
+                            hasRatings = listsWithCounts.any { it.list.type == ListType.RATING },
+                            hasUpcoming = listsWithCounts.any { it.list.type == ListType.UPCOMING },
+                            hideUncreatedTabs = hideUncreatedTabs,
+                            tabOrder = tabOrder,
+                            onAddClick = { onAddClick(notesViewModel.createNewNote()) },
+                            showDrawingTypeDialog = { showDrawingTypeDialog = true },
+                            showCreateListDialog = {
+                                initialListType = it
+                                showCreateListDialog = true
+                            },
+                            importPdf = { pdfPickerLauncher.launch(arrayOf("application/pdf")) }
                         )
                     }
                 }
@@ -413,58 +486,30 @@ fun NoteListScreen(
                 verticalItemSpacing = 0.dp,
                 modifier = Modifier.fillMaxSize()
             ) {
-                if (selectedTab == MainTab.NOTES) {
-                    // NOTES SECTION
-                    item(span = StaggeredGridItemSpan.FullLine) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp)
-                                .padding(top = 8.dp, bottom = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "Notes",
-                                style = MaterialTheme.typography.titleLarge,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                TooltipIconButton(
-                                    onClick = { onAddClick(notesViewModel.createNewNote()) },
-                                    icon = Icons.Rounded.Description,
-                                    tooltip = "New Text Note"
-                                )
-                                TooltipIconButton(
-                                    onClick = { showDrawingTypeDialog = true },
-                                    icon = Icons.Rounded.Brush,
-                                    tooltip = "New Drawing"
-                                )
-                                TooltipIconButton(
-                                    onClick = { pdfPickerLauncher.launch(arrayOf("application/pdf")) },
-                                    icon = Icons.Rounded.PictureAsPdf,
-                                    tooltip = "Import PDF"
-                                )
-                            }
-                        }
+                if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) {
+                    val filteredNotes = if (selectedTab == MainTab.TEXT) {
+                        notes.filter { it.type == NoteType.TEXT }
+                    } else {
+                        notes.filter { it.type == NoteType.DRAWING }
                     }
-
-                    if (notes.isEmpty()) {
+                    
+                    // NOTES SECTION
+                    if (filteredNotes.isEmpty()) {
                         item(span = StaggeredGridItemSpan.FullLine) {
                             EmptyTabState(
-                                icon = Icons.Rounded.Description,
+                                icon = if (selectedTab == MainTab.TEXT) Icons.Rounded.Description else Icons.Rounded.Brush,
                                 message = if (searchQuery.isNotEmpty()) "No notes found" else "No notes yet",
-                                subMessage = if (searchQuery.isNotEmpty()) "Try searching with a different keyword" else "Tap a button above to create a new text note, drawing, or import a PDF"
+                                subMessage = if (searchQuery.isNotEmpty()) "Try searching with a different keyword" else if (selectedTab == MainTab.TEXT) "Tap a button above to create a new text note" else "Tap a button above to create a new drawing or import a PDF"
                             )
                         }
                     } else {
-                        items(notes.size, key = { i -> "note_${notes[i].id}" }) { index ->
-                            val note = notes[index]
+                        items(filteredNotes.size, key = { i -> "note_${filteredNotes[i].id}" }) { index ->
+                            val note = filteredNotes[index]
                             val isSelected = (activeRoute is DetailRoute.Note && activeRoute.id == note.id) ||
                                              (activeRoute is DetailRoute.Drawing && activeRoute.id == note.id)
                             
-                            val isFirst = index == 0 || notes.size == 1
-                            val isLast = index == notes.size - 1 || notes.size == 1
+                            val isFirst = index == 0
+                            val isLast = index == filteredNotes.size - 1
                             
                             val targetTopRadius = if (isSelected) 32.dp else if (isFirst) 28.dp else 4.dp
                             val targetBottomRadius = if (isSelected) 32.dp else if (isLast) 28.dp else 4.dp
@@ -493,70 +538,41 @@ fun NoteListScreen(
                         }
                     }
                 } else {
-                    // LISTS SECTION
-                    item(span = StaggeredGridItemSpan.FullLine) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp)
-                                .padding(top = 8.dp, bottom = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = "Lists",
-                                style = MaterialTheme.typography.titleLarge,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                TooltipIconButton(
-                                    onClick = { 
-                                        initialListType = ListType.CHECKLIST
-                                        showCreateListDialog = true 
-                                    },
-                                    icon = Icons.AutoMirrored.Rounded.List,
-                                    tooltip = "New Checklist"
-                                )
-                                TooltipIconButton(
-                                    onClick = { 
-                                        initialListType = ListType.RATING
-                                        showCreateListDialog = true 
-                                    },
-                                    icon = Icons.Rounded.Star,
-                                    tooltip = "New Rating List"
-                                )
-                                TooltipIconButton(
-                                    onClick = { 
-                                        initialListType = ListType.UPCOMING
-                                        showCreateListDialog = true 
-                                    },
-                                    icon = Icons.Rounded.Event,
-                                    tooltip = "New Upcoming List"
-                                )
-                            }
-                        }
+                    val filteredLists = when (selectedTab) {
+                        MainTab.CHECKLISTS -> listsWithCounts.filter { it.list.type == ListType.CHECKLIST }
+                        MainTab.RATINGS -> listsWithCounts.filter { it.list.type == ListType.RATING }
+                        else -> listsWithCounts.filter { it.list.type == ListType.UPCOMING }
                     }
 
-                    if (listsWithCounts.isEmpty()) {
+                    // LISTS SECTION
+                    if (filteredLists.isEmpty()) {
                         item(span = StaggeredGridItemSpan.FullLine) {
                             EmptyTabState(
-                                icon = Icons.AutoMirrored.Rounded.List,
+                                icon = when (selectedTab) {
+                                    MainTab.CHECKLISTS -> Icons.AutoMirrored.Rounded.List
+                                    MainTab.RATINGS -> Icons.Rounded.Star
+                                    else -> Icons.Rounded.Event
+                                },
                                 message = if (searchQuery.isNotEmpty()) "No lists found" else "No lists yet",
-                                subMessage = if (searchQuery.isNotEmpty()) "Try searching with a different keyword" else "Tap a button above to create a new checklist, rating list, or upcoming list"
+                                subMessage = if (searchQuery.isNotEmpty()) "Try searching with a different keyword" else when (selectedTab) {
+                                    MainTab.CHECKLISTS -> "Tap the button above to create a new checklist"
+                                    MainTab.RATINGS -> "Tap the button above to create a new rating list"
+                                    else -> "Tap the button above to create a new upcoming list"
+                                }
                             )
                         }
                     } else {
                         items(
-                            count = listsWithCounts.size,
-                            key = { i -> "list_${listsWithCounts[i].list.id}" },
+                            count = filteredLists.size,
+                            key = { i -> "list_${filteredLists[i].list.id}" },
                             span = { StaggeredGridItemSpan.FullLine }
                         ) { index ->
-                            val listWithCounts = listsWithCounts[index]
+                            val listWithCounts = filteredLists[index]
                             val list = listWithCounts.list
                             val isSelected = activeRoute is DetailRoute.List && activeRoute.id == list.id
                             
-                            val isFirst = index == 0 || listsWithCounts.size == 1
-                            val isLast = index == listsWithCounts.size - 1 || listsWithCounts.size == 1
+                            val isFirst = index == 0
+                            val isLast = index == filteredLists.size - 1
                             
                             val targetTopRadius = if (isSelected) 32.dp else if (isFirst) 28.dp else 4.dp
                             val targetBottomRadius = if (isSelected) 32.dp else if (isLast) 28.dp else 4.dp
@@ -696,6 +712,22 @@ fun NoteListScreen(
                             Column {
                                 Text("Paged Canvas (16:9)", style = MaterialTheme.typography.titleMedium)
                                 Text("Slide format for presentations", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                    TextButton(
+                        onClick = {
+                            showDrawingTypeDialog = false
+                            pdfPickerLauncher.launch(arrayOf("application/pdf"))
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Rounded.PictureAsPdf, contentDescription = null)
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text("Import PDF", style = MaterialTheme.typography.titleMedium)
+                                Text("Annotate or draw on a PDF document", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
@@ -1283,14 +1315,19 @@ private fun CreateListDialog(
                 )
             ) 
         }
-        var listType by remember(initialType) { mutableStateOf(initialType) }
         var sectionName by remember { mutableStateOf("Currently Watching") }
         val focusRequester = remember { FocusRequester() }
         val keyboardController = LocalSoftwareKeyboardController.current
 
+        val dialogTitle = when (initialType) {
+            ListType.CHECKLIST -> "Create Checklist"
+            ListType.RATING -> "Create Rating List"
+            ListType.UPCOMING -> "Create Upcoming List"
+        }
+
         AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("Create New List") },
+            title = { Text(dialogTitle) },
             text = {
                 Column(
                     modifier = Modifier.verticalScroll(rememberScrollState()),
@@ -1310,61 +1347,8 @@ private fun CreateListDialog(
                         focusRequester.requestFocus()
                         keyboardController?.show()
                     }
-                    Column(modifier = Modifier.selectableGroup()) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .selectable(
-                                    selected = listType == ListType.CHECKLIST,
-                                    onClick = { listType = ListType.CHECKLIST }
-                                )
-                                .padding(vertical = 4.dp)
-                        ) {
-                            RadioButton(
-                                selected = listType == ListType.CHECKLIST,
-                                onClick = null
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Checklist")
-                        }
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .selectable(
-                                    selected = listType == ListType.RATING,
-                                    onClick = { listType = ListType.RATING }
-                                )
-                                .padding(vertical = 4.dp)
-                        ) {
-                            RadioButton(
-                                selected = listType == ListType.RATING,
-                                onClick = null
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Rating List")
-                        }
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .selectable(
-                                    selected = listType == ListType.UPCOMING,
-                                    onClick = { listType = ListType.UPCOMING }
-                                )
-                                .padding(vertical = 4.dp)
-                        ) {
-                            RadioButton(
-                                selected = listType == ListType.UPCOMING,
-                                onClick = null
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Upcoming List")
-                        }
-                    }
 
-                    if (listType == ListType.RATING) {
+                    if (initialType == ListType.RATING) {
                         Spacer(Modifier.height(4.dp))
                         Text("Active Section Title", style = MaterialTheme.typography.labelMedium)
                         OutlinedTextField(
@@ -1400,7 +1384,7 @@ private fun CreateListDialog(
                 TextButton(
                     onClick = {
                         if (listTitle.text.isNotBlank()) {
-                            onConfirm(listTitle.text, listType, sectionName.takeIf { listType == ListType.RATING && it.isNotBlank() })
+                            onConfirm(listTitle.text, initialType, sectionName.takeIf { initialType == ListType.RATING && it.isNotBlank() })
                         }
                     }
                 ) { Text("Create") }
@@ -1611,8 +1595,24 @@ fun DrawingPreview(strokes: List<com.ozon.notes.Stroke>) {
 fun MainScreenTabBar(
     selectedTab: MainTab,
     onTabSelected: (MainTab) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showNotesTab: Boolean = true,
+    showListsTab: Boolean = true,
+    hasTextNotes: Boolean = false,
+    hasDrawings: Boolean = false,
+    hasChecklists: Boolean = false,
+    hasRatings: Boolean = false,
+    hasUpcoming: Boolean = false,
+    hideUncreatedTabs: Boolean = true,
+    tabOrder: List<MainTab> = listOf(MainTab.TEXT, MainTab.DRAWINGS, MainTab.CHECKLISTS, MainTab.RATINGS, MainTab.UPCOMING),
+    onAddClick: () -> Unit,
+    showDrawingTypeDialog: () -> Unit,
+    showCreateListDialog: (ListType) -> Unit,
+    importPdf: () -> Unit
 ) {
+    val scrollState = rememberScrollState()
+    var showAddMenu by remember { mutableStateOf(false) }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -1620,24 +1620,162 @@ fun MainScreenTabBar(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        MainTabItem(
-            title = "Notes",
-            isSelected = selectedTab == MainTab.NOTES,
-            onClick = { onTabSelected(MainTab.NOTES) },
-            modifier = Modifier.weight(1f)
-        )
-        MainTabItem(
-            title = "Lists",
-            isSelected = selectedTab == MainTab.LISTS,
-            onClick = { onTabSelected(MainTab.LISTS) },
-            modifier = Modifier.weight(1f)
-        )
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                .drawWithContent {
+                    drawContent()
+                    val fadeWidthPx = 32.dp.toPx()
+                    
+                    val leftAlpha = (scrollState.value / fadeWidthPx).coerceIn(0f, 1f)
+                    val rightAlpha = ((scrollState.maxValue - scrollState.value) / fadeWidthPx).coerceIn(0f, 1f)
+                    
+                    if (rightAlpha > 0f) {
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(Color.Black, Color.Black.copy(alpha = 1f - rightAlpha)),
+                                startX = size.width - fadeWidthPx,
+                                endX = size.width
+                            ),
+                            blendMode = BlendMode.DstIn
+                        )
+                    }
+                    
+                    if (leftAlpha > 0f) {
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(Color.Black.copy(alpha = 1f - leftAlpha), Color.Black),
+                                startX = 0f,
+                                endX = fadeWidthPx
+                            ),
+                            blendMode = BlendMode.DstIn
+                        )
+                    }
+                }
+                .horizontalScroll(scrollState),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            tabOrder.forEach { tab ->
+                val shouldShow = when (tab) {
+                    MainTab.TEXT -> showNotesTab && (!hideUncreatedTabs || hasTextNotes || selectedTab == MainTab.TEXT)
+                    MainTab.DRAWINGS -> showNotesTab && (!hideUncreatedTabs || hasDrawings || selectedTab == MainTab.DRAWINGS)
+                    MainTab.CHECKLISTS -> showListsTab && (!hideUncreatedTabs || hasChecklists || selectedTab == MainTab.CHECKLISTS)
+                    MainTab.RATINGS -> showListsTab && (!hideUncreatedTabs || hasRatings || selectedTab == MainTab.RATINGS)
+                    MainTab.UPCOMING -> showListsTab && (!hideUncreatedTabs || hasUpcoming || selectedTab == MainTab.UPCOMING)
+                }
+                if (shouldShow) {
+                    MainTabItem(
+                        title = tab.getTitle(),
+                        icon = tab.getIcon(),
+                        isSelected = selectedTab == tab,
+                        onClick = { onTabSelected(tab) }
+                    )
+                }
+            }
+        }
+
+        val allTypesCreated = 
+            (!showNotesTab || (hasTextNotes && hasDrawings)) && 
+            (!showListsTab || (hasChecklists && hasRatings && hasUpcoming))
+
+        if (hideUncreatedTabs && !allTypesCreated) {
+            Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
+                Surface(
+                    onClick = { showAddMenu = true },
+                    modifier = Modifier.fillMaxHeight(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxHeight().padding(horizontal = 16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Rounded.Add, contentDescription = "Create new item")
+                    }
+                }
+
+                DropdownMenu(
+                    expanded = showAddMenu,
+                    onDismissRequest = { showAddMenu = false }
+                ) {
+                    if (allTypesCreated) {
+                        DropdownMenuItem(
+                            text = { Text("All types created") },
+                            onClick = { showAddMenu = false },
+                            enabled = false
+                        )
+                    } else {
+                        if (showNotesTab && !hasTextNotes) {
+                            DropdownMenuItem(
+                                text = { Text("New Text Note") },
+                                onClick = { 
+                                    showAddMenu = false
+                                    onAddClick() 
+                                },
+                                leadingIcon = { Icon(Icons.Rounded.Description, contentDescription = null) }
+                            )
+                        }
+                        if (showNotesTab && !hasDrawings) {
+                            DropdownMenuItem(
+                                text = { Text("New Drawing") },
+                                onClick = { 
+                                    showAddMenu = false
+                                    showDrawingTypeDialog()
+                                },
+                                leadingIcon = { Icon(Icons.Rounded.Brush, contentDescription = null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Import PDF") },
+                                onClick = { 
+                                    showAddMenu = false
+                                    importPdf()
+                                },
+                                leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, contentDescription = null) }
+                            )
+                        }
+                        if (showListsTab && !hasChecklists) {
+                            DropdownMenuItem(
+                                text = { Text("New Checklist") },
+                                onClick = { 
+                                    showAddMenu = false
+                                    showCreateListDialog(ListType.CHECKLIST)
+                                },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Rounded.List, contentDescription = null) }
+                            )
+                        }
+                        if (showListsTab && !hasRatings) {
+                            DropdownMenuItem(
+                                text = { Text("New Rating List") },
+                                onClick = { 
+                                    showAddMenu = false
+                                    showCreateListDialog(ListType.RATING)
+                                },
+                                leadingIcon = { Icon(Icons.Rounded.Star, contentDescription = null) }
+                            )
+                        }
+                        if (showListsTab && !hasUpcoming) {
+                            DropdownMenuItem(
+                                text = { Text("New Upcoming List") },
+                                onClick = { 
+                                    showAddMenu = false
+                                    showCreateListDialog(ListType.UPCOMING)
+                                },
+                                leadingIcon = { Icon(Icons.Rounded.Event, contentDescription = null) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
 @Composable
 private fun MainTabItem(
     title: String,
+    icon: ImageVector,
     isSelected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -1674,17 +1812,28 @@ private fun MainTabItem(
         tonalElevation = if (isSelected) 2.dp else 0.dp
     ) {
         Box(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxHeight().padding(horizontal = 24.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                    fontSize = 18.sp
-                ),
-                color = textColor
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = textColor
+                )
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                        fontSize = 18.sp
+                    ),
+                    color = textColor
+                )
+            }
         }
     }
 }

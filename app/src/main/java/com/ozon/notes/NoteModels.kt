@@ -249,7 +249,7 @@ enum class SmoothingStrength {
 
 @Serializable
 enum class MainTab {
-    NOTES, LISTS
+    TEXT, DRAWINGS, CHECKLISTS, RATINGS, UPCOMING
 }
 
 @Serializable

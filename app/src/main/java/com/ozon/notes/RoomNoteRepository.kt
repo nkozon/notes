@@ -1066,6 +1066,34 @@ class RoomNoteRepository(
         _showListsTab.value = show
     }
 
+    private val _lastSelectedTab = MutableStateFlow(
+        runCatching { MainTab.valueOf(prefs.getString("last_selected_tab", MainTab.TEXT.name) ?: MainTab.TEXT.name) }.getOrDefault(MainTab.TEXT)
+    )
+    override fun getLastSelectedTab(): StateFlow<MainTab> = _lastSelectedTab.asStateFlow()
+    override suspend fun setLastSelectedTab(tab: MainTab) {
+        prefs.edit().putString("last_selected_tab", tab.name).apply()
+        _lastSelectedTab.value = tab
+    }
+
+    private val _hideUncreatedTabs = MutableStateFlow(prefs.getBoolean("hide_uncreated_tabs", true))
+    override fun getHideUncreatedTabs(): StateFlow<Boolean> = _hideUncreatedTabs.asStateFlow()
+    override suspend fun setHideUncreatedTabs(hide: Boolean) {
+        prefs.edit().putBoolean("hide_uncreated_tabs", hide).apply()
+        _hideUncreatedTabs.value = hide
+    }
+
+    private val _tabOrder = MutableStateFlow(
+        prefs.getString("tab_order", null)?.split(",")?.mapNotNull { runCatching { MainTab.valueOf(it) }.getOrNull() }?.let { savedList ->
+            val missing = MainTab.entries.filterNot { it in savedList }
+            savedList + missing
+        } ?: listOf(MainTab.TEXT, MainTab.DRAWINGS, MainTab.CHECKLISTS, MainTab.RATINGS, MainTab.UPCOMING)
+    )
+    override fun getTabOrder(): StateFlow<List<MainTab>> = _tabOrder.asStateFlow()
+    override suspend fun setTabOrder(order: List<MainTab>) {
+        prefs.edit().putString("tab_order", order.joinToString(",") { it.name }).apply()
+        _tabOrder.value = order
+    }
+
     private val _lastBackupTime = MutableStateFlow(prefs.getLong("last_backup_time", 0L))
     override fun getLastBackupTime(): Flow<Long> = _lastBackupTime
     override suspend fun setLastBackupTime(time: Long) {

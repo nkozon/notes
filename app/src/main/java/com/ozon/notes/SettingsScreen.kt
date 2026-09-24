@@ -61,6 +61,8 @@ fun SettingsScreen(
     val showEntryCount by viewModel.showEntryCountState.collectAsStateWithLifecycle()
     val showNotesTab by viewModel.showNotesTabState.collectAsStateWithLifecycle()
     val showListsTab by viewModel.showListsTabState.collectAsStateWithLifecycle()
+    val hideUncreatedTabs by viewModel.hideUncreatedTabsState.collectAsStateWithLifecycle()
+    val tabOrder by viewModel.tabOrderState.collectAsStateWithLifecycle()
     val smoothingStrength by viewModel.smoothingStrength.collectAsStateWithLifecycle()
     
     val ratingIndicatorsEnabled by viewModel.ratingIndicatorsEnabled.collectAsStateWithLifecycle()
@@ -171,7 +173,7 @@ fun SettingsScreen(
 
             // Main Screen Tabs Section
             SettingsSection(title = "Main Screen Tabs") {
-                SettingsItemContainer(index = 0, total = 2) {
+                SettingsItemContainer(index = 0, total = 4) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -203,7 +205,7 @@ fun SettingsScreen(
                     }
                 }
 
-                SettingsItemContainer(index = 1, total = 2) {
+                SettingsItemContainer(index = 1, total = 4) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -232,6 +234,110 @@ fun SettingsScreen(
                                 }
                             }
                         )
+                    }
+                }
+
+                SettingsItemContainer(index = 2, total = 4) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Hide Uncreated Tabs",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            Text(
+                                text = "Hide tab buttons for note types that have not been created yet",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = hideUncreatedTabs,
+                            onCheckedChange = { checked ->
+                                viewModel.onEvent(NoteEvent.UpdateHideUncreatedTabs(checked))
+                            }
+                        )
+                    }
+                }
+
+                SettingsItemContainer(index = 3, total = 4) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    ) {
+                        Text(
+                            text = "Tab Order",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            text = "Reorder the tab buttons displayed on the main screen",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            tabOrder.forEachIndexed { index, tab ->
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = tab.getIcon(),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(20.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(Modifier.width(12.dp))
+                                        Text(
+                                            text = tab.getTitle(),
+                                            style = MaterialTheme.typography.titleMedium,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        IconButton(
+                                            onClick = {
+                                                if (index > 0) {
+                                                    val newOrder = tabOrder.toMutableList()
+                                                    val temp = newOrder[index]
+                                                    newOrder[index] = newOrder[index - 1]
+                                                    newOrder[index - 1] = temp
+                                                    viewModel.onEvent(NoteEvent.UpdateTabOrder(newOrder))
+                                                }
+                                            },
+                                            enabled = index > 0
+                                        ) {
+                                            Icon(Icons.Rounded.KeyboardArrowUp, contentDescription = "Move Up")
+                                        }
+                                        IconButton(
+                                            onClick = {
+                                                if (index < tabOrder.size - 1) {
+                                                    val newOrder = tabOrder.toMutableList()
+                                                    val temp = newOrder[index]
+                                                    newOrder[index] = newOrder[index + 1]
+                                                    newOrder[index + 1] = temp
+                                                    viewModel.onEvent(NoteEvent.UpdateTabOrder(newOrder))
+                                                }
+                                            },
+                                            enabled = index < tabOrder.size - 1
+                                        ) {
+                                            Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Move Down")
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

@@ -3,6 +3,7 @@ package com.ozon.notes
 import androidx.room.Room
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import android.content.Context
 
@@ -76,6 +77,15 @@ interface NoteRepository {
     suspend fun setShowNotesTab(show: Boolean)
     fun getShowListsTab(): Flow<Boolean>
     suspend fun setShowListsTab(show: Boolean)
+
+    fun getLastSelectedTab(): StateFlow<MainTab>
+    suspend fun setLastSelectedTab(tab: MainTab)
+
+    fun getHideUncreatedTabs(): StateFlow<Boolean>
+    suspend fun setHideUncreatedTabs(hide: Boolean)
+
+    fun getTabOrder(): StateFlow<List<MainTab>>
+    suspend fun setTabOrder(order: List<MainTab>)
     fun getLastBackupTime(): Flow<Long>
     suspend fun setLastBackupTime(time: Long)
 

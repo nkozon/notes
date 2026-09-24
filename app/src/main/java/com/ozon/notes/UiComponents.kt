@@ -13,7 +13,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Brush
+import androidx.compose.material.icons.rounded.CheckBox
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.outlined.PushPin
@@ -766,4 +769,20 @@ fun BackupLoadingDialog(
             }
         }
     }
+}
+
+fun MainTab.getTitle(): String = when (this) {
+    MainTab.TEXT -> "Text"
+    MainTab.DRAWINGS -> "Drawings"
+    MainTab.CHECKLISTS -> "Checklists"
+    MainTab.RATINGS -> "Ratings"
+    MainTab.UPCOMING -> "Upcoming"
+}
+
+fun MainTab.getIcon(): ImageVector = when (this) {
+    MainTab.TEXT -> Icons.Rounded.Description
+    MainTab.DRAWINGS -> Icons.Rounded.Brush
+    MainTab.CHECKLISTS -> Icons.Rounded.CheckBox
+    MainTab.RATINGS -> Icons.Rounded.Star
+    MainTab.UPCOMING -> Icons.Rounded.Event
 }

@@ -34,6 +34,9 @@ sealed interface NoteEvent {
     data class UpdateShowEntryCount(val show: Boolean) : NoteEvent
     data class UpdateShowNotesTab(val show: Boolean) : NoteEvent
     data class UpdateShowListsTab(val show: Boolean) : NoteEvent
+    data class UpdateLastSelectedTab(val tab: MainTab) : NoteEvent
+    data class UpdateHideUncreatedTabs(val hide: Boolean) : NoteEvent
+    data class UpdateTabOrder(val order: List<MainTab>) : NoteEvent
     data class UpdateLastBackupTime(val time: Long) : NoteEvent
     data class UpdateAutoBackupEnabled(val enabled: Boolean) : NoteEvent
     data class UpdateDropboxAutoBackupEnabled(val enabled: Boolean) : NoteEvent
