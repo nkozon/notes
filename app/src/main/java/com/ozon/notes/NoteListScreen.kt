@@ -1717,17 +1717,20 @@ fun MainScreenTabBar(
             Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
                 Surface(
                     onClick = { showAddMenu = true },
-                    modifier = if (showTabLabels) Modifier.fillMaxHeight() else Modifier.fillMaxHeight().aspectRatio(1f),
+                    modifier = Modifier.fillMaxHeight().aspectRatio(1f),
                     shape = RoundedCornerShape(12.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerHigh
                 ) {
                     Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .then(if (showTabLabels) Modifier.padding(horizontal = 16.dp) else Modifier),
+                        modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Rounded.Add, contentDescription = "Create new item")
+                        Icon(
+                            imageVector = Icons.Rounded.Add,
+                            contentDescription = "Create new item",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
                     }
                 }
 
