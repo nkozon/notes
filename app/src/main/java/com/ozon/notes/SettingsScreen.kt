@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.lerp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.ui.unit.sp
@@ -57,6 +58,7 @@ fun SettingsScreen(
     onNavigateUp: () -> Unit
 ) {
     val theme by viewModel.themeState.collectAsStateWithLifecycle()
+    val font by viewModel.fontState.collectAsStateWithLifecycle()
     val tabletMode by viewModel.tabletModeState.collectAsStateWithLifecycle()
     val checklistBehavior by viewModel.checklistBehaviorState.collectAsStateWithLifecycle()
     val showEntryCount by viewModel.showEntryCountState.collectAsStateWithLifecycle()
@@ -79,6 +81,7 @@ fun SettingsScreen(
     val context = LocalContext.current
     var showClearDataDialog by remember { mutableStateOf(false) }
     var showUpdateDialog by remember { mutableStateOf<UpdateState.UpdateAvailable?>(null) }
+    var fontDropdownExpanded by remember { mutableStateOf(false) }
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
@@ -136,7 +139,7 @@ fun SettingsScreen(
             ) {
             // Appearance Section
             SettingsSection(title = "Appearance") {
-                SettingsItemContainer(index = 0, total = 2, onClick = onNavigateToTheme) {
+                SettingsItemContainer(index = 0, total = 3, onClick = onNavigateToTheme) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -164,7 +167,83 @@ fun SettingsScreen(
                     }
                 }
 
-                SettingsItemContainer(index = 1, total = 2) {
+                SettingsItemContainer(index = 1, total = 3, onClick = { fontDropdownExpanded = true }) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Font",
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        Box {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = font.getDisplayName(),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Icon(
+                                    imageVector = Icons.Rounded.KeyboardArrowDown,
+                                    contentDescription = "Select font",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            DropdownMenu(
+                                expanded = fontDropdownExpanded,
+                                onDismissRequest = { fontDropdownExpanded = false },
+                                shape = RoundedCornerShape(16.dp),
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                            ) {
+                                AppFont.entries.forEach { appFontOption ->
+                                    val isSelected = font == appFontOption
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                text = appFontOption.getDisplayName(),
+                                                style = MaterialTheme.typography.bodyLarge.copy(
+                                                    fontFamily = when (appFontOption) {
+                                                        AppFont.DEFAULT -> GoogleSansFlexRounded
+                                                        AppFont.SYSTEM -> androidx.compose.ui.text.font.FontFamily.Default
+                                                    }
+                                                ),
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                            )
+                                        },
+                                        trailingIcon = if (isSelected) {
+                                            {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.Check,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        } else null,
+                                        onClick = {
+                                            viewModel.onEvent(NoteEvent.UpdateAppFont(appFontOption))
+                                            fontDropdownExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                SettingsItemContainer(index = 2, total = 3) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text("Tablet Mode", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(12.dp))
@@ -852,7 +931,7 @@ fun SettingsToggleItem(
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodyMedium.copy(
-                    fontFamily = GoogleSansFlexRounded
+                    fontFamily = MaterialTheme.typography.titleMedium.fontFamily
                 ),
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                 color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant

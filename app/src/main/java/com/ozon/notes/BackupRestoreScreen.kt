@@ -6,6 +6,8 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -121,6 +123,18 @@ fun BackupRestoreScreen(
                 (scrollState.value / 100f).coerceIn(0f, 1f)
             }
         }
+
+        val isAtEnd by remember {
+            derivedStateOf {
+                !scrollState.canScrollForward
+            }
+        }
+
+        val bottomFadeAlpha by animateFloatAsState(
+            targetValue = if (isAtEnd) 0f else 1f,
+            animationSpec = tween(durationMillis = 200),
+            label = "bottomFadeAlpha"
+        )
 
         Box(modifier = Modifier.fillMaxSize()) {
             Column(
@@ -317,7 +331,8 @@ fun BackupRestoreScreen(
 
             SystemBarGradients(
                 modifier = Modifier.zIndex(1f),
-                topAlpha = topAlpha
+                topAlpha = topAlpha,
+                bottomAlpha = bottomFadeAlpha
             )
         }
 

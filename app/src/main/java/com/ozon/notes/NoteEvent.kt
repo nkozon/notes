@@ -20,6 +20,7 @@ sealed interface NoteEvent {
     data class UpdateTagFilterMode(val mode: TagFilterMode) : NoteEvent
     data class UpdateListSortOrder(val sortOrder: ListSortOrder) : NoteEvent
     data class UpdateTheme(val theme: AppTheme) : NoteEvent
+    data class UpdateAppFont(val font: AppFont) : NoteEvent
     data class UpdateUseDynamicColor(val enabled: Boolean) : NoteEvent
     data class UpdateCustomPrimaryColor(val color: Int?) : NoteEvent
     data class UpdateCustomSecondaryColor(val color: Int?) : NoteEvent

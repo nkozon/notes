@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import com.ozon.notes.AppFont
 
 private val DarkColorScheme = darkColorScheme(
     primary = Purple80,
@@ -38,6 +39,7 @@ fun NotesTheme(
     customSecondaryColor: Int? = null,
     customAccentColor: Int? = null,
     isOledMode: Boolean = false,
+    appFont: AppFont = AppFont.DEFAULT,
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
@@ -164,7 +166,7 @@ fun NotesTheme(
 
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = Typography,
+        typography = getTypography(appFont),
         content = content
     )
 }

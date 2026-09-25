@@ -1,6 +1,8 @@
 package com.ozon.notes
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
@@ -36,11 +38,15 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -81,6 +87,16 @@ fun UpdateDialog(
                         .fillMaxSize()
                 ) {
                     val scrollState = rememberScrollState()
+                    val isAtEnd by remember {
+                        derivedStateOf {
+                            !scrollState.canScrollForward
+                        }
+                    }
+                    val bottomFadeAlpha by animateFloatAsState(
+                        targetValue = if (isAtEnd) 0f else 1f,
+                        animationSpec = tween(durationMillis = 200),
+                        label = "bottomFadeAlpha"
+                    )
 
                     // Top Header
                     Text(
@@ -174,6 +190,7 @@ fun UpdateDialog(
                                 .align(Alignment.BottomCenter)
                                 .fillMaxWidth()
                                 .height(24.dp)
+                                .graphicsLayer { alpha = bottomFadeAlpha }
                                 .background(
                                     Brush.verticalGradient(
                                         0f to Color.Transparent,

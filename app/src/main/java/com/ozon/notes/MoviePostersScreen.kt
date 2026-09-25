@@ -1,6 +1,7 @@
 package com.ozon.notes
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -61,6 +62,18 @@ fun MoviePostersScreen(
                 (scrollState.value / 100f).coerceIn(0f, 1f)
             }
         }
+
+        val isAtEnd by remember {
+            derivedStateOf {
+                !scrollState.canScrollForward
+            }
+        }
+
+        val bottomFadeAlpha by animateFloatAsState(
+            targetValue = if (isAtEnd) 0f else 1f,
+            animationSpec = tween(durationMillis = 200),
+            label = "bottomFadeAlpha"
+        )
 
         Box(modifier = Modifier.fillMaxSize()) {
             Column(
@@ -205,7 +218,8 @@ fun MoviePostersScreen(
 
             SystemBarGradients(
                 modifier = Modifier.zIndex(1f),
-                topAlpha = topAlpha
+                topAlpha = topAlpha,
+                bottomAlpha = bottomFadeAlpha
             )
         }
     }

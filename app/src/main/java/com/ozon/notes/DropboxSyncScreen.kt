@@ -3,6 +3,8 @@ package com.ozon.notes
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -76,6 +78,18 @@ fun DropboxSyncScreen(
                 (scrollState.value / 100f).coerceIn(0f, 1f)
             }
         }
+
+        val isAtEnd by remember {
+            derivedStateOf {
+                !scrollState.canScrollForward
+            }
+        }
+
+        val bottomFadeAlpha by animateFloatAsState(
+            targetValue = if (isAtEnd) 0f else 1f,
+            animationSpec = tween(durationMillis = 200),
+            label = "bottomFadeAlpha"
+        )
 
         Box(modifier = Modifier.fillMaxSize()) {
             Column(
@@ -462,7 +476,8 @@ fun DropboxSyncScreen(
 
             SystemBarGradients(
                 modifier = Modifier.zIndex(1f),
-                topAlpha = topAlpha
+                topAlpha = topAlpha,
+                bottomAlpha = bottomFadeAlpha
             )
         }
 

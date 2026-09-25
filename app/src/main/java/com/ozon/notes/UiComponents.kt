@@ -164,7 +164,7 @@ fun SortDropdown(
                                 Text(
                                     text = title,
                                     style = MaterialTheme.typography.labelLarge.copy(
-                                        fontFamily = if (isSelected) com.ozon.notes.ui.theme.GoogleSansFlexRounded else MaterialTheme.typography.labelLarge.fontFamily
+                                        fontFamily = if (isSelected) MaterialTheme.typography.titleMedium.fontFamily else MaterialTheme.typography.labelLarge.fontFamily
                                     ),
                                     color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
@@ -231,14 +231,14 @@ fun SortDropdown(
                                             ListSortOrder.OLDEST -> "Oldest first"
                                         },
                                         style = MaterialTheme.typography.bodyLarge.copy(
-                                            fontFamily = if (isSelected) com.ozon.notes.ui.theme.GoogleSansFlexRounded else MaterialTheme.typography.bodyLarge.fontFamily
+                                            fontFamily = if (isSelected) MaterialTheme.typography.titleMedium.fontFamily else MaterialTheme.typography.bodyLarge.fontFamily
                                         ),
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                                     )
                                     Text(
                                         text = order.toShortLabel(),
                                         style = MaterialTheme.typography.labelLarge.copy(
-                                            fontFamily = if (isSelected) com.ozon.notes.ui.theme.GoogleSansFlexRounded else MaterialTheme.typography.labelLarge.fontFamily
+                                            fontFamily = if (isSelected) MaterialTheme.typography.titleMedium.fontFamily else MaterialTheme.typography.labelLarge.fontFamily
                                         ),
                                         color = if (isSelected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant
                                     )

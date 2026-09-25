@@ -1,5 +1,7 @@
 package com.ozon.notes
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -70,6 +72,18 @@ fun AboutScreen(
                 (scrollState.value / 100f).coerceIn(0f, 1f)
             }
         }
+
+        val isAtEnd by remember {
+            derivedStateOf {
+                !scrollState.canScrollForward
+            }
+        }
+
+        val bottomFadeAlpha by animateFloatAsState(
+            targetValue = if (isAtEnd) 0f else 1f,
+            animationSpec = tween(durationMillis = 200),
+            label = "bottomFadeAlpha"
+        )
 
         Column(
             modifier = Modifier
@@ -256,7 +270,8 @@ fun AboutScreen(
 
         SystemBarGradients(
             modifier = Modifier.zIndex(1f),
-            topAlpha = topAlpha
+            topAlpha = topAlpha,
+            bottomAlpha = bottomFadeAlpha
         )
     }
 }

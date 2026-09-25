@@ -42,6 +42,9 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
     val themeState: StateFlow<AppTheme> = repository.getTheme()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppTheme.SYSTEM)
 
+    val fontState: StateFlow<AppFont> = repository.getAppFont()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppFont.DEFAULT)
+
     val useDynamicColorState: StateFlow<Boolean> = repository.getUseDynamicColor()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
 
@@ -551,6 +554,7 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
     fun onEvent(event: NoteEvent) {
         when (event) {
             is NoteEvent.UpdateTheme -> viewModelScope.launch { repository.setTheme(event.theme) }
+            is NoteEvent.UpdateAppFont -> viewModelScope.launch { repository.setAppFont(event.font) }
             is NoteEvent.UpdateUseDynamicColor -> viewModelScope.launch { repository.setUseDynamicColor(event.enabled) }
             is NoteEvent.UpdateCustomPrimaryColor -> viewModelScope.launch { repository.setCustomPrimaryColor(event.color) }
             is NoteEvent.UpdateCustomSecondaryColor -> viewModelScope.launch { repository.setCustomSecondaryColor(event.color) }

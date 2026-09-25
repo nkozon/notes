@@ -433,6 +433,7 @@ class RoomNoteRepository(
             }
             prefs.edit().clear().apply()
             _theme.value = AppTheme.SYSTEM
+            _appFont.value = AppFont.DEFAULT
             _useDynamicColor.value = true
             _customPrimaryColor.value = null
             _customSecondaryColor.value = null
@@ -963,6 +964,17 @@ class RoomNoteRepository(
     override suspend fun setTheme(theme: AppTheme) {
         prefs.edit().putString("app_theme", theme.name).apply()
         _theme.value = theme
+    }
+
+    private val _appFont = MutableStateFlow(
+        prefs.getString("app_font", null)?.let {
+            try { AppFont.valueOf(it) } catch (e: Exception) { null }
+        } ?: AppFont.DEFAULT
+    )
+    override fun getAppFont(): Flow<AppFont> = _appFont
+    override suspend fun setAppFont(font: AppFont) {
+        prefs.edit().putString("app_font", font.name).apply()
+        _appFont.value = font
     }
 
     private val _useDynamicColor = MutableStateFlow(prefs.getBoolean("use_dynamic_color", true))

@@ -54,6 +54,8 @@ interface NoteRepository {
     // --- Settings ---
     fun getTheme(): Flow<AppTheme>
     suspend fun setTheme(theme: AppTheme)
+    fun getAppFont(): Flow<AppFont>
+    suspend fun setAppFont(font: AppFont)
     fun getUseDynamicColor(): Flow<Boolean>
     suspend fun setUseDynamicColor(enabled: Boolean)
     fun getCustomPrimaryColor(): Flow<Int?>

@@ -66,6 +66,7 @@ class MainActivity : ComponentActivity() {
             }
 
             val appTheme by settingsViewModel.themeState.collectAsStateWithLifecycle()
+            val appFont by settingsViewModel.fontState.collectAsStateWithLifecycle()
             val useDynamicColor by settingsViewModel.useDynamicColorState.collectAsStateWithLifecycle()
             val customPrimaryColor by settingsViewModel.customPrimaryColorState.collectAsStateWithLifecycle()
             val customSecondaryColor by settingsViewModel.customSecondaryColorState.collectAsStateWithLifecycle()
@@ -129,7 +130,8 @@ class MainActivity : ComponentActivity() {
                 customPrimaryColor = customPrimaryColor,
                 customSecondaryColor = customSecondaryColor,
                 customAccentColor = customAccentColor,
-                isOledMode = isOledMode
+                isOledMode = isOledMode,
+                appFont = appFont
             ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),

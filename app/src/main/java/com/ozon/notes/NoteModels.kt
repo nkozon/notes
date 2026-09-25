@@ -229,6 +229,16 @@ enum class AppTheme {
 }
 
 @Serializable
+enum class AppFont {
+    DEFAULT, SYSTEM;
+
+    fun getDisplayName(): String = when (this) {
+        DEFAULT -> "Google Sans Flex Rounded"
+        SYSTEM -> "System Font"
+    }
+}
+
+@Serializable
 enum class TabletMode {
     AUTOMATIC, ALWAYS, NEVER
 }

@@ -3375,7 +3375,7 @@ fun TagFilterDropdown(
                             Text(
                                 text = label,
                                 style = MaterialTheme.typography.labelLarge.copy(
-                                    fontFamily = if (isSelected) GoogleSansFlexRounded else MaterialTheme.typography.labelLarge.fontFamily
+                                    fontFamily = if (isSelected) MaterialTheme.typography.titleMedium.fontFamily else MaterialTheme.typography.labelLarge.fontFamily
                                 ),
                                 color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
@@ -3425,7 +3425,7 @@ fun TagFilterDropdown(
                                 Text(
                                     text = tag.name,
                                     style = MaterialTheme.typography.bodyLarge.copy(
-                                        fontFamily = if (isSelected) GoogleSansFlexRounded else MaterialTheme.typography.bodyLarge.fontFamily
+                                        fontFamily = if (isSelected) MaterialTheme.typography.titleMedium.fontFamily else MaterialTheme.typography.bodyLarge.fontFamily
                                     ),
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                                 )
@@ -3682,7 +3682,7 @@ fun InlineAddEntryItem(
                         "Save",
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
-                        fontFamily = GoogleSansFlexRounded
+                        fontFamily = MaterialTheme.typography.titleMedium.fontFamily
                     )
                 }
 
