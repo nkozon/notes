@@ -223,14 +223,16 @@ fun NoteListScreen(
     val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val headerHeight = 64.dp
     val hasTabBar = showNotesTab || showListsTab
-    val topHeaderHeight = if (hasTabBar) headerHeight + 52.dp + 8.dp else headerHeight
+    val topHeaderHeight = if (hasTabBar) headerHeight + 46.dp + 8.dp else headerHeight
 
     @Suppress("UnusedMaterial3ScaffoldPaddingParameter")
     Scaffold(
         containerColor = Color.Transparent,
         floatingActionButton = {
-            LargeFloatingActionButton(
+            val haptics = LocalHapticFeedback.current
+            FloatingActionButton(
                 onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     when (selectedTab) {
                         MainTab.TEXT -> onAddClick(notesViewModel.createNewNote())
                         MainTab.DRAWINGS -> showDrawingTypeDialog = true
@@ -251,6 +253,7 @@ fun NoteListScreen(
                 shape = CircleShape,
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 4.dp, pressedElevation = 8.dp),
                 modifier = Modifier
                     .navigationBarsPadding()
                     .padding(bottom = 16.dp)
@@ -258,7 +261,7 @@ fun NoteListScreen(
                 Icon(
                     imageVector = Icons.Rounded.Add,
                     contentDescription = "Add Item",
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(28.dp)
                 )
             }
         },
@@ -329,17 +332,15 @@ fun NoteListScreen(
                     }
                 } else {
                     TopAppBar(
-                        title = { },
-                        navigationIcon = {
-                            Box(modifier = Modifier.padding(start = 16.dp)) {
-                                CircleIconButton(
-                                    onClick = { isSearchActive = true },
-                                    icon = Icons.Rounded.Search,
-                                    contentDescription = "Search",
-                                    containerColor = Color.Transparent,
-                                    contentColor = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
+                        title = {
+                            Text(
+                                text = "Notes",
+                                style = MaterialTheme.typography.headlineMedium.copy(
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(start = 4.dp)
+                            )
                         },
                         colors = TopAppBarDefaults.topAppBarColors(
                             containerColor = Color.Transparent,
@@ -347,9 +348,17 @@ fun NoteListScreen(
                         ),
                         actions = {
                             Row(
-                                modifier = Modifier.padding(end = 16.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                modifier = Modifier.padding(end = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
+                                CircleIconButton(
+                                    onClick = { isSearchActive = true },
+                                    icon = Icons.Rounded.Search,
+                                    contentDescription = "Search",
+                                    containerColor = Color.Transparent,
+                                    contentColor = MaterialTheme.colorScheme.onSurface
+                                )
                                 if (isSyncActive) {
                                     val count = dropboxSyncingItems.size
                                     Surface(
@@ -357,26 +366,25 @@ fun NoteListScreen(
                                         shape = CircleShape,
                                         color = MaterialTheme.colorScheme.primaryContainer,
                                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        modifier = Modifier.height(44.dp)
+                                        modifier = Modifier.height(38.dp)
                                     ) {
                                         Row(
-                                            modifier = Modifier.padding(horizontal = 14.dp),
+                                            modifier = Modifier.padding(horizontal = 12.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             CircularProgressIndicator(
-                                                modifier = Modifier.size(16.dp),
+                                                modifier = Modifier.size(14.dp),
                                                 strokeWidth = 2.dp,
                                                 color = MaterialTheme.colorScheme.primary
                                             )
-                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
                                             Text(
-                                                text = if (count > 0) "Syncing ($count)" else "Syncing...",
-                                                style = MaterialTheme.typography.bodyMedium,
+                                                text = if (count > 0) "$count" else "Syncing",
+                                                style = MaterialTheme.typography.labelMedium,
                                                 fontWeight = FontWeight.Medium
                                             )
                                         }
                                     }
-                                    Spacer(modifier = Modifier.width(12.dp))
                                 } else if (showMobileDataSyncButton) {
                                     Surface(
                                         onClick = {
@@ -385,27 +393,26 @@ fun NoteListScreen(
                                         shape = CircleShape,
                                         color = MaterialTheme.colorScheme.primaryContainer,
                                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        modifier = Modifier.height(44.dp)
+                                        modifier = Modifier.height(38.dp)
                                     ) {
                                         Row(
-                                            modifier = Modifier.padding(horizontal = 14.dp),
+                                            modifier = Modifier.padding(horizontal = 12.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Rounded.CloudUpload,
                                                 contentDescription = "Sync Now",
                                                 tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(18.dp)
+                                                modifier = Modifier.size(16.dp)
                                             )
-                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
                                             Text(
-                                                text = "Sync Now",
-                                                style = MaterialTheme.typography.bodyMedium,
+                                                text = "Sync",
+                                                style = MaterialTheme.typography.labelMedium,
                                                 fontWeight = FontWeight.Medium
                                             )
                                         }
                                     }
-                                    Spacer(modifier = Modifier.width(12.dp))
                                 }
 
                                 val currentSortOrder = if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) noteSortOrder else listsSortOrder
@@ -425,7 +432,6 @@ fun NoteListScreen(
                                         ListSortOrder.OLDEST
                                     )
                                 )
-                                Spacer(modifier = Modifier.width(12.dp))
                                 CircleIconButton(
                                     onClick = onSettingsClick,
                                     icon = Icons.Rounded.Settings,
@@ -1648,7 +1654,7 @@ fun MainScreenTabBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(52.dp),
+            .height(46.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1729,7 +1735,7 @@ fun MainScreenTabBar(
                             imageVector = Icons.Rounded.Add,
                             contentDescription = "Create new item",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(22.dp)
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                 }
@@ -1820,7 +1826,7 @@ private fun MainTabItem(
     modifier: Modifier = Modifier
 ) {
     val cornerRadius by animateDpAsState(
-        targetValue = if (isSelected) 28.dp else 12.dp,
+        targetValue = if (isSelected) 24.dp else 12.dp,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
         label = "tabCornerRadius"
     )
@@ -1828,7 +1834,7 @@ private fun MainTabItem(
         targetValue = if (isSelected) {
             MaterialTheme.colorScheme.primaryContainer
         } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh
+            MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.8f)
         },
         animationSpec = tween(durationMillis = 200),
         label = "tabBackground"
@@ -1837,7 +1843,7 @@ private fun MainTabItem(
         targetValue = if (isSelected) {
             MaterialTheme.colorScheme.onPrimaryContainer
         } else {
-            MaterialTheme.colorScheme.primary
+            MaterialTheme.colorScheme.onSurfaceVariant
         },
         animationSpec = tween(durationMillis = 200),
         label = "tabText"
@@ -1853,7 +1859,7 @@ private fun MainTabItem(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .then(if (showLabels) Modifier.padding(horizontal = 24.dp) else Modifier),
+                .then(if (showLabels) Modifier.padding(horizontal = 18.dp) else Modifier),
             contentAlignment = Alignment.Center
         ) {
             Row(
@@ -1863,15 +1869,15 @@ private fun MainTabItem(
                 Icon(
                     imageVector = icon,
                     contentDescription = if (showLabels) null else title,
-                    modifier = Modifier.size(if (showLabels) 18.dp else 22.dp),
+                    modifier = Modifier.size(if (showLabels) 18.dp else 20.dp),
                     tint = textColor
                 )
                 if (showLabels) {
                     Text(
                         text = title,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                            fontSize = 18.sp
+                        style = MaterialTheme.typography.labelLarge.copy(
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            fontSize = 15.sp
                         ),
                         color = textColor
                     )
