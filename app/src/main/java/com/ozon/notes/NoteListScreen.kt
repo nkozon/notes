@@ -642,11 +642,12 @@ fun NoteListScreen(
             AnimatedVisibility(
                 visible = isCreateMenuOpen,
                 enter = fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)),
-                exit = fadeOut(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing))
+                exit = fadeOut(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)),
+                modifier = Modifier.matchParentSize()
             ) {
                 Box(
                     modifier = Modifier
-                        .matchParentSize()
+                        .fillMaxSize()
                         .background(Color.Black.copy(alpha = 0.45f))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
