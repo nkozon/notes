@@ -227,8 +227,15 @@ fun NoteListScreen(
     var isSearchActive by remember { mutableStateOf(false) }
     var isCreateMenuOpen by rememberSaveable { mutableStateOf(false) }
 
-    BackHandler(enabled = isCreateMenuOpen) {
-        isCreateMenuOpen = false
+    BackHandler(enabled = isCreateMenuOpen || isSearchActive) {
+        if (isCreateMenuOpen) {
+            isCreateMenuOpen = false
+        } else if (isSearchActive) {
+            isSearchActive = false
+            notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
+            focusManager.clearFocus()
+            keyboardController?.hide()
+        }
     }
 
     val gridState = androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
@@ -321,13 +328,14 @@ fun NoteListScreen(
             )
 
             Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
+                horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-                    .navigationBarsPadding()
-                    .padding(bottom = 16.dp)
+                    .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
+                    .padding(bottom = 6.dp)
+                    .zIndex(3f)
             ) {
                 if (menuProgress > 0.001f) {
                     Column(
@@ -358,51 +366,21 @@ fun NoteListScreen(
                     }
                 }
 
-                FloatingActionButton(
-                    onClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        isCreateMenuOpen = !isCreateMenuOpen
-                    },
-                    shape = CircleShape,
-                    containerColor = fabContainerColor,
-                    contentColor = fabContentColor,
-                    elevation = FloatingActionButtonDefaults.elevation(
-                        defaultElevation = if (isCreateMenuOpen) 6.dp else 4.dp,
-                        pressedElevation = 8.dp
-                    )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Add,
-                        contentDescription = if (isCreateMenuOpen) "Close create menu" else "Create new item",
+                    Surface(
                         modifier = Modifier
-                            .size(28.dp)
-                            .graphicsLayer {
-                                rotationZ = fabRotation
-                            }
-                    )
-                }
-            }
-        },
-        floatingActionButtonPosition = androidx.compose.material3.FabPosition.Center,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = { 
-            Box(modifier = Modifier.fillMaxWidth().zIndex(3f)) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                if (isSearchActive) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .statusBarsPadding()
-                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                            .weight(1f)
+                            .height(56.dp),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        tonalElevation = 3.dp,
+                        shadowElevation = 3.dp
                     ) {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp),
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            tonalElevation = 3.dp
-                        ) {
+                        if (isSearchActive) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -424,9 +402,11 @@ fun NoteListScreen(
                                     value = searchQuery,
                                     onValueChange = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
                                     placeholder = { 
-                                        Text(if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) "Search your notes..." else "Search your lists...") 
+                                        Text(if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) "Search notes..." else "Search lists...") 
                                     },
-                                    modifier = Modifier.weight(1f).focusRequester(dummyFocusRequester),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .focusRequester(dummyFocusRequester),
                                     textStyle = LocalTextStyle.current.copy(textAlign = TextAlign.Start),
                                     colors = TextFieldDefaults.colors(
                                         focusedContainerColor = Color.Transparent,
@@ -447,9 +427,83 @@ fun NoteListScreen(
                                     dummyFocusRequester.requestFocus()
                                 }
                             }
+                        } else {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape)
+                                    .clickable { 
+                                        if (isCreateMenuOpen) isCreateMenuOpen = false
+                                        isSearchActive = true 
+                                    }
+                                    .padding(horizontal = 16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Search,
+                                    contentDescription = "Search",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = if (searchQuery.isNotEmpty()) searchQuery else if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) "Search notes..." else "Search lists...",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = if (searchQuery.isNotEmpty()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(
+                                        onClick = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Clear,
+                                            contentDescription = "Clear",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
-                } else {
+
+                    FloatingActionButton(
+                        onClick = {
+                            if (isSearchActive) {
+                                isSearchActive = false
+                                focusManager.clearFocus()
+                                keyboardController?.hide()
+                            }
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            isCreateMenuOpen = !isCreateMenuOpen
+                        },
+                        shape = CircleShape,
+                        containerColor = fabContainerColor,
+                        contentColor = fabContentColor,
+                        elevation = FloatingActionButtonDefaults.elevation(
+                            defaultElevation = if (isCreateMenuOpen) 6.dp else 4.dp,
+                            pressedElevation = 8.dp
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Add,
+                            contentDescription = if (isCreateMenuOpen) "Close create menu" else "Create new item",
+                            modifier = Modifier
+                                .size(28.dp)
+                                .graphicsLayer {
+                                    rotationZ = fabRotation
+                                }
+                        )
+                    }
+                }
+            }
+        },
+        floatingActionButtonPosition = androidx.compose.material3.FabPosition.Center,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        topBar = { 
+            Box(modifier = Modifier.fillMaxWidth().zIndex(3f)) {
+                Column(modifier = Modifier.fillMaxWidth()) {
                     TopAppBar(
                         title = {
                             Text(
@@ -471,13 +525,6 @@ fun NoteListScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                CircleIconButton(
-                                    onClick = { isSearchActive = true },
-                                    icon = Icons.Rounded.Search,
-                                    contentDescription = "Search",
-                                    containerColor = Color.Transparent,
-                                    contentColor = MaterialTheme.colorScheme.onSurface
-                                )
                                 if (isSyncActive) {
                                     val count = dropboxSyncingItems.size
                                     Surface(
@@ -565,8 +612,7 @@ fun NoteListScreen(
                                 )
                             }
                         }
-                    ) 
-                }
+                    )
 
                 if (hasTabBar) {
                     Box(
