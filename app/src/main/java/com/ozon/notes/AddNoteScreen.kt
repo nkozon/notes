@@ -79,8 +79,15 @@ private fun AddNoteScreenContent(
     }
     val richTextState = rememberRichTextState()
     var isPinned by remember { mutableStateOf(false) }
+    var isContentHidden by remember { mutableStateOf(false) }
     var isDeleted by remember { mutableStateOf(false) }
     
+    var initialTitle by remember { mutableStateOf<String?>(null) }
+    var initialContentHtml by remember { mutableStateOf<String?>(null) }
+    var initialContentText by remember { mutableStateOf<String?>(null) }
+    var initialIsPinned by remember { mutableStateOf<Boolean?>(null) }
+    var isLoaded by remember { mutableStateOf(false) }
+
     // We only want to track if the note was saved (to avoid double saving on back)
     var wasSavedManually by remember { mutableStateOf(false) }
 
@@ -96,7 +103,15 @@ private fun AddNoteScreenContent(
                 title = TextFieldValue(text = note.title, selection = TextRange(note.title.length))
                 richTextState.setHtml(note.contentHtml ?: "")
                 isPinned = note.isPinned
+                isContentHidden = note.isContentHidden
                 timestamp = note.timestamp
+
+                initialTitle = note.title
+                initialContentHtml = richTextState.toHtml()
+                initialContentText = richTextState.annotatedString.text
+                initialIsPinned = note.isPinned
+                isLoaded = true
+
                 if (note.title.isEmpty()) {
                     kotlinx.coroutines.delay(100)
                     try {
@@ -106,12 +121,29 @@ private fun AddNoteScreenContent(
                 }
             }
         } else {
+            initialTitle = ""
+            initialContentHtml = richTextState.toHtml()
+            initialContentText = richTextState.annotatedString.text
+            initialIsPinned = false
+            isLoaded = true
+
             kotlinx.coroutines.delay(100)
             try {
                 focusRequester.requestFocus()
                 keyboardController?.show()
             } catch (_: Exception) {}
         }
+    }
+
+    fun hasNoteChanged(): Boolean {
+        if (!isLoaded) return false
+        val currentTitle = title.text
+        val currentHtml = richTextState.toHtml()
+        val currentText = richTextState.annotatedString.text
+        return currentTitle != (initialTitle ?: "") ||
+               currentHtml != (initialContentHtml ?: "") ||
+               currentText != (initialContentText ?: "") ||
+               isPinned != (initialIsPinned ?: false)
     }
 
     fun saveNote() {
@@ -129,22 +161,30 @@ private fun AddNoteScreenContent(
                         content = richTextState.annotatedString.text,
                         contentHtml = richTextState.toHtml(),
                         timestamp = now,
-                        isPinned = isPinned
+                        isPinned = isPinned,
+                        isContentHidden = isContentHidden
                     )
                 )
             )
             timestamp = now
+            initialTitle = title.text
+            initialContentHtml = richTextState.toHtml()
+            initialContentText = richTextState.annotatedString.text
+            initialIsPinned = isPinned
         }
     }
 
     androidx.activity.compose.BackHandler {
-        saveNote()
+        if (hasNoteChanged()) {
+            saveNote()
+        }
+        wasSavedManually = true
         onNavigateUp()
     }
 
     DisposableEffect(Unit) {
         onDispose {
-            if (!wasSavedManually) {
+            if (!wasSavedManually && hasNoteChanged()) {
                 saveNote()
             }
         }
@@ -194,7 +234,9 @@ private fun AddNoteScreenContent(
                     Box(modifier = Modifier.padding(start = 16.dp)) {
                         CircleIconButton(
                             onClick = {
-                                saveNote()
+                                if (hasNoteChanged()) {
+                                    saveNote()
+                                }
                                 wasSavedManually = true
                                 onNavigateUp()
                             },

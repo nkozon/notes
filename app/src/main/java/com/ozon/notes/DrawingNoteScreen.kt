@@ -498,6 +498,8 @@ fun DrawingNoteScreen(
     }
     
     var title by remember { mutableStateOf("") }
+    var isPinned by remember { mutableStateOf(false) }
+    var isContentHidden by remember { mutableStateOf(false) }
     val strokeMap = remember { mutableStateMapOf<String, com.ozon.notes.Stroke>() }
     val strokeOrder = remember { mutableStateListOf<String>() }
     val imageMap = remember { mutableStateMapOf<String, com.ozon.notes.DrawingImage>() }
@@ -1061,6 +1063,8 @@ fun DrawingNoteScreen(
                 content = "Drawing Note",
                 type = NoteType.DRAWING,
                 timestamp = now,
+                isPinned = isPinned,
+                isContentHidden = isContentHidden,
                 drawingData = DrawingData(
                     strokes = currentStrokes, 
                     images = currentImages,
@@ -1345,14 +1349,16 @@ fun DrawingNoteScreen(
 
     DisposableEffect(Unit) {
         onDispose {
-            if (!wasSaved) saveDrawing()
+            if (isDirty && !wasSaved) saveDrawing()
             pdfBitmapCache.clear()
             tileEngine.clear()
         }
     }
 
     androidx.activity.compose.BackHandler {
-        saveDrawing()
+        if (isDirty) {
+            saveDrawing()
+        }
         onNavigateUp()
     }
 
@@ -1361,6 +1367,8 @@ fun DrawingNoteScreen(
             val note = notesViewModel.getNoteById(noteId)
             if (note != null && note.type == NoteType.DRAWING) {
                 title = note.title
+                isPinned = note.isPinned
+                isContentHidden = note.isContentHidden
                 if (note.timestamp > 0) {
                     lastSavedTime = note.timestamp
                 }
@@ -1662,7 +1670,12 @@ fun DrawingNoteScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
-                        onClick = { saveDrawing(); onNavigateUp() },
+                        onClick = { 
+                            if (isDirty) {
+                                saveDrawing() 
+                            }
+                            onNavigateUp() 
+                        },
                         modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
