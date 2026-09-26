@@ -18,6 +18,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.List
+import androidx.compose.material.icons.automirrored.rounded.ViewList
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -50,6 +52,9 @@ import kotlin.math.roundToInt
 fun SettingsScreen(
     viewModel: SettingsViewModel,
     onNavigateToTheme: () -> Unit,
+    onNavigateToTabs: () -> Unit,
+    onNavigateToListPreferences: () -> Unit,
+    onNavigateToDrawingSettings: () -> Unit,
     onNavigateToMoviePosters: () -> Unit,
     onNavigateToCloudSync: () -> Unit,
     onNavigateToBackupRestore: () -> Unit,
@@ -57,31 +62,10 @@ fun SettingsScreen(
     onNavigateToAbout: () -> Unit,
     onNavigateUp: () -> Unit
 ) {
-    val theme by viewModel.themeState.collectAsStateWithLifecycle()
-    val font by viewModel.fontState.collectAsStateWithLifecycle()
-    val tabletMode by viewModel.tabletModeState.collectAsStateWithLifecycle()
-    val checklistBehavior by viewModel.checklistBehaviorState.collectAsStateWithLifecycle()
-    val showEntryCount by viewModel.showEntryCountState.collectAsStateWithLifecycle()
-    val showNotesTab by viewModel.showNotesTabState.collectAsStateWithLifecycle()
-    val showListsTab by viewModel.showListsTabState.collectAsStateWithLifecycle()
-    val hideUncreatedTabs by viewModel.hideUncreatedTabsState.collectAsStateWithLifecycle()
-    val showTabLabels by viewModel.showTabLabelsState.collectAsStateWithLifecycle()
-    val tabOrder by viewModel.tabOrderState.collectAsStateWithLifecycle()
-    val smoothingStrength by viewModel.smoothingStrength.collectAsStateWithLifecycle()
-    
-    val ratingIndicatorsEnabled by viewModel.ratingIndicatorsEnabled.collectAsStateWithLifecycle()
-    val highScoreEnabled by viewModel.highScoreEnabled.collectAsStateWithLifecycle()
-    val highScoreThreshold by viewModel.highScoreThreshold.collectAsStateWithLifecycle()
-    val lowScoreEnabled by viewModel.lowScoreEnabled.collectAsStateWithLifecycle()
-    val lowScoreThreshold by viewModel.lowScoreThreshold.collectAsStateWithLifecycle()
-
-    val forceStylusOnly by viewModel.forceStylusOnly.collectAsStateWithLifecycle()
     val updateState by viewModel.updateState.collectAsStateWithLifecycle()
 
-    val context = LocalContext.current
     var showClearDataDialog by remember { mutableStateOf(false) }
     var showUpdateDialog by remember { mutableStateOf<UpdateState.UpdateAvailable?>(null) }
-    var fontDropdownExpanded by remember { mutableStateOf(false) }
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
@@ -89,10 +73,6 @@ fun SettingsScreen(
         if (updateState is UpdateState.UpdateAvailable) {
             showUpdateDialog = updateState as UpdateState.UpdateAvailable
         }
-    }
-
-    LaunchedEffect(Unit) {
-        viewModel.updatePosterCacheSize()
     }
 
     Scaffold(
@@ -137,604 +117,271 @@ fun SettingsScreen(
                     .animateContentSize(animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing)),
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
-            // Appearance Section
-            SettingsSection(title = "Appearance") {
-                SettingsItemContainer(index = 0, total = 3, onClick = onNavigateToTheme) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text("Theme", style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                text = when (theme) {
-                                    AppTheme.LIGHT -> "Light"
-                                    AppTheme.DARK -> "Dark"
-                                    AppTheme.SYSTEM -> "System default"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Icon(
-                            imageVector = Icons.Rounded.Palette,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-
-                SettingsItemContainer(index = 1, total = 3, onClick = { fontDropdownExpanded = true }) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Font",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        Box {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Text(
-                                    text = font.getDisplayName(),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Medium
-                                )
-                                Icon(
-                                    imageVector = Icons.Rounded.KeyboardArrowDown,
-                                    contentDescription = "Select font",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-
-                            DropdownMenu(
-                                expanded = fontDropdownExpanded,
-                                onDismissRequest = { fontDropdownExpanded = false },
-                                shape = RoundedCornerShape(16.dp),
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                            ) {
-                                AppFont.entries.forEach { appFontOption ->
-                                    val isSelected = font == appFontOption
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                text = appFontOption.getDisplayName(),
-                                                style = MaterialTheme.typography.bodyLarge.copy(
-                                                    fontFamily = when (appFontOption) {
-                                                        AppFont.DEFAULT -> GoogleSansFlexRounded
-                                                        AppFont.SYSTEM -> androidx.compose.ui.text.font.FontFamily.Default
-                                                    }
-                                                ),
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                            )
-                                        },
-                                        trailingIcon = if (isSelected) {
-                                            {
-                                                Icon(
-                                                    imageVector = Icons.Rounded.Check,
-                                                    contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                            }
-                                        } else null,
-                                        onClick = {
-                                            viewModel.onEvent(NoteEvent.UpdateAppFont(appFontOption))
-                                            fontDropdownExpanded = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                SettingsItemContainer(index = 2, total = 3) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Tablet Mode", style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(12.dp))
+                // Appearance Section
+                SettingsSection(title = "Appearance") {
+                    SettingsItemContainer(index = 0, total = 1, onClick = onNavigateToTheme) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            TabletMode.entries.forEach { mode ->
-                                SettingsToggleItem(
-                                    label = mode.name.lowercase().replaceFirstChar { it.uppercase() },
-                                    selected = tabletMode == mode,
-                                    onClick = { viewModel.onEvent(NoteEvent.UpdateTabletMode(mode)) },
-                                    modifier = Modifier.weight(1f)
+                            Icon(
+                                imageVector = Icons.Rounded.Palette,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.width(16.dp))
+                            Column {
+                                Text("Theme & Display", style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    text = "Theme, colors, font, and tablet mode",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
                     }
                 }
-            }
 
-            // Main Screen Tabs Section
-            SettingsSection(title = "Main Screen Tabs") {
-                SettingsItemContainer(index = 0, total = 5) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Notes Tab",
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                text = "Show Notes tab on the main screen",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = showNotesTab,
-                            onCheckedChange = { checked ->
-                                if (!checked && !showListsTab) {
-                                    Toast.makeText(context, "At least one tab must remain enabled", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    viewModel.onEvent(NoteEvent.UpdateShowNotesTab(checked))
-                                }
-                            }
-                        )
-                    }
-                }
-
-                SettingsItemContainer(index = 1, total = 5) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Lists Tab",
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                text = "Show Lists tab on the main screen",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = showListsTab,
-                            onCheckedChange = { checked ->
-                                if (!checked && !showNotesTab) {
-                                    Toast.makeText(context, "At least one tab must remain enabled", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    viewModel.onEvent(NoteEvent.UpdateShowListsTab(checked))
-                                }
-                            }
-                        )
-                    }
-                }
-
-                SettingsItemContainer(index = 2, total = 5) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Hide Uncreated Tabs",
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                text = "Hide tab buttons for note types that have not been created yet",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = hideUncreatedTabs,
-                            onCheckedChange = { checked ->
-                                viewModel.onEvent(NoteEvent.UpdateHideUncreatedTabs(checked))
-                            }
-                        )
-                    }
-                }
-
-                SettingsItemContainer(index = 3, total = 5) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Show Tab Labels",
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                text = "Show text labels next to icons on tab buttons",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = showTabLabels,
-                            onCheckedChange = { checked ->
-                                viewModel.onEvent(NoteEvent.UpdateShowTabLabels(checked))
-                            }
-                        )
-                    }
-                }
-
-                SettingsItemContainer(index = 4, total = 5) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    ) {
-                        Text(
-                            text = "Tab Order",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        Text(
-                            text = "Reorder the tab buttons displayed on the main screen",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                // Navigation Section
+                SettingsSection(title = "Navigation") {
+                    SettingsItemContainer(index = 0, total = 1, onClick = onNavigateToTabs) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            tabOrder.forEachIndexed { index, tab ->
-                                Surface(
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = tab.getIcon(),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(20.dp),
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                        Spacer(Modifier.width(12.dp))
-                                        Text(
-                                            text = tab.getTitle(),
-                                            style = MaterialTheme.typography.titleMedium,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        IconButton(
-                                            onClick = {
-                                                if (index > 0) {
-                                                    val newOrder = tabOrder.toMutableList()
-                                                    val temp = newOrder[index]
-                                                    newOrder[index] = newOrder[index - 1]
-                                                    newOrder[index - 1] = temp
-                                                    viewModel.onEvent(NoteEvent.UpdateTabOrder(newOrder))
-                                                }
-                                            },
-                                            enabled = index > 0
-                                        ) {
-                                            Icon(Icons.Rounded.KeyboardArrowUp, contentDescription = "Move Up")
-                                        }
-                                        IconButton(
-                                            onClick = {
-                                                if (index < tabOrder.size - 1) {
-                                                    val newOrder = tabOrder.toMutableList()
-                                                    val temp = newOrder[index]
-                                                    newOrder[index] = newOrder[index + 1]
-                                                    newOrder[index + 1] = temp
-                                                    viewModel.onEvent(NoteEvent.UpdateTabOrder(newOrder))
-                                                }
-                                            },
-                                            enabled = index < tabOrder.size - 1
-                                        ) {
-                                            Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = "Move Down")
-                                        }
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.ViewList,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.width(16.dp))
+                            Column {
+                                Text("Main Screen Tabs", style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    text = "Configure visibility, labels, and tab order",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Lists Section
+                SettingsSection(title = "Lists") {
+                    SettingsItemContainer(index = 0, total = 2, onClick = onNavigateToListPreferences) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.List,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.width(16.dp))
+                            Column {
+                                Text("List Preferences", style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    text = "Checklist behavior, entry counts, and ratings",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    SettingsItemContainer(index = 1, total = 2, onClick = onNavigateToMoviePosters) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Movie,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.width(16.dp))
+                            Column {
+                                Text("Movie Posters", style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    text = "Configure automatic poster fetching",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Drawing Section
+                SettingsSection(title = "Drawing") {
+                    SettingsItemContainer(index = 0, total = 1, onClick = onNavigateToDrawingSettings) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Brush,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.width(16.dp))
+                            Column {
+                                Text("Drawing Settings", style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    text = "Stroke smoothing and stylus controls",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Data Management Section
+                SettingsSection(title = "Data & Sync") {
+                    SettingsItemContainer(index = 0, total = 3, onClick = onNavigateToCloudSync) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Rounded.CloudSync, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(16.dp))
+                            Column {
+                                Text("Cloud Sync", style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    text = "Sync notes and lists across devices with Dropbox",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    SettingsItemContainer(index = 1, total = 3, onClick = onNavigateToBackupRestore) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Rounded.Backup, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(16.dp))
+                            Column {
+                                Text("Full Backup & Restore", style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    text = "Create and restore local compressed backup archives",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    SettingsItemContainer(index = 2, total = 3, onClick = onNavigateToGranularBackup) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Rounded.SettingsEthernet, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(16.dp))
+                            Column {
+                                Text("Granular Backup", style = MaterialTheme.typography.titleMedium)
+                                Text(
+                                    text = "Export or import individual notes and lists",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Info Section
+                SettingsSection(title = "Info") {
+                    SettingsItemContainer(index = 0, total = 2, onClick = { viewModel.onEvent(NoteEvent.CheckForUpdate) }) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Rounded.SystemUpdate, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Spacer(Modifier.width(16.dp))
+                                Column {
+                                    Text("Check for updates", style = MaterialTheme.typography.titleMedium)
+                                    when (val state = updateState) {
+                                        is UpdateState.Checking -> Text("Checking...", style = MaterialTheme.typography.bodySmall)
+                                        is UpdateState.UpdateAvailable -> Text("New version available: ${state.version}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                        is UpdateState.Downloading -> Text("Downloading update... ${(state.progress * 100).toInt()}%", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                        is UpdateState.UpToDate -> Text("App is up to date", style = MaterialTheme.typography.bodySmall)
+                                        is UpdateState.Error -> Text("Error: ${state.message}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                        else -> {}
                                     }
                                 }
                             }
-                        }
-                    }
-                }
-            }
-
-            // List Preferences Section
-            SettingsSection(title = "List Preferences") {
-                SettingsItemContainer(index = 0, total = 4) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Checklist Behavior", style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(12.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            ChecklistBehavior.entries.forEach { behavior ->
-                                SettingsToggleItem(
-                                    label = when (behavior) {
-                                        ChecklistBehavior.GREY_OUT -> "Grey out"
-                                        ChecklistBehavior.MOVE_TO_BOTTOM -> "Sink"
-                                        ChecklistBehavior.HIDE -> "Hide"
-                                    },
-                                    selected = checklistBehavior == behavior,
-                                    onClick = { viewModel.onEvent(NoteEvent.UpdateChecklistBehavior(behavior)) },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                SettingsItemContainer(index = 1, total = 4) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Show Entry Counts",
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                text = "Show counts on lists",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = showEntryCount,
-                            onCheckedChange = { viewModel.onEvent(NoteEvent.UpdateShowEntryCount(it)) }
-                        )
-                    }
-                }
-
-                RatingIndicatorsSetting(
-                    enabled = ratingIndicatorsEnabled,
-                    onEnabledChange = { viewModel.onEvent(NoteEvent.UpdateRatingIndicatorsEnabled(it)) },
-                    highEnabled = highScoreEnabled,
-                    onHighEnabledChange = { viewModel.onEvent(NoteEvent.UpdateHighScoreEnabled(it)) },
-                    highThreshold = highScoreThreshold,
-                    onHighThresholdChange = { viewModel.onEvent(NoteEvent.UpdateHighScoreThreshold(it)) },
-                    lowEnabled = lowScoreEnabled,
-                    onLowEnabledChange = { viewModel.onEvent(NoteEvent.UpdateLowScoreEnabled(it)) },
-                    lowThreshold = lowScoreThreshold,
-                    onLowThresholdChange = { viewModel.onEvent(NoteEvent.UpdateLowScoreThreshold(it)) },
-                    index = 2,
-                    total = 4
-                )
-
-                SettingsItemContainer(index = 3, total = 4, onClick = onNavigateToMoviePosters) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text("Movie Posters", style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                text = "Configure automatic poster fetching",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Icon(
-                            imageVector = Icons.Rounded.Movie,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-            }
-
-            // Drawing Section
-            SettingsSection(title = "Drawing") {
-                SettingsItemContainer(index = 0, total = 2) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text("Smoothing Strength", style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(12.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            SmoothingStrength.entries.forEach { strength ->
-                                SettingsToggleItem(
-                                    label = strength.name.lowercase().replaceFirstChar { it.uppercase() },
-                                    selected = smoothingStrength == strength,
-                                    onClick = { viewModel.onEvent(NoteEvent.UpdateSmoothingStrength(strength)) },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                SettingsItemContainer(index = 1, total = 2) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Force Stylus Only",
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                text = "Finger can only pan and paste",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = forceStylusOnly,
-                            onCheckedChange = { viewModel.onEvent(NoteEvent.UpdateForceStylusOnly(it)) }
-                        )
-                    }
-                }
-            }
-
-            // Data Management Section
-            SettingsSection(title = "Data & Sync") {
-                SettingsItemContainer(index = 0, total = 3, onClick = onNavigateToCloudSync) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Rounded.CloudSync, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(16.dp))
-                        Column {
-                            Text("Cloud Sync", style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                text = "Sync notes and lists across devices with Dropbox",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-                SettingsItemContainer(index = 1, total = 3, onClick = onNavigateToBackupRestore) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Rounded.Backup, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(16.dp))
-                        Column {
-                            Text("Full Backup & Restore", style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                text = "Create and restore local compressed backup archives",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-                SettingsItemContainer(index = 2, total = 3, onClick = onNavigateToGranularBackup) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Rounded.SettingsEthernet, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(16.dp))
-                        Column {
-                            Text("Granular Backup", style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                text = "Export or import individual notes and lists",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-
-            SettingsSection(title = "Info") {
-                SettingsItemContainer(index = 0, total = 2, onClick = { viewModel.onEvent(NoteEvent.CheckForUpdate) }) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Rounded.SystemUpdate, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(16.dp))
-                            Column {
-                                Text("Check for updates", style = MaterialTheme.typography.titleMedium)
-                                when (val state = updateState) {
-            is UpdateState.Checking -> Text("Checking...", style = MaterialTheme.typography.bodySmall)
-                                    is UpdateState.UpdateAvailable -> Text("New version available: ${state.version}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                                    is UpdateState.Downloading -> Text("Downloading update... ${(state.progress * 100).toInt()}%", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                                    is UpdateState.UpToDate -> Text("App is up to date", style = MaterialTheme.typography.bodySmall)
-                                    is UpdateState.Error -> Text("Error: ${state.message}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                                    else -> {}
+                            if (updateState is UpdateState.Checking || updateState is UpdateState.Downloading) {
+                                if (updateState is UpdateState.Downloading) {
+                                    CircularProgressIndicator(
+                                        progress = { (updateState as UpdateState.Downloading).progress },
+                                        modifier = Modifier.size(24.dp),
+                                        strokeWidth = 2.dp,
+                                    )
+                                } else {
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                                 }
                             }
                         }
-                        if (updateState is UpdateState.Checking || updateState is UpdateState.Downloading) {
-                            if (updateState is UpdateState.Downloading) {
-                                CircularProgressIndicator(
-                                    progress = { (updateState as UpdateState.Downloading).progress },
-                                    modifier = Modifier.size(24.dp),
-                                    strokeWidth = 2.dp,
-                                )
-                            } else {
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    }
+                    SettingsItemContainer(index = 1, total = 2, onClick = onNavigateToAbout) {
+                        val context = LocalContext.current
+                        val versionName = remember {
+                            try {
+                                val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+                                packageInfo.versionName
+                            } catch (_: Exception) {
+                                "Unknown"
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Rounded.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(16.dp))
+                            Column {
+                                Text("About this app", style = MaterialTheme.typography.titleMedium)
+                                Text("Version $versionName", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
                 }
-                SettingsItemContainer(index = 1, total = 2, onClick = onNavigateToAbout) {
-                    val context = LocalContext.current
-                    val versionName = remember {
-                        try {
-                            val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-                            packageInfo.versionName
-                        } catch (_: Exception) {
-                            "Unknown"
-                        }
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Rounded.Info, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(16.dp))
-                        Column {
-                            Text("About this app", style = MaterialTheme.typography.titleMedium)
-                            Text("Version $versionName", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-            }
 
-            SettingsSection(title = "Danger Zone") {
-                SettingsItemContainer(index = 0, total = 1, onClick = { showClearDataDialog = true }) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Rounded.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                        Spacer(Modifier.width(16.dp))
-                        Column {
-                            Text("Clear All Data", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
-                            Text("Permanently delete all notes and lists", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // Danger Zone Section
+                SettingsSection(title = "Danger Zone") {
+                    SettingsItemContainer(index = 0, total = 1, onClick = { showClearDataDialog = true }) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Rounded.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                            Spacer(Modifier.width(16.dp))
+                            Column {
+                                Text("Clear All Data", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
+                                Text("Permanently delete all notes and lists", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
                 }
-            }
-            
-            Spacer(modifier = Modifier.height(16.dp))
+                
+                Spacer(modifier = Modifier.height(16.dp))
             }
 
             SystemBarGradients(

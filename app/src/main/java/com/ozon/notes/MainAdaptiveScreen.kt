@@ -100,6 +100,9 @@ private fun MobileNavHost(
             SettingsScreen(
                 viewModel = settingsViewModel,
                 onNavigateToTheme = { navController.navigate("theme") },
+                onNavigateToTabs = { navController.navigate("tabs") },
+                onNavigateToListPreferences = { navController.navigate("listPreferences") },
+                onNavigateToDrawingSettings = { navController.navigate("drawingSettings") },
                 onNavigateToMoviePosters = { navController.navigate("moviePosters") },
                 onNavigateToCloudSync = { navController.navigate("cloudSync") },
                 onNavigateToBackupRestore = { navController.navigate("backupRestore") },
@@ -110,6 +113,15 @@ private fun MobileNavHost(
         }
         composable("theme") {
             ThemeScreen(viewModel = settingsViewModel, onNavigateUp = { navController.popBackStack() })
+        }
+        composable("tabs") {
+            MainScreenTabsScreen(viewModel = settingsViewModel, onNavigateUp = { navController.popBackStack() })
+        }
+        composable("listPreferences") {
+            ListPreferencesScreen(viewModel = settingsViewModel, onNavigateUp = { navController.popBackStack() })
+        }
+        composable("drawingSettings") {
+            DrawingSettingsScreen(viewModel = settingsViewModel, onNavigateUp = { navController.popBackStack() })
         }
         composable("moviePosters") {
             MoviePostersScreen(viewModel = settingsViewModel, onNavigateUp = { navController.popBackStack() })
@@ -269,6 +281,9 @@ private fun TabletSplitScreen(
                             },
                             onNavigateToSettings = { currentDetailRoute = DetailRoute.Settings },
                             onNavigateToTheme = { currentDetailRoute = DetailRoute.Theme },
+                            onNavigateToTabs = { currentDetailRoute = DetailRoute.TabsSettings },
+                            onNavigateToListPreferences = { currentDetailRoute = DetailRoute.ListPreferences },
+                            onNavigateToDrawingSettings = { currentDetailRoute = DetailRoute.DrawingSettings },
                             onNavigateToMoviePosters = { currentDetailRoute = DetailRoute.MoviePosters },
                             onNavigateToCloudSync = { currentDetailRoute = DetailRoute.CloudSync },
                             onNavigateToBackup = { currentDetailRoute = DetailRoute.BackupRestore },
@@ -329,6 +344,9 @@ private fun DetailPaneContent(
     onClose: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToTheme: () -> Unit,
+    onNavigateToTabs: () -> Unit,
+    onNavigateToListPreferences: () -> Unit,
+    onNavigateToDrawingSettings: () -> Unit,
     onNavigateToMoviePosters: () -> Unit,
     onNavigateToCloudSync: () -> Unit,
     onNavigateToBackup: () -> Unit,
@@ -362,6 +380,9 @@ private fun DetailPaneContent(
             SettingsScreen(
                 viewModel = settingsViewModel,
                 onNavigateToTheme = onNavigateToTheme,
+                onNavigateToTabs = onNavigateToTabs,
+                onNavigateToListPreferences = onNavigateToListPreferences,
+                onNavigateToDrawingSettings = onNavigateToDrawingSettings,
                 onNavigateToMoviePosters = onNavigateToMoviePosters,
                 onNavigateToCloudSync = onNavigateToCloudSync,
                 onNavigateToBackupRestore = onNavigateToBackup,
@@ -372,6 +393,15 @@ private fun DetailPaneContent(
         }
         is DetailRoute.Theme -> {
             ThemeScreen(viewModel = settingsViewModel, onNavigateUp = onNavigateToSettings)
+        }
+        is DetailRoute.TabsSettings -> {
+            MainScreenTabsScreen(viewModel = settingsViewModel, onNavigateUp = onNavigateToSettings)
+        }
+        is DetailRoute.ListPreferences -> {
+            ListPreferencesScreen(viewModel = settingsViewModel, onNavigateUp = onNavigateToSettings)
+        }
+        is DetailRoute.DrawingSettings -> {
+            DrawingSettingsScreen(viewModel = settingsViewModel, onNavigateUp = onNavigateToSettings)
         }
         is DetailRoute.MoviePosters -> {
             MoviePostersScreen(viewModel = settingsViewModel, onNavigateUp = onNavigateToSettings)

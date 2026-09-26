@@ -19,8 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -46,6 +45,10 @@ fun ThemeScreen(
     val theme by viewModel.themeState.collectAsStateWithLifecycle()
     val useDynamicColor by viewModel.useDynamicColorState.collectAsStateWithLifecycle()
     val isOledMode by viewModel.isOledModeState.collectAsStateWithLifecycle()
+    val font by viewModel.fontState.collectAsStateWithLifecycle()
+    val tabletMode by viewModel.tabletModeState.collectAsStateWithLifecycle()
+
+    var fontDropdownExpanded by remember { mutableStateOf(false) }
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
@@ -66,7 +69,7 @@ fun ThemeScreen(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             CollapsingTitleLayout(
-                title = "Theme Settings",
+                title = "Theme & Display",
                 onNavigateUp = onNavigateUp,
                 scrollBehavior = scrollBehavior
             )
@@ -210,6 +213,113 @@ fun ThemeScreen(
                                         selectedColor = customSecondaryColor,
                                         presetColors = presetColors,
                                         onColorSelected = { viewModel.onEvent(NoteEvent.UpdateCustomSecondaryColor(it)) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Typography Section
+                SettingsSection(title = "Typography") {
+                    SettingsItemContainer(index = 0, total = 1, onClick = { fontDropdownExpanded = true }) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Font",
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.weight(1f)
+                            )
+
+                            Box {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = font.getDisplayName(),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Rounded.KeyboardArrowDown,
+                                        contentDescription = "Select font",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+
+                                DropdownMenu(
+                                    expanded = fontDropdownExpanded,
+                                    onDismissRequest = { fontDropdownExpanded = false },
+                                    shape = RoundedCornerShape(16.dp),
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                                ) {
+                                    AppFont.entries.forEach { appFontOption ->
+                                        val isSelected = font == appFontOption
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = appFontOption.getDisplayName(),
+                                                    style = MaterialTheme.typography.bodyLarge.copy(
+                                                        fontFamily = when (appFontOption) {
+                                                            AppFont.DEFAULT -> GoogleSansFlexRounded
+                                                            AppFont.SYSTEM -> androidx.compose.ui.text.font.FontFamily.Default
+                                                        }
+                                                    ),
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                            },
+                                            trailingIcon = if (isSelected) {
+                                                {
+                                                    Icon(
+                                                        imageVector = Icons.Rounded.Check,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                            } else null,
+                                            onClick = {
+                                                viewModel.onEvent(NoteEvent.UpdateAppFont(appFontOption))
+                                                fontDropdownExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Layout Section
+                SettingsSection(title = "Layout") {
+                    SettingsItemContainer(index = 0, total = 1) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("Tablet Mode", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "Configure dual-pane split view layout behavior",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                TabletMode.entries.forEach { mode ->
+                                    SettingsToggleItem(
+                                        label = mode.name.lowercase().replaceFirstChar { it.uppercase() },
+                                        selected = tabletMode == mode,
+                                        onClick = { viewModel.onEvent(NoteEvent.UpdateTabletMode(mode)) },
+                                        modifier = Modifier.weight(1f)
                                     )
                                 }
                             }

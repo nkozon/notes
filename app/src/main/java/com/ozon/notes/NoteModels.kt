@@ -49,6 +49,9 @@ sealed class DetailRoute {
     data object GranularBackup : DetailRoute()
     data object Settings : DetailRoute()
     data object Theme : DetailRoute()
+    data object TabsSettings : DetailRoute()
+    data object ListPreferences : DetailRoute()
+    data object DrawingSettings : DetailRoute()
     data object MoviePosters : DetailRoute()
     data object About : DetailRoute()
 }
@@ -233,7 +236,7 @@ enum class AppFont {
     DEFAULT, SYSTEM;
 
     fun getDisplayName(): String = when (this) {
-        DEFAULT -> "Google Sans Flex Rounded"
+        DEFAULT -> "Default"
         SYSTEM -> "System Font"
     }
 }
