@@ -1,10 +1,30 @@
 package com.ozon.notes
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.IntSize
+import kotlin.math.roundToInt
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -205,6 +225,11 @@ fun NoteListScreen(
     var initialListType by remember { mutableStateOf(ListType.CHECKLIST) }
     var showDrawingTypeDialog by remember { mutableStateOf(false) }
     var isSearchActive by remember { mutableStateOf(false) }
+    var isCreateMenuOpen by rememberSaveable { mutableStateOf(false) }
+
+    BackHandler(enabled = isCreateMenuOpen) {
+        isCreateMenuOpen = false
+    }
 
     val gridState = androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
 
@@ -225,50 +250,144 @@ fun NoteListScreen(
     val hasTabBar = showNotesTab || showListsTab
     val topHeaderHeight = if (hasTabBar) headerHeight + 46.dp + 8.dp else headerHeight
 
+    val createOptions = remember(showNotesTab, showListsTab, notesViewModel, pdfPickerLauncher) {
+        buildList {
+            if (showNotesTab) {
+                add(CreateOption("Text Note", Icons.Rounded.Description) {
+                    isCreateMenuOpen = false
+                    onAddClick(notesViewModel.createNewNote())
+                })
+                add(CreateOption("Drawing", Icons.Rounded.Brush) {
+                    isCreateMenuOpen = false
+                    showDrawingTypeDialog = true
+                })
+                add(CreateOption("Import PDF", Icons.Rounded.PictureAsPdf) {
+                    isCreateMenuOpen = false
+                    pdfPickerLauncher.launch(arrayOf("application/pdf"))
+                })
+            }
+            if (showListsTab) {
+                add(CreateOption("Checklist", Icons.AutoMirrored.Rounded.List) {
+                    isCreateMenuOpen = false
+                    initialListType = ListType.CHECKLIST
+                    showCreateListDialog = true
+                })
+                add(CreateOption("Rating List", Icons.Rounded.Star) {
+                    isCreateMenuOpen = false
+                    initialListType = ListType.RATING
+                    showCreateListDialog = true
+                })
+                add(CreateOption("Upcoming List", Icons.Rounded.Event) {
+                    isCreateMenuOpen = false
+                    initialListType = ListType.UPCOMING
+                    showCreateListDialog = true
+                })
+            }
+        }
+    }
+
     @Suppress("UnusedMaterial3ScaffoldPaddingParameter")
     Scaffold(
         containerColor = Color.Transparent,
         floatingActionButton = {
             val haptics = LocalHapticFeedback.current
-            FloatingActionButton(
-                onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    when (selectedTab) {
-                        MainTab.TEXT -> onAddClick(notesViewModel.createNewNote())
-                        MainTab.DRAWINGS -> showDrawingTypeDialog = true
-                        MainTab.CHECKLISTS -> {
-                            initialListType = ListType.CHECKLIST
-                            showCreateListDialog = true
-                        }
-                        MainTab.RATINGS -> {
-                            initialListType = ListType.RATING
-                            showCreateListDialog = true
-                        }
-                        MainTab.UPCOMING -> {
-                            initialListType = ListType.UPCOMING
-                            showCreateListDialog = true
-                        }
-                    }
+            val fabRotation by animateFloatAsState(
+                targetValue = if (isCreateMenuOpen) 135f else 0f,
+                animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                label = "fabRotation"
+            )
+            val fabContainerColor by animateColorAsState(
+                targetValue = if (isCreateMenuOpen) {
+                    MaterialTheme.colorScheme.surfaceContainerHighest
+                } else {
+                    MaterialTheme.colorScheme.primaryContainer
                 },
-                shape = CircleShape,
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 4.dp, pressedElevation = 8.dp),
+                animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                label = "fabContainerColor"
+            )
+            val fabContentColor by animateColorAsState(
+                targetValue = if (isCreateMenuOpen) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.onPrimaryContainer
+                },
+                animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                label = "fabContentColor"
+            )
+            val menuProgress by animateFloatAsState(
+                targetValue = if (isCreateMenuOpen) 1f else 0f,
+                animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                label = "menuProgress"
+            )
+
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
                     .navigationBarsPadding()
                     .padding(bottom = 16.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Rounded.Add,
-                    contentDescription = "Add Item",
-                    modifier = Modifier.size(28.dp)
-                )
+                if (menuProgress > 0.001f) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp)
+                            .layout { measurable, constraints ->
+                                val placeable = measurable.measure(constraints)
+                                val animatedHeight = (placeable.height * menuProgress).roundToInt()
+                                layout(placeable.width, animatedHeight) {
+                                    placeable.placeRelative(0, animatedHeight - placeable.height)
+                                }
+                            }
+                            .graphicsLayer {
+                                scaleY = menuProgress
+                                transformOrigin = TransformOrigin(0.5f, 1f)
+                            },
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        createOptions.forEachIndexed { index, option ->
+                            CreateOptionItem(
+                                option = option,
+                                isFirst = index == 0,
+                                isLast = index == createOptions.size - 1,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+                }
+
+                FloatingActionButton(
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        isCreateMenuOpen = !isCreateMenuOpen
+                    },
+                    shape = CircleShape,
+                    containerColor = fabContainerColor,
+                    contentColor = fabContentColor,
+                    elevation = FloatingActionButtonDefaults.elevation(
+                        defaultElevation = if (isCreateMenuOpen) 6.dp else 4.dp,
+                        pressedElevation = 8.dp
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Add,
+                        contentDescription = if (isCreateMenuOpen) "Close create menu" else "Create new item",
+                        modifier = Modifier
+                            .size(28.dp)
+                            .graphicsLayer {
+                                rotationZ = fabRotation
+                            }
+                    )
+                }
             }
         },
         floatingActionButtonPosition = androidx.compose.material3.FabPosition.Center,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = { 
-            Column(modifier = Modifier.fillMaxWidth().zIndex(3f)) {
+            Box(modifier = Modifier.fillMaxWidth().zIndex(3f)) {
+                Column(modifier = Modifier.fillMaxWidth()) {
                 if (isSearchActive) {
                     Box(
                         modifier = Modifier
@@ -468,19 +587,31 @@ fun NoteListScreen(
                             hasUpcoming = listsWithCounts.any { it.list.type == ListType.UPCOMING },
                             hideUncreatedTabs = hideUncreatedTabs,
                             showTabLabels = showTabLabels,
-                            tabOrder = tabOrder,
-                            onAddClick = { onAddClick(notesViewModel.createNewNote()) },
-                            showDrawingTypeDialog = { showDrawingTypeDialog = true },
-                            showCreateListDialog = {
-                                initialListType = it
-                                showCreateListDialog = true
-                            },
-                            importPdf = { pdfPickerLauncher.launch(arrayOf("application/pdf")) }
+                            tabOrder = tabOrder
                         )
                     }
                 }
             }
+
+            AnimatedVisibility(
+                visible = isCreateMenuOpen,
+                enter = fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)),
+                exit = fadeOut(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(Color.Black.copy(alpha = 0.45f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            isCreateMenuOpen = false
+                        }
+                )
+            }
         }
+    }
     ) { _ ->
         Box(
             modifier = Modifier.fillMaxSize()
@@ -634,6 +765,25 @@ fun NoteListScreen(
                 modifier = Modifier.zIndex(1f),
                 topAlpha = topAlpha
             )
+
+            AnimatedVisibility(
+                visible = isCreateMenuOpen,
+                enter = fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)),
+                exit = fadeOut(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)),
+                modifier = Modifier.zIndex(2f)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.45f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            isCreateMenuOpen = false
+                        }
+                )
+            }
         }
     }
 
@@ -1642,14 +1792,9 @@ fun MainScreenTabBar(
     hasUpcoming: Boolean = false,
     hideUncreatedTabs: Boolean = true,
     showTabLabels: Boolean = true,
-    tabOrder: List<MainTab> = listOf(MainTab.TEXT, MainTab.DRAWINGS, MainTab.CHECKLISTS, MainTab.RATINGS, MainTab.UPCOMING),
-    onAddClick: () -> Unit,
-    showDrawingTypeDialog: () -> Unit,
-    showCreateListDialog: (ListType) -> Unit,
-    importPdf: () -> Unit
+    tabOrder: List<MainTab> = listOf(MainTab.TEXT, MainTab.DRAWINGS, MainTab.CHECKLISTS, MainTab.RATINGS, MainTab.UPCOMING)
 ) {
     val scrollState = rememberScrollState()
-    var showAddMenu by remember { mutableStateOf(false) }
 
     Row(
         modifier = modifier
@@ -1660,7 +1805,7 @@ fun MainScreenTabBar(
     ) {
         Row(
             modifier = Modifier
-                .weight(1f)
+                .fillMaxWidth()
                 .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                 .drawWithContent {
                     drawContent()
@@ -1714,105 +1859,6 @@ fun MainScreenTabBar(
                 }
             }
         }
-
-        val allTypesCreated = 
-            (!showNotesTab || (hasTextNotes && hasDrawings)) && 
-            (!showListsTab || (hasChecklists && hasRatings && hasUpcoming))
-
-        if (hideUncreatedTabs && !allTypesCreated) {
-            Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
-                Surface(
-                    onClick = { showAddMenu = true },
-                    modifier = Modifier.fillMaxHeight().aspectRatio(1f),
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh
-                ) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Add,
-                            contentDescription = "Create new item",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-
-                DropdownMenu(
-                    expanded = showAddMenu,
-                    onDismissRequest = { showAddMenu = false }
-                ) {
-                    if (allTypesCreated) {
-                        DropdownMenuItem(
-                            text = { Text("All types created") },
-                            onClick = { showAddMenu = false },
-                            enabled = false
-                        )
-                    } else {
-                        if (showNotesTab && !hasTextNotes) {
-                            DropdownMenuItem(
-                                text = { Text("New Text Note") },
-                                onClick = { 
-                                    showAddMenu = false
-                                    onAddClick() 
-                                },
-                                leadingIcon = { Icon(Icons.Rounded.Description, contentDescription = null) }
-                            )
-                        }
-                        if (showNotesTab && !hasDrawings) {
-                            DropdownMenuItem(
-                                text = { Text("New Drawing") },
-                                onClick = { 
-                                    showAddMenu = false
-                                    showDrawingTypeDialog()
-                                },
-                                leadingIcon = { Icon(Icons.Rounded.Brush, contentDescription = null) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Import PDF") },
-                                onClick = { 
-                                    showAddMenu = false
-                                    importPdf()
-                                },
-                                leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, contentDescription = null) }
-                            )
-                        }
-                        if (showListsTab && !hasChecklists) {
-                            DropdownMenuItem(
-                                text = { Text("New Checklist") },
-                                onClick = { 
-                                    showAddMenu = false
-                                    showCreateListDialog(ListType.CHECKLIST)
-                                },
-                                leadingIcon = { Icon(Icons.AutoMirrored.Rounded.List, contentDescription = null) }
-                            )
-                        }
-                        if (showListsTab && !hasRatings) {
-                            DropdownMenuItem(
-                                text = { Text("New Rating List") },
-                                onClick = { 
-                                    showAddMenu = false
-                                    showCreateListDialog(ListType.RATING)
-                                },
-                                leadingIcon = { Icon(Icons.Rounded.Star, contentDescription = null) }
-                            )
-                        }
-                        if (showListsTab && !hasUpcoming) {
-                            DropdownMenuItem(
-                                text = { Text("New Upcoming List") },
-                                onClick = { 
-                                    showAddMenu = false
-                                    showCreateListDialog(ListType.UPCOMING)
-                                },
-                                leadingIcon = { Icon(Icons.Rounded.Event, contentDescription = null) }
-                            )
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -1825,9 +1871,12 @@ private fun MainTabItem(
     showLabels: Boolean = true,
     modifier: Modifier = Modifier
 ) {
+    val isLabelVisible = isSelected && showLabels
+    val hapticFeedback = LocalHapticFeedback.current
+
     val cornerRadius by animateDpAsState(
-        targetValue = if (isSelected) 24.dp else 12.dp,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        targetValue = if (isSelected) 12.dp else 24.dp,
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
         label = "tabCornerRadius"
     )
     val backgroundColor by animateColorAsState(
@@ -1836,7 +1885,7 @@ private fun MainTabItem(
         } else {
             MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.8f)
         },
-        animationSpec = tween(durationMillis = 200),
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
         label = "tabBackground"
     )
     val textColor by animateColorAsState(
@@ -1845,41 +1894,65 @@ private fun MainTabItem(
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
         },
-        animationSpec = tween(durationMillis = 200),
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
         label = "tabText"
     )
 
+    val horizontalPadding by animateDpAsState(
+        targetValue = if (isLabelVisible) 16.dp else 13.dp,
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        label = "tabPadding"
+    )
+
     Surface(
-        onClick = onClick,
-        modifier = if (showLabels) modifier.fillMaxHeight() else modifier.fillMaxHeight().aspectRatio(1f),
+        onClick = {
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onClick()
+        },
+        modifier = modifier.fillMaxHeight(),
         shape = RoundedCornerShape(cornerRadius),
         color = backgroundColor,
         tonalElevation = if (isSelected) 2.dp else 0.dp
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .fillMaxSize()
-                .then(if (showLabels) Modifier.padding(horizontal = 18.dp) else Modifier),
-            contentAlignment = Alignment.Center
+                .fillMaxHeight()
+                .padding(horizontal = horizontalPadding),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = if (showLabels) null else title,
-                    modifier = Modifier.size(if (showLabels) 18.dp else 20.dp),
-                    tint = textColor
+            Icon(
+                imageVector = icon,
+                contentDescription = if (isLabelVisible) null else title,
+                modifier = Modifier.size(20.dp),
+                tint = textColor
+            )
+            AnimatedVisibility(
+                visible = isLabelVisible,
+                enter = fadeIn(animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)) + expandHorizontally(
+                    animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+                    expandFrom = Alignment.Start,
+                    clip = false
+                ),
+                exit = fadeOut(animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)) + shrinkHorizontally(
+                    animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+                    shrinkTowards = Alignment.Start,
+                    clip = false
                 )
-                if (showLabels) {
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = title,
                         style = MaterialTheme.typography.labelLarge.copy(
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            fontWeight = FontWeight.Bold,
                             fontSize = 15.sp
                         ),
-                        color = textColor
+                        color = textColor,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
@@ -1929,6 +2002,87 @@ private fun EmptyTabState(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
+    }
+}
+
+private data class CreateOption(
+    val title: String,
+    val icon: ImageVector,
+    val onClick: () -> Unit
+)
+
+@Composable
+private fun CreateOptionItem(
+    option: CreateOption,
+    isFirst: Boolean,
+    isLast: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val haptics = LocalHapticFeedback.current
+    var isPressed by remember { mutableStateOf(false) }
+
+    val targetTopRadius = if (isPressed) 32.dp else if (isFirst) 28.dp else 4.dp
+    val targetBottomRadius = if (isPressed) 32.dp else if (isLast) 28.dp else 4.dp
+
+    val topRadius by animateDpAsState(
+        targetValue = targetTopRadius,
+        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+        label = "createOptionTopCorner"
+    )
+    val bottomRadius by animateDpAsState(
+        targetValue = targetBottomRadius,
+        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+        label = "createOptionBottomCorner"
+    )
+
+    val shape = remember(topRadius, bottomRadius) {
+        RoundedCornerShape(topRadius, topRadius, bottomRadius, bottomRadius)
+    }
+
+    Surface(
+        onClick = {
+            haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            option.onClick()
+        },
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = 6.dp,
+        shadowElevation = 4.dp,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(54.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = option.icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Text(
+                text = option.title,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 15.sp
+                ),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
     }
 }
 
