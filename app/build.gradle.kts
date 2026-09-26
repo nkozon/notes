@@ -20,7 +20,7 @@ android {
         minSdk = 30
         targetSdk = 36
         versionCode = 38
-        versionName = "1.11.8"
+        versionName = "1.11.7"
 
         val localProperties = Properties()
         val localPropertiesFile = rootProject.file("local.properties")
