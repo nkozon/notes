@@ -49,6 +49,9 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.util.lerp
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.layout.layout
+import kotlin.math.roundToInt
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
@@ -66,10 +69,15 @@ fun CircleIconButton(
 ) {
     Box(
         modifier = modifier
+            .minimumInteractiveComponentSize()
             .size(44.dp)
             .clip(shape)
             .background(if (enabled) containerColor else containerColor.copy(alpha = 0.3f))
-            .clickable(enabled = enabled) { onClick() },
+            .clickable(
+                enabled = enabled,
+                role = androidx.compose.ui.semantics.Role.Button,
+                onClick = onClick
+            ),
         contentAlignment = Alignment.Center
     ) {
         Icon(
@@ -262,15 +270,18 @@ fun SwipeActionWrapper(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
+    val currentOnDelete by androidx.compose.runtime.rememberUpdatedState(onDelete)
+    val currentOnPin by androidx.compose.runtime.rememberUpdatedState(onPin)
+
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             when (value) {
                 SwipeToDismissBoxValue.EndToStart -> {
-                    onDelete()
+                    currentOnDelete()
                     false
                 }
                 SwipeToDismissBoxValue.StartToEnd -> {
-                    onPin()
+                    currentOnPin()
                     false
                 }
                 else -> false
@@ -485,26 +496,34 @@ fun CollapsingTitleLayout(
     val density = LocalDensity.current
     val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     
-    val expandedHeight = 152.dp + topPadding
-    val collapsedHeight = 64.dp + topPadding
+    val expandedHeightPx = with(density) { (152.dp + topPadding).toPx() }
+    val collapsedHeightPx = with(density) { (64.dp + topPadding).toPx() }
+    val scrollLimitPx = with(density) { (64.dp - 152.dp).toPx() }
     
-    // Set the scroll limits so scrolling works correctly
-    SideEffect {
-        val limit = with(density) { (64.dp - 152.dp).toPx() }
-        if (scrollBehavior.state.heightOffsetLimit != limit) {
-            scrollBehavior.state.heightOffsetLimit = limit
+    LaunchedEffect(scrollLimitPx) {
+        if (scrollBehavior.state.heightOffsetLimit != scrollLimitPx) {
+            scrollBehavior.state.heightOffsetLimit = scrollLimitPx
         }
     }
-    
-    val fraction = scrollBehavior.state.collapsedFraction
-    val easedFraction = FastOutSlowInEasing.transform(fraction)
-    
-    val currentHeight = lerp(expandedHeight, collapsedHeight, easedFraction)
     
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(currentHeight)
+            .layout { measurable, constraints ->
+                val fraction = scrollBehavior.state.collapsedFraction
+                val easedFraction = FastOutSlowInEasing.transform(fraction)
+                val heightPx = lerp(expandedHeightPx, collapsedHeightPx, easedFraction).roundToInt()
+                val clampedHeight = heightPx.coerceIn(constraints.minHeight, constraints.maxHeight)
+                val placeable = measurable.measure(
+                    constraints.copy(
+                        minHeight = clampedHeight,
+                        maxHeight = clampedHeight
+                    )
+                )
+                layout(placeable.width, clampedHeight) {
+                    placeable.placeRelative(0, 0)
+                }
+            }
     ) {
         // Back Button
         Box(
@@ -543,6 +562,8 @@ fun CollapsingTitleLayout(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .graphicsLayer {
+                    val fraction = scrollBehavior.state.collapsedFraction
+                    val easedFraction = FastOutSlowInEasing.transform(fraction)
                     val targetScale = titleStyle.fontSize.toPx() / displayStyle.fontSize.toPx()
                     val scale = lerp(1f, targetScale, easedFraction)
                     scaleX = scale
@@ -574,8 +595,8 @@ fun SystemBarGradients(
     color: Color = MaterialTheme.colorScheme.background,
     showTop: Boolean = true,
     showBottom: Boolean = true,
-    topAlpha: Float = 1f,
-    bottomAlpha: Float = 1f,
+    topAlpha: () -> Float = { 1f },
+    bottomAlpha: () -> Float = { 1f },
     bottomHeight: Dp? = null
 ) {
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -588,7 +609,7 @@ fun SystemBarGradients(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(statusBarHeight * 3f)
-                    .graphicsLayer(alpha = topAlpha)
+                    .graphicsLayer { alpha = topAlpha() }
                     .background(
                         brush = Brush.verticalGradient(
                             colors = listOf(
@@ -608,7 +629,7 @@ fun SystemBarGradients(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(effBottomHeight)
-                    .graphicsLayer(alpha = bottomAlpha)
+                    .graphicsLayer { alpha = bottomAlpha() }
                     .background(
                         brush = Brush.verticalGradient(
                             colors = listOf(
@@ -624,12 +645,33 @@ fun SystemBarGradients(
 }
 
 @Composable
+fun SystemBarGradients(
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.background,
+    showTop: Boolean = true,
+    showBottom: Boolean = true,
+    topAlpha: Float,
+    bottomAlpha: Float = 1f,
+    bottomHeight: Dp? = null
+) {
+    SystemBarGradients(
+        modifier = modifier,
+        color = color,
+        showTop = showTop,
+        showBottom = showBottom,
+        topAlpha = { topAlpha },
+        bottomAlpha = { bottomAlpha },
+        bottomHeight = bottomHeight
+    )
+}
+
+@Composable
 fun FullColorPickerDialog(
     initialColor: Color,
     onColorChange: (Color) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var hsv by remember { 
+    var hsv by remember(initialColor) { 
         val hsv = FloatArray(3)
         android.graphics.Color.colorToHSV(initialColor.toArgb(), hsv)
         mutableStateOf(hsv)

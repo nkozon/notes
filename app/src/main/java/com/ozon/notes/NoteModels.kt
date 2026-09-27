@@ -199,6 +199,15 @@ data class ListEntry(
     }
 }
 
+@androidx.compose.runtime.Immutable
+data class HierarchicalEntry(
+    val entry: ListEntry,
+    val depth: Int,
+    val hasChildren: Boolean,
+    val childIndex: Int = 0
+)
+
+
 @Serializable
 enum class ListSortOrder {
     ALPHABETICAL, REVERSE_ALPHABETICAL, TAG_ALPHABETICAL, TAG_REVERSE_ALPHABETICAL, RATING_LOW_TO_HIGH, RATING_HIGH_TO_LOW, NEWEST, OLDEST;

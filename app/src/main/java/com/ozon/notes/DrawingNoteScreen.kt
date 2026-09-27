@@ -609,31 +609,39 @@ fun DrawingNoteScreen(
     var pdfRenderer by remember { mutableStateOf<PdfRenderer?>(null) }
 
     DisposableEffect(pdfInfo) {
-        val info = pdfInfo
-        var renderer: PdfRenderer? = null
-        var pfd: ParcelFileDescriptor? = null
-        if (info != null) {
-            try {
-                var file = File(info.localPath)
-                if (!file.exists()) {
-                    val fileName = info.localPath.removePrefix("media/").split("/").last().split("\\").last()
-                    val fallback = File(context.filesDir, fileName)
-                    if (fallback.exists()) file = fallback
-                }
-                if (file.exists()) {
-                    pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-                    renderer = PdfRenderer(pfd)
-                    pdfRenderer = renderer
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
         onDispose {
+            pdfRenderer?.close()
             pdfRenderer = null
-            renderer?.close()
-            pfd?.close()
             pdfBitmapCache.clear()
+        }
+    }
+
+    LaunchedEffect(pdfInfo) {
+        val info = pdfInfo
+        if (info != null) {
+            withContext(Dispatchers.IO) {
+                try {
+                    var file = File(info.localPath)
+                    if (!file.exists()) {
+                        val fileName = info.localPath.removePrefix("media/").split("/").last().split("\\").last()
+                        val fallback = File(context.filesDir, fileName)
+                        if (fallback.exists()) file = fallback
+                    }
+                    if (file.exists()) {
+                        val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+                        val renderer = PdfRenderer(pfd)
+                        withContext(Dispatchers.Main) {
+                            pdfRenderer?.close()
+                            pdfRenderer = renderer
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        } else {
+            pdfRenderer?.close()
+            pdfRenderer = null
         }
     }
 
@@ -3927,7 +3935,16 @@ fun ThicknessPopup(
 
 @Composable
 fun ToolbarItem(tool: DrawingTool, painter: Painter, isSelected: Boolean, onClick: () -> Unit) {
-    IconButton(onClick = onClick, modifier = Modifier.size(34.dp), colors = if (isSelected) IconButtonDefaults.iconButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer) else IconButtonDefaults.iconButtonColors()) { Icon(painter, tool.name, modifier = Modifier.size(20.dp)) }
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.minimumInteractiveComponentSize().size(34.dp),
+        colors = if (isSelected) IconButtonDefaults.iconButtonColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+        ) else IconButtonDefaults.iconButtonColors()
+    ) {
+        Icon(painter, tool.name, modifier = Modifier.size(20.dp))
+    }
 }
 
 private fun drawTileVectorFallback(

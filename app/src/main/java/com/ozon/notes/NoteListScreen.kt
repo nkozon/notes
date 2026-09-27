@@ -154,32 +154,26 @@ fun NoteListScreen(
     val mobileDataPrompt by settingsViewModel.mobileDataDownloadPrompt.collectAsStateWithLifecycle()
 
     val lastSelectedTab by settingsViewModel.lastSelectedTabState.collectAsStateWithLifecycle()
-    var selectedTab by rememberSaveable { mutableStateOf(settingsViewModel.lastSelectedTabState.value) }
+    val selectedTab = lastSelectedTab
 
-    LaunchedEffect(selectedTab) {
-        if (selectedTab != settingsViewModel.lastSelectedTabState.value) {
-            settingsViewModel.onEvent(NoteEvent.UpdateLastSelectedTab(selectedTab))
-        }
-    }
-
-    LaunchedEffect(showNotesTab, showListsTab) {
-        if (!showNotesTab && showListsTab && (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS)) {
-            selectedTab = MainTab.CHECKLISTS
-        } else if (showNotesTab && !showListsTab && (selectedTab == MainTab.CHECKLISTS || selectedTab == MainTab.RATINGS || selectedTab == MainTab.UPCOMING)) {
-            selectedTab = MainTab.TEXT
+    LaunchedEffect(showNotesTab, showListsTab, lastSelectedTab) {
+        if (!showNotesTab && showListsTab && (lastSelectedTab == MainTab.TEXT || lastSelectedTab == MainTab.DRAWINGS)) {
+            settingsViewModel.onEvent(NoteEvent.UpdateLastSelectedTab(MainTab.CHECKLISTS))
+        } else if (showNotesTab && !showListsTab && (lastSelectedTab == MainTab.CHECKLISTS || lastSelectedTab == MainTab.RATINGS || lastSelectedTab == MainTab.UPCOMING)) {
+            settingsViewModel.onEvent(NoteEvent.UpdateLastSelectedTab(MainTab.TEXT))
         }
     }
 
     LaunchedEffect(activeRoute) {
         if (activeRoute is DetailRoute.List && showListsTab) {
             val list = listsWithCounts.find { it.list.id == activeRoute.id }?.list
-            if (list?.type == ListType.RATING) selectedTab = MainTab.RATINGS
-            else if (list?.type == ListType.UPCOMING) selectedTab = MainTab.UPCOMING
-            else selectedTab = MainTab.CHECKLISTS
+            if (list?.type == ListType.RATING) settingsViewModel.onEvent(NoteEvent.UpdateLastSelectedTab(MainTab.RATINGS))
+            else if (list?.type == ListType.UPCOMING) settingsViewModel.onEvent(NoteEvent.UpdateLastSelectedTab(MainTab.UPCOMING))
+            else settingsViewModel.onEvent(NoteEvent.UpdateLastSelectedTab(MainTab.CHECKLISTS))
         } else if ((activeRoute is DetailRoute.Note || activeRoute is DetailRoute.Drawing) && showNotesTab) {
             val note = notes.find { it.id == (activeRoute as? DetailRoute.Note)?.id ?: (activeRoute as? DetailRoute.Drawing)?.id }
-            if (note?.type == NoteType.DRAWING) selectedTab = MainTab.DRAWINGS
-            else selectedTab = MainTab.TEXT
+            if (note?.type == NoteType.DRAWING) settingsViewModel.onEvent(NoteEvent.UpdateLastSelectedTab(MainTab.DRAWINGS))
+            else settingsViewModel.onEvent(NoteEvent.UpdateLastSelectedTab(MainTab.TEXT))
         }
     }
 
@@ -626,7 +620,7 @@ fun NoteListScreen(
                     ) {
                         MainScreenTabBar(
                             selectedTab = selectedTab,
-                            onTabSelected = { selectedTab = it },
+                            onTabSelected = { settingsViewModel.onEvent(NoteEvent.UpdateLastSelectedTab(it)) },
                             showNotesTab = showNotesTab,
                             showListsTab = showListsTab,
                             hasTextNotes = notes.any { it.type == NoteType.TEXT },
@@ -818,7 +812,7 @@ fun NoteListScreen(
 
             SystemBarGradients(
                 modifier = Modifier.zIndex(1f),
-                topAlpha = topAlpha
+                topAlpha = { topAlpha }
             )
 
             AnimatedVisibility(
@@ -1726,7 +1720,7 @@ fun NoteCard(
                     ) {
                         if (note.previewImage != null) {
                             AsyncImage(
-                                model = File(note.previewImage),
+                                model = note.previewImage,
                                 contentDescription = null,
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = androidx.compose.ui.layout.ContentScale.Fit
@@ -1786,6 +1780,8 @@ fun DrawingPreview(strokes: List<com.ozon.notes.Stroke>) {
         StrokeBoundsData(minX, minY, drawingWidth, drawingHeight)
     }
 
+    val path = remember { androidx.compose.ui.graphics.Path() }
+
     if (strokeData != null) {
         androidx.compose.foundation.Canvas(
             modifier = Modifier.fillMaxSize().padding(4.dp)
@@ -1794,7 +1790,6 @@ fun DrawingPreview(strokes: List<com.ozon.notes.Stroke>) {
             val offsetX = (size.width - strokeData.width * scale) / 2f - strokeData.minX * scale
             val offsetY = (size.height - strokeData.height * scale) / 2f - strokeData.minY * scale
 
-            val path = androidx.compose.ui.graphics.Path()
             strokes.forEach { stroke ->
                 val points = stroke.points
                 if (points.isNotEmpty()) {

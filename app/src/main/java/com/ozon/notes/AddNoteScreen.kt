@@ -366,7 +366,7 @@ private fun AddNoteScreenContent(
 
             SystemBarGradients(
                 modifier = Modifier.zIndex(5f),
-                topAlpha = topAlpha
+                topAlpha = { topAlpha }
             )
 
             TextFormattingToolbar(

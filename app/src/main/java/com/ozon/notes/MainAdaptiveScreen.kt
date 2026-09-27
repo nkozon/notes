@@ -295,6 +295,8 @@ private fun TabletSplitScreen(
 
                 // 3. Floating Resize Handle
                 if (isSidePanelVisible) {
+                    val currentTotalWidth by rememberUpdatedState(totalWidth)
+                    val currentSplitFraction by rememberUpdatedState(splitFraction)
                     Box(
                         modifier = Modifier
                             .fillMaxHeight()
@@ -311,12 +313,12 @@ private fun TabletSplitScreen(
                                     },
                                     onDragCancel = { 
                                         isDragging = false
-                                        localWeight = splitFraction 
+                                        localWeight = currentSplitFraction 
                                     },
                                     onDrag = { change, dragAmount ->
                                         change.consume()
-                                        if (totalWidth > 0) {
-                                            val delta = dragAmount.x / totalWidth
+                                        if (currentTotalWidth > 0) {
+                                            val delta = dragAmount.x / currentTotalWidth
                                             localWeight = (localWeight + delta).coerceIn(0.2f, 0.6f)
                                         }
                                     }

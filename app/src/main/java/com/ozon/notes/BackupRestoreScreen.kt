@@ -331,8 +331,8 @@ fun BackupRestoreScreen(
 
             SystemBarGradients(
                 modifier = Modifier.zIndex(1f),
-                topAlpha = topAlpha,
-                bottomAlpha = bottomFadeAlpha
+                topAlpha = { topAlpha },
+                bottomAlpha = { bottomFadeAlpha }
             )
         }
 

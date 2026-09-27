@@ -2,11 +2,17 @@ package com.ozon.notes
 
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.animation.*
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -164,6 +170,22 @@ fun ListDetailScreen(
     var showInlineAddTagDialog by remember { mutableStateOf(false) }
     var lastAddedId by remember { mutableStateOf<String?>(null) }
     var expandedEntries by remember { mutableStateOf(setOf<String>()) }
+    var collapsingParentIds by remember { mutableStateOf(setOf<String>()) }
+    val coroutineScope = rememberCoroutineScope()
+
+    val toggleExpand: (String) -> Unit = { entryId ->
+        if (expandedEntries.contains(entryId)) {
+            collapsingParentIds = collapsingParentIds + entryId
+            coroutineScope.launch {
+                delay(180)
+                expandedEntries = expandedEntries - entryId
+                collapsingParentIds = collapsingParentIds - entryId
+            }
+        } else {
+            collapsingParentIds = collapsingParentIds - entryId
+            expandedEntries = expandedEntries + entryId
+        }
+    }
 
     LaunchedEffect(entries, initialEntryId) {
         if (initialEntryId != null && entries.isNotEmpty()) {
@@ -174,14 +196,14 @@ fun ListDetailScreen(
         }
     }
 
-    val attemptedPosterFetches = remember { mutableSetOf<String>() }
-    LaunchedEffect(entries, moviePostersEnabled, currentList?.type) {
+    val attemptedPosterFetches = remember(listId) { mutableSetOf<String>() }
+    LaunchedEffect(entries, moviePostersEnabled, currentList?.type, listId) {
         if (moviePostersEnabled && currentList?.type == ListType.RATING) {
             val entriesNeedingPoster = entries.filter { entry ->
                 val isSubEntry = !entry.parentId.isNullOrBlank()
                 val targetParent = if (isSubEntry) entries.find { it.id == entry.parentId } else null
                 val hasPoster = !entry.tmdbPosterPath.isNullOrBlank() || (targetParent != null && !targetParent.tmdbPosterPath.isNullOrBlank())
-                !hasPoster && (entry.isCurrentlyWatching || entry.parentId.isNullOrBlank()) && !attemptedPosterFetches.contains(entry.id)
+                !hasPoster && (entry.isCurrentlyWatching || entry.parentId.isNullOrBlank()) && !attemptedPosterFetches.contains(entry.id) && entry.title.isNotBlank()
             }
             entriesNeedingPoster.forEach { targetEntry ->
                 attemptedPosterFetches.add(targetEntry.id)
@@ -190,6 +212,9 @@ fun ListDetailScreen(
                     entries.find { it.id == targetEntry.parentId } ?: targetEntry
                 } else {
                     targetEntry
+                }
+                if (!attemptedPosterFetches.contains(entryToSearch.id)) {
+                    attemptedPosterFetches.add(entryToSearch.id)
                 }
                 val results = checklistViewModel.searchTmdb(entryToSearch.title)
                 val bestMatch = results.find { it.posterPath != null }
@@ -275,15 +300,29 @@ fun ListDetailScreen(
     )
 
     val backButtonContainerAlpha by animateFloatAsState(
-        targetValue = if (showHeader) 0f else 1f,
+        targetValue = if (isAtTop) 0f else 1f,
         animationSpec = tween(durationMillis = 200),
         label = "backButtonContainerAlpha"
     )
 
     val backButtonContentColor by animateColorAsState(
-        targetValue = if (showHeader) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer,
+        targetValue = if (isAtTop) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer,
         animationSpec = tween(durationMillis = 200),
         label = "backButtonContentColor"
+    )
+
+    val showTitlePill = !isAtTop && showHeader
+
+    val titlePillAlpha by animateFloatAsState(
+        targetValue = if (showTitlePill) 1f else 0f,
+        animationSpec = tween(durationMillis = 200),
+        label = "titlePillAlpha"
+    )
+
+    val titleContentColor by animateColorAsState(
+        targetValue = if (showTitlePill) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+        animationSpec = tween(durationMillis = 200),
+        label = "titleContentColor"
     )
 
     val isAtEnd by remember {
@@ -321,11 +360,10 @@ fun ListDetailScreen(
         topBar = {
             TopAppBar(
                 title = { 
-                    Column(
-                        horizontalAlignment = Alignment.Start,
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = titlePillAlpha),
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 16.dp)
                             .graphicsLayer(alpha = headerAlpha)
                             .clickable(
                                 enabled = headerAlpha > 0.5f,
@@ -335,41 +373,12 @@ fun ListDetailScreen(
                         Text(
                             text = currentList.title,
                             style = MaterialTheme.typography.titleLarge,
+                            color = titleContentColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            textAlign = TextAlign.Start
+                            textAlign = TextAlign.Start,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
                         )
-                        if (showEntryCount) {
-                            val totalCount = entries.size
-                            val checkedCount = entries.count { it.isChecked }
-                            val subEntryCount = entries.count { !it.parentId.isNullOrBlank() }
-                            
-                            val text = if (currentList.type == ListType.CHECKLIST) {
-                                val uncheckedCount = totalCount - checkedCount
-                                "$uncheckedCount entries, $checkedCount checked"
-                            } else if (currentList.type == ListType.RATING) {
-                                val watchingCount = entries.count { it.isCurrentlyWatching }
-                                val parentCount = entries.count { it.parentId.isNullOrBlank() && !it.isCurrentlyWatching }
-                                val sectionName = currentList.getEffectiveCurrentSectionName()
-                                val watchingShort = when {
-                                    sectionName.contains("read", ignoreCase = true) -> "reading"
-                                    sectionName.contains("play", ignoreCase = true) -> "playing"
-                                    sectionName.contains("listen", ignoreCase = true) -> "listening"
-                                    else -> "watching"
-                                }
-                                "$parentCount entries${if (watchingCount > 0) ", $watchingCount $watchingShort" else ""}"
-                            } else {
-                                val rootCount = totalCount - subEntryCount
-                                "$rootCount entries${if (subEntryCount > 0) ", $subEntryCount sub" else ""}"
-                            }
-                            
-                            Text(
-                                text = text,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                textAlign = TextAlign.Start
-                            )
-                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -558,16 +567,16 @@ fun ListDetailScreen(
                     emptyList() // We handle UPCOMING separately below
                 } else {
                     val entriesToInclude = if (currentList.type == ListType.RATING) entries.filter { !it.isCurrentlyWatching } else entries
-                    val fullList = mutableListOf<Triple<ListEntry, Int, Boolean>>()
+                    val fullList = mutableListOf<HierarchicalEntry>()
                     val entriesByParent = entriesToInclude.groupBy { it.parentId }
                     
                     fun addAll(parentId: String?, depth: Int) {
-                        entriesByParent[parentId]?.forEach { entry ->
+                        entriesByParent[parentId]?.forEachIndexed { childIndex, entry ->
                             if (currentList.type == ListType.CHECKLIST && checklistBehavior == ChecklistBehavior.HIDE && entry.isChecked) {
                                 // Skip hidden entries
                             } else {
                                 val hasChildren = entriesByParent.containsKey(entry.id)
-                                fullList.add(Triple(entry, depth, hasChildren))
+                                fullList.add(HierarchicalEntry(entry, depth, hasChildren, if (depth > 0) childIndex else 0))
                                 // Auto-expand everything if searching, otherwise respect user toggle
                                 if (expandedEntries.contains(entry.id) || searchQuery.isNotBlank()) {
                                     addAll(entry.id, depth + 1)
@@ -585,7 +594,7 @@ fun ListDetailScreen(
                     entries.filter { 
                         val isCurrent = it.dueDate != null && it.dueDate <= currentTime
                         if (isUpcomingMoveToBottom) isCurrent && !it.isChecked else isCurrent
-                    }.sortedByDescending { it.dueDate }.map { Triple(it, 0, false) }
+                    }.sortedByDescending { it.dueDate }.map { HierarchicalEntry(it, 0, false, 0) }
                 } else emptyList()
             }
             val upcomingEntries = remember(entries, isUpcomingList, currentTime, isUpcomingMoveToBottom) {
@@ -593,30 +602,58 @@ fun ListDetailScreen(
                     entries.filter { 
                         val isUpcoming = it.dueDate == null || it.dueDate > currentTime
                         if (isUpcomingMoveToBottom) isUpcoming && !it.isChecked else isUpcoming
-                    }.sortedBy { it.dueDate ?: Long.MAX_VALUE }.map { Triple(it, 0, false) }
+                    }.sortedBy { it.dueDate ?: Long.MAX_VALUE }.map { HierarchicalEntry(it, 0, false, 0) }
                 } else emptyList()
             }
             val completedUpcomingEntries = remember(entries, isUpcomingList, isUpcomingMoveToBottom) {
                 if (isUpcomingList && isUpcomingMoveToBottom) {
-                    entries.filter { it.isChecked }.map { Triple(it, 0, false) }
+                    entries.filter { it.isChecked }.map { HierarchicalEntry(it, 0, false, 0) }
                 } else emptyList()
             }
 
             val checkedEntries = remember(hierarchicalEntries, isMoveToBottom, isUpcomingList) {
                 if (isUpcomingList) emptyList()
-                else if (isMoveToBottom) hierarchicalEntries.filter { it.first.isChecked } 
+                else if (isMoveToBottom) hierarchicalEntries.filter { it.entry.isChecked } 
                 else emptyList()
             }
             val uncheckedEntries = remember(hierarchicalEntries, isMoveToBottom, isUpcomingList) {
                 if (isUpcomingList) emptyList()
-                else if (isMoveToBottom) hierarchicalEntries.filter { !it.first.isChecked } 
+                else if (isMoveToBottom) hierarchicalEntries.filter { !it.entry.isChecked } 
                 else hierarchicalEntries
+            }
+
+            val entryCountText = remember(entries, currentList, showEntryCount) {
+                if (!showEntryCount || entries.isEmpty()) null
+                else {
+                    val totalCount = entries.size
+                    val checkedCount = entries.count { it.isChecked }
+                    val subEntryCount = entries.count { !it.parentId.isNullOrBlank() }
+                    
+                    if (currentList.type == ListType.CHECKLIST) {
+                        val uncheckedCount = totalCount - checkedCount
+                        "$uncheckedCount entries, $checkedCount checked"
+                    } else if (currentList.type == ListType.RATING) {
+                        val watchingCount = entries.count { it.isCurrentlyWatching }
+                        val parentCount = entries.count { it.parentId.isNullOrBlank() && !it.isCurrentlyWatching }
+                        val sectionName = currentList.getEffectiveCurrentSectionName()
+                        val watchingShort = when {
+                            sectionName.contains("read", ignoreCase = true) -> "reading"
+                            sectionName.contains("play", ignoreCase = true) -> "playing"
+                            sectionName.contains("listen", ignoreCase = true) -> "listening"
+                            else -> "watching"
+                        }
+                        "$parentCount entries${if (watchingCount > 0) ", $watchingCount $watchingShort" else ""}"
+                    } else {
+                        val rootCount = totalCount - subEntryCount
+                        "$rootCount entries${if (subEntryCount > 0) ", $subEntryCount sub" else ""}"
+                    }
+                }
             }
 
             LaunchedEffect(entries) {
                 lastAddedId?.let { id ->
                     val listToSearch = if (isUpcomingList) (currentEntries + upcomingEntries) else uncheckedEntries
-                    val index = listToSearch.indexOfFirst { it.first.id == id }
+                    val index = listToSearch.indexOfFirst { it.entry.id == id }
                     if (index != -1) {
                         listState.animateScrollToItem(index)
                         lastAddedId = null
@@ -636,6 +673,21 @@ fun ListDetailScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
+                if (entryCountText != null) {
+                    item(key = "entry_count_label") {
+                        Text(
+                            text = entryCountText,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 6.dp)
+                        )
+                    }
+                }
+
                 if (isUpcomingList) {
                     // CURRENT SECTION
                     if (currentEntries.isNotEmpty()) {
@@ -647,7 +699,7 @@ fun ListDetailScreen(
                                 modifier = Modifier.padding(start = 16.dp, bottom = 4.dp, top = 8.dp)
                             )
                         }
-                        itemsIndexed(currentEntries, key = { _, it -> it.first.id }) { index, item ->
+                        itemsIndexed(currentEntries, key = { _, it -> it.entry.id }) { index, item ->
                             UpcomingEntryItem(
                                 scope = this,
                                 item = item,
@@ -673,7 +725,7 @@ fun ListDetailScreen(
                                 modifier = Modifier.padding(start = 16.dp, bottom = 4.dp, top = 16.dp)
                             )
                         }
-                        itemsIndexed(upcomingEntries, key = { _, it -> it.first.id }) { index, item ->
+                        itemsIndexed(upcomingEntries, key = { _, it -> it.entry.id }) { index, item ->
                             UpcomingEntryItem(
                                 scope = this,
                                 item = item,
@@ -739,7 +791,7 @@ fun ListDetailScreen(
                                 }
                             }
 
-                            itemsIndexed(completedUpcomingEntries, key = { _, it -> it.first.id }) { index, item ->
+                            itemsIndexed(completedUpcomingEntries, key = { _, it -> it.entry.id }) { index, item ->
                                 UpcomingEntryItem(
                                     scope = this,
                                     item = item,
@@ -856,12 +908,14 @@ fun ListDetailScreen(
 
                     itemsIndexed(
                         items = uncheckedEntries,
-                        key = { _, item -> item.first.id }
+                        key = { _, item -> item.entry.id }
                     ) { index, item ->
-                        val entry = item.first
-                        val depth = item.second
-                        val hasChildren = item.third
+                        val entry = item.entry
+                        val depth = item.depth
+                        val hasChildren = item.hasChildren
+                        val childIndex = item.childIndex
                         val isExpanded = expandedEntries.contains(entry.id)
+                        val isCollapsing = isEntryCollapsing(entry, collapsingParentIds, entries)
                         
                         val isFirstItemInList = index == 0
                         val isLastItemInList = index == uncheckedEntries.size - 1
@@ -874,7 +928,11 @@ fun ListDetailScreen(
 
                         val shape = RoundedCornerShape(topRadiusAnimated, topRadiusAnimated, bottomRadiusAnimated, bottomRadiusAnimated)
 
-                        Box(modifier = Modifier.animateItem()) {
+                        Box(
+                            modifier = Modifier
+                                .zIndex((10000 - index).toFloat())
+                                .animateItem()
+                        ) {
                             SwipeToDismissWrapper(
                                 entry = entry,
                                 listType = currentList.type,
@@ -898,8 +956,10 @@ fun ListDetailScreen(
                                     entry = entry,
                                     listType = currentList.type,
                                     depth = depth,
+                                    childIndex = childIndex,
                                     hasChildren = if (currentList.type == ListType.RATING) hasChildren else false,
                                     isExpanded = isExpanded,
+                                    isCollapsing = isCollapsing,
                                     searchQuery = searchQuery,
                                     indicatorColor = indicatorContentColor?.let { 
                                         val baseAlpha = if (isOledMode) 0.28f else 0.12f
@@ -909,9 +969,7 @@ fun ListDetailScreen(
                                     tagNames = remember(allTags, entry.tagIds) { 
                                         allTags.filter { it.id in entry.tagIds }.map { it.name }
                                     },
-                                    onToggleExpand = {
-                                        expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
-                                    },
+                                    onToggleExpand = { toggleExpand(entry.id) },
                                     onToggleCheck = { isChecked ->
                                         val newIsPinned = if (isChecked) false else entry.isPinned
                                         checklistViewModel.onEvent(NoteEvent.SaveEntry(entry.copy(isChecked = isChecked, isPinned = newIsPinned)))
@@ -978,12 +1036,14 @@ fun ListDetailScreen(
 
                             itemsIndexed(
                                 items = checkedEntries,
-                                key = { _, item -> item.first.id }
+                                key = { _, item -> item.entry.id }
                             ) { index, item ->
-                                val entry = item.first
-                                val depth = item.second
-                                val hasChildren = item.third
+                                val entry = item.entry
+                                val depth = item.depth
+                                val hasChildren = item.hasChildren
+                                val childIndex = item.childIndex
                                 val isExpanded = expandedEntries.contains(entry.id)
+                                val isCollapsing = isEntryCollapsing(entry, collapsingParentIds, entries)
                                 
                                 val isFirst = index == 0
                                 val isLast = index == checkedEntries.size - 1
@@ -996,7 +1056,11 @@ fun ListDetailScreen(
 
                                 val shape = RoundedCornerShape(topRadiusAnimated, topRadiusAnimated, bottomRadiusAnimated, bottomRadiusAnimated)
 
-                                Box(modifier = Modifier.animateItem()) {
+                                Box(
+                                    modifier = Modifier
+                                        .zIndex((10000 - index).toFloat())
+                                        .animateItem()
+                                ) {
                                     SwipeToDismissWrapper(
                                         entry = entry,
                                         listType = currentList.type,
@@ -1011,17 +1075,17 @@ fun ListDetailScreen(
                                             entry = entry,
                                             listType = currentList.type,
                                             depth = depth,
+                                            childIndex = childIndex,
                                             hasChildren = hasChildren,
                                             isExpanded = isExpanded,
+                                            isCollapsing = isCollapsing,
                                             searchQuery = searchQuery,
                                             indicatorColor = null,
                                             indicatorContentColor = null,
                                             tagNames = remember(allTags, entry.tagIds) { 
                                                 allTags.filter { it.id in entry.tagIds }.map { it.name }
                                             },
-                                            onToggleExpand = {
-                                                expandedEntries = if (isExpanded) expandedEntries - entry.id else expandedEntries + entry.id
-                                            },
+                                            onToggleExpand = { toggleExpand(entry.id) },
                                             onToggleCheck = { isChecked ->
                                                 val newIsPinned = if (isChecked) false else entry.isPinned
                                                 checklistViewModel.onEvent(NoteEvent.SaveEntry(entry.copy(isChecked = isChecked, isPinned = newIsPinned)))
@@ -1044,7 +1108,7 @@ fun ListDetailScreen(
             // 1. Gradients (zIndex 1)
             SystemBarGradients(
                 modifier = Modifier.zIndex(1f),
-                bottomAlpha = bottomFadeAlpha
+                bottomAlpha = { bottomFadeAlpha }
             )
         }
     }
@@ -1908,7 +1972,7 @@ fun ListDetailScreen(
 @Composable
 private fun UpcomingEntryItem(
     scope: androidx.compose.foundation.lazy.LazyItemScope,
-    item: Triple<ListEntry, Int, Boolean>,
+    item: HierarchicalEntry,
     index: Int,
     total: Int,
     currentList: NoteList,
@@ -1918,7 +1982,7 @@ private fun UpcomingEntryItem(
     onEdit: (ListEntry) -> Unit,
     onDelete: (ListEntry) -> Unit
 ) {
-    val entry = item.first
+    val entry = item.entry
     val isFirst = index == 0
     val isLast = index == total - 1
 
@@ -1946,6 +2010,7 @@ private fun UpcomingEntryItem(
                     entry = entry,
                     listType = currentList.type,
                     depth = 0,
+                    childIndex = 0,
                     hasChildren = false,
                     isExpanded = false,
                     searchQuery = "",
@@ -2247,25 +2312,42 @@ private fun CurrentlyWatchingItem(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        if (parentEntry != null) {
+                        val effectiveRating = if (entry.rating > 0f) entry.rating else (parentEntry?.rating ?: 0f)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
                             Text(
-                                text = parentEntry.title,
+                                text = if (parentEntry != null) parentEntry.title else entry.title,
                                 style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
                                 maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
                             )
+                            if (effectiveRating > 0f) {
+                                val ratingText = if (effectiveRating % 1f == 0f) effectiveRating.toInt().toString() else effectiveRating.toString()
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                                ) {
+                                    Text(
+                                        text = "★ $ratingText",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        if (parentEntry != null) {
                             Text(
                                 text = entry.title,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        } else {
-                            Text(
-                                text = entry.title,
-                                style = MaterialTheme.typography.titleMedium,
-                                maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
@@ -2311,6 +2393,7 @@ private fun CurrentlyWatchingItem(
                         }
                         if (tagNames.isNotEmpty()) {
                             FlowRow(
+                                modifier = Modifier.padding(top = 4.dp),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
@@ -2331,27 +2414,11 @@ private fun CurrentlyWatchingItem(
                         }
                     }
 
-                    // Right Quick Progress Controls & Rating Score
+                    // Right Quick Progress Controls
                     Column(
                         horizontalAlignment = Alignment.End,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        if (entry.rating > 0f) {
-                            val ratingText = if (entry.rating % 1f == 0f) entry.rating.toInt().toString() else entry.rating.toString()
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                            ) {
-                                Text(
-                                    text = "★ $ratingText",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
-
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(2.dp)
@@ -2386,14 +2453,26 @@ private fun CurrentlyWatchingItem(
     )
 }
 
+private fun isEntryCollapsing(entry: ListEntry, collapsingIds: Set<String>, allListEntries: List<ListEntry>): Boolean {
+    if (collapsingIds.isEmpty()) return false
+    var currentParentId = entry.parentId
+    while (currentParentId != null) {
+        if (currentParentId in collapsingIds) return true
+        currentParentId = allListEntries.find { it.id == currentParentId }?.parentId
+    }
+    return false
+}
+
 @OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 fun ListEntryItem(
     entry: ListEntry,
     listType: ListType,
     depth: Int = 0,
+    childIndex: Int = 0,
     hasChildren: Boolean = false,
     isExpanded: Boolean = false,
+    isCollapsing: Boolean = false,
     searchQuery: String = "",
     indicatorColor: Color? = null,
     indicatorContentColor: Color? = null,
@@ -2410,10 +2489,77 @@ fun ListEntryItem(
     
     val ratingColor = indicatorContentColor ?: MaterialTheme.colorScheme.primary
 
+    val startOffsetY = remember(childIndex) { -((childIndex + 1) * 54f) }
+    val enterScale = remember { Animatable(if (isSubentry) 0.85f else 1f) }
+    val enterAlpha = remember { Animatable(if (isSubentry) 0f else 1f) }
+    val enterOffsetY = remember { Animatable(if (isSubentry) startOffsetY else 0f) }
+
+    val staggerDelay = remember(childIndex) { (childIndex * 25).coerceAtMost(100).toLong() }
+
+    LaunchedEffect(entry.id) {
+        if (isSubentry) {
+            if (staggerDelay > 0) delay(staggerDelay)
+            launch {
+                enterScale.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+            }
+            launch {
+                enterAlpha.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 200, easing = LinearOutSlowInEasing)
+                )
+            }
+            launch {
+                enterOffsetY.animateTo(
+                    targetValue = 0f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioLowBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                )
+            }
+        }
+    }
+
+    val collapseScale by animateFloatAsState(
+        targetValue = if (isSubentry && isCollapsing) 0.85f else 1.0f,
+        animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing),
+        label = "collapseScale"
+    )
+    val collapseAlpha by animateFloatAsState(
+        targetValue = if (isSubentry && isCollapsing) 0f else 1.0f,
+        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        label = "collapseAlpha"
+    )
+    val collapseOffsetY by animateFloatAsState(
+        targetValue = if (isSubentry && isCollapsing) startOffsetY else 0f,
+        animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing),
+        label = "collapseOffsetY"
+    )
+
+    val currentScale = if (isCollapsing) collapseScale else enterScale.value
+    val currentAlpha = if (isCollapsing) collapseAlpha else enterAlpha.value
+    val currentOffsetY = if (isCollapsing) collapseOffsetY else enterOffsetY.value
+
+    val density = LocalDensity.current.density
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = (depth * 16).dp)
+            .graphicsLayer {
+                if (isSubentry) {
+                    scaleX = currentScale
+                    scaleY = currentScale
+                    translationY = currentOffsetY * density
+                    alpha = currentAlpha
+                }
+            }
             .clip(shape)
             .combinedClickable(
                 onClick = onClick,
@@ -2552,15 +2698,25 @@ fun ListEntryItem(
                             )
                         }
                         if (hasChildren) {
+                            val rotation by animateFloatAsState(
+                                targetValue = if (isExpanded) 180f else 0f,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioLowBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                ),
+                                label = "expandRotation"
+                            )
                             CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
                                 IconButton(
                                     onClick = onToggleExpand,
                                     modifier = if (isSubentry) Modifier.size(32.dp) else Modifier
                                 ) {
                                     Icon(
-                                        imageVector = if (isExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                                        imageVector = Icons.Rounded.ExpandMore,
                                         contentDescription = if (isExpanded) "Collapse" else "Expand",
-                                        modifier = Modifier.size(if (isSubentry) 18.dp else 24.dp)
+                                        modifier = Modifier
+                                            .size(if (isSubentry) 18.dp else 24.dp)
+                                            .graphicsLayer { rotationZ = rotation }
                                     )
                                 }
                             }
