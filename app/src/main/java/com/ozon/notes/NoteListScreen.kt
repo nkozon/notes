@@ -88,6 +88,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
 import android.content.Intent
 import androidx.compose.ui.graphics.vector.ImageVector
+import coil.compose.AsyncImage
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -666,6 +668,23 @@ fun NoteListScreen(
         ) {
             val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
+            val filteredNotes = remember(notes, selectedTab) {
+                if (selectedTab == MainTab.TEXT) {
+                    notes.filter { it.type == NoteType.TEXT }
+                } else if (selectedTab == MainTab.DRAWINGS) {
+                    notes.filter { it.type == NoteType.DRAWING }
+                } else emptyList()
+            }
+
+            val filteredLists = remember(listsWithCounts, selectedTab) {
+                when (selectedTab) {
+                    MainTab.CHECKLISTS -> listsWithCounts.filter { it.list.type == ListType.CHECKLIST }
+                    MainTab.RATINGS -> listsWithCounts.filter { it.list.type == ListType.RATING }
+                    MainTab.UPCOMING -> listsWithCounts.filter { it.list.type == ListType.UPCOMING }
+                    else -> emptyList()
+                }
+            }
+
             LazyVerticalStaggeredGrid(
                 state = gridState,
                 columns = StaggeredGridCells.Fixed(1),
@@ -680,12 +699,6 @@ fun NoteListScreen(
                 modifier = Modifier.fillMaxSize()
             ) {
                 if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) {
-                    val filteredNotes = if (selectedTab == MainTab.TEXT) {
-                        notes.filter { it.type == NoteType.TEXT }
-                    } else {
-                        notes.filter { it.type == NoteType.DRAWING }
-                    }
-                    
                     // NOTES SECTION
                     if (filteredNotes.isEmpty()) {
                         item(span = StaggeredGridItemSpan.FullLine) {
@@ -728,7 +741,7 @@ fun NoteListScreen(
                                     onLongClick = if (note.type == NoteType.TEXT) {
                                         {
                                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            notesViewModel.onEvent(NoteEvent.ToggleHideNoteContent(note.id))
+                                             notesViewModel.onEvent(NoteEvent.ToggleHideNoteContent(note.id))
                                         }
                                     } else null,
                                     shape = shape,
@@ -738,12 +751,6 @@ fun NoteListScreen(
                         }
                     }
                 } else {
-                    val filteredLists = when (selectedTab) {
-                        MainTab.CHECKLISTS -> listsWithCounts.filter { it.list.type == ListType.CHECKLIST }
-                        MainTab.RATINGS -> listsWithCounts.filter { it.list.type == ListType.RATING }
-                        else -> listsWithCounts.filter { it.list.type == ListType.UPCOMING }
-                    }
-
                     // LISTS SECTION
                     if (filteredLists.isEmpty()) {
                         item(span = StaggeredGridItemSpan.FullLine) {
@@ -1718,23 +1725,12 @@ fun NoteCard(
                             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
                     ) {
                         if (note.previewImage != null) {
-                            val bitmap = remember(note.previewImage) {
-                                try {
-                                    android.graphics.BitmapFactory.decodeFile(note.previewImage).asImageBitmap()
-                                } catch (e: Exception) {
-                                    null
-                                }
-                            }
-                            if (bitmap != null) {
-                                androidx.compose.foundation.Image(
-                                    bitmap = bitmap,
-                                    contentDescription = null,
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = androidx.compose.ui.layout.ContentScale.Fit
-                                )
-                            } else {
-                                DrawingPreview(strokes = note.drawingData?.strokes ?: emptyList())
-                            }
+                            AsyncImage(
+                                model = File(note.previewImage),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                            )
                         } else {
                             DrawingPreview(strokes = note.drawingData?.strokes ?: emptyList())
                         }
@@ -1754,11 +1750,18 @@ fun NoteCard(
     }
 }
 
+private data class StrokeBoundsData(
+    val minX: Float,
+    val minY: Float,
+    val width: Float,
+    val height: Float
+)
+
 @Composable
 fun DrawingPreview(strokes: List<com.ozon.notes.Stroke>) {
     if (strokes.isEmpty()) return
 
-    val previewBitmap = remember(strokes) {
+    val strokeData = remember(strokes) {
         if (strokes.isEmpty()) return@remember null
         
         var minX = Float.MAX_VALUE
@@ -1780,49 +1783,41 @@ fun DrawingPreview(strokes: List<com.ozon.notes.Stroke>) {
         
         if (drawingWidth <= 0 || drawingHeight <= 0) return@remember null
 
-        // Render to a small bitmap for preview
-        val bw = 120; val bh = 80 // Base size for preview
-        val bitmap = android.graphics.Bitmap.createBitmap(bw, bh, android.graphics.Bitmap.Config.ARGB_8888)
-        val canvas = android.graphics.Canvas(bitmap)
-        
-        val scale = minOf(bw / drawingWidth, bh / drawingHeight) * 0.8f
-        val offsetX = (bw - drawingWidth * scale) / 2f - minX * scale
-        val offsetY = (bh - drawingHeight * scale) / 2f - minY * scale
-        
-        val paint = android.graphics.Paint().apply {
-            isAntiAlias = true
-            strokeCap = android.graphics.Paint.Cap.ROUND
-            strokeJoin = android.graphics.Paint.Join.ROUND
-            style = android.graphics.Paint.Style.STROKE
-        }
-        
-        strokes.forEach { stroke ->
-            paint.color = stroke.colorArgb
-            paint.strokeWidth = stroke.width * scale
-            val path = android.graphics.Path()
-            val points = stroke.points
-            if (points.isNotEmpty()) {
-                path.moveTo(points[0].x * scale + offsetX, points[0].y * scale + offsetY)
-                // Simplify: take only every 3rd point
-                for (i in 1 until points.size step 3) {
-                    path.lineTo(points[i].x * scale + offsetX, points[i].y * scale + offsetY)
-                }
-                if ((points.size - 1) % 3 != 0) {
-                    path.lineTo(points.last().x * scale + offsetX, points.last().y * scale + offsetY)
-                }
-            }
-            canvas.drawPath(path, paint)
-        }
-        bitmap.asImageBitmap()
+        StrokeBoundsData(minX, minY, drawingWidth, drawingHeight)
     }
 
-    if (previewBitmap != null) {
-        androidx.compose.foundation.Image(
-            bitmap = previewBitmap,
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize().padding(4.dp),
-            contentScale = androidx.compose.ui.layout.ContentScale.Fit
-        )
+    if (strokeData != null) {
+        androidx.compose.foundation.Canvas(
+            modifier = Modifier.fillMaxSize().padding(4.dp)
+        ) {
+            val scale = minOf(size.width / strokeData.width, size.height / strokeData.height) * 0.8f
+            val offsetX = (size.width - strokeData.width * scale) / 2f - strokeData.minX * scale
+            val offsetY = (size.height - strokeData.height * scale) / 2f - strokeData.minY * scale
+
+            val path = androidx.compose.ui.graphics.Path()
+            strokes.forEach { stroke ->
+                val points = stroke.points
+                if (points.isNotEmpty()) {
+                    path.reset()
+                    path.moveTo(points[0].x * scale + offsetX, points[0].y * scale + offsetY)
+                    for (i in 1 until points.size step 3) {
+                        path.lineTo(points[i].x * scale + offsetX, points[i].y * scale + offsetY)
+                    }
+                    if ((points.size - 1) % 3 != 0) {
+                        path.lineTo(points.last().x * scale + offsetX, points.last().y * scale + offsetY)
+                    }
+                    drawPath(
+                        path = path,
+                        color = Color(stroke.colorArgb),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = stroke.width * scale,
+                            cap = StrokeCap.Round,
+                            join = StrokeJoin.Round
+                        )
+                    )
+                }
+            }
+        }
     }
 }
 

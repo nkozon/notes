@@ -16,13 +16,18 @@ class GetFilteredNotesUseCase {
         query: String,
         sortOrder: ListSortOrder
     ): List<Note> {
-        return notes.filter { note ->
-            if (query.isBlank()) true else {
-                note.title.contains(query, ignoreCase = true) ||
-                        note.content.contains(query, ignoreCase = true) ||
-                        note.previewText?.contains(query, ignoreCase = true) == true
+        val filtered = if (query.isBlank()) {
+            notes
+        } else {
+            val q = query.trim()
+            notes.filter { note ->
+                note.title.contains(q, ignoreCase = true) ||
+                        note.content.contains(q, ignoreCase = true) ||
+                        note.previewText?.contains(q, ignoreCase = true) == true
             }
-        }.sortedWith { a, b ->
+        }
+        if (filtered.size <= 1) return filtered
+        return filtered.sortedWith { a, b ->
             if (a.isPinned != b.isPinned) {
                 return@sortedWith b.isPinned.compareTo(a.isPinned)
             }
@@ -63,9 +68,14 @@ class GetFilteredListsUseCase {
         query: String,
         sortOrder: ListSortOrder
     ): List<NoteList> {
-        return lists.filter {
-            if (query.isBlank()) true else it.title.contains(query, ignoreCase = true)
-        }.sortedWith { a, b ->
+        val filtered = if (query.isBlank()) {
+            lists
+        } else {
+            val q = query.trim()
+            lists.filter { it.title.contains(q, ignoreCase = true) }
+        }
+        if (filtered.size <= 1) return filtered
+        return filtered.sortedWith { a, b ->
             if (a.isPinned != b.isPinned) {
                 return@sortedWith b.isPinned.compareTo(a.isPinned)
             }
@@ -112,8 +122,6 @@ class GetFilteredEntriesUseCase {
         isChecklist: Boolean,
         allTags: List<Tag> = emptyList()
     ): List<ListEntry> {
-        val tagMap = allTags.associate { it.id to it.name }
-
         val filteredByTag = if (tagIds.isEmpty()) {
             entries
         } else {
@@ -129,42 +137,72 @@ class GetFilteredEntriesUseCase {
         val filteredByQuery = if (query.isBlank()) {
             filteredByTag
         } else {
-            val matchingIds = filteredByTag.filter {
-                it.title.contains(query, ignoreCase = true)
-            }.map { it.id }.toSet()
+            val q = query.trim()
+            val matchingIds = HashSet<String>()
+            for (entry in filteredByTag) {
+                if (entry.title.contains(q, ignoreCase = true)) {
+                    matchingIds.add(entry.id)
+                }
+            }
 
             if (isChecklist) {
                 // Flat filtering for checklists
                 filteredByTag.filter { it.id in matchingIds }
             } else {
-                // Hierarchical filtering for rating lists
-                val resultIds = mutableSetOf<String>()
-                val rootEntries = filteredByTag.filter { it.parentId.isNullOrBlank() }
+                // Hierarchical filtering for rating lists with fast O(1) parent-to-children index
+                val childrenByParent = filteredByTag.groupBy { it.parentId }
+                val resultIds = HashSet<String>()
+                val rootEntries = childrenByParent[null] ?: childrenByParent[""] ?: emptyList()
 
-                rootEntries.forEach { root ->
-                    fun hasMatchingDescendant(parentId: String): Boolean {
-                        val children = filteredByTag.filter { it.parentId == parentId }
-                        return children.any { it.id in matchingIds || hasMatchingDescendant(it.id) }
+                fun collectMatchingLineage(node: ListEntry): Boolean {
+                    val children = childrenByParent[node.id] ?: emptyList()
+                    var hasMatchingChild = false
+                    for (child in children) {
+                        if (collectMatchingLineage(child)) {
+                            hasMatchingChild = true
+                        }
                     }
-
-                    if (root.id in matchingIds || hasMatchingDescendant(root.id)) {
-                        resultIds.add(root.id)
-                        fun addAllDescendants(parentId: String) {
-                            filteredByTag.filter { it.parentId == parentId }.forEach { child ->
-                                resultIds.add(child.id)
-                                addAllDescendants(child.id)
+                    val isMatch = node.id in matchingIds || hasMatchingChild
+                    if (isMatch) {
+                        resultIds.add(node.id)
+                        fun addAllSubtree(parentId: String) {
+                            val childList = childrenByParent[parentId] ?: emptyList()
+                            for (c in childList) {
+                                resultIds.add(c.id)
+                                addAllSubtree(c.id)
                             }
                         }
-                        addAllDescendants(root.id)
+                        addAllSubtree(node.id)
                     }
+                    return isMatch
+                }
+
+                for (root in rootEntries) {
+                    collectMatchingLineage(root)
                 }
                 filteredByTag.filter { it.id in resultIds }
             }
         }
 
-        return filteredByQuery.filter {
-            if (isChecklist && behavior == ChecklistBehavior.HIDE) !it.isChecked else true
-        }.sortedWith { a, b ->
+        val filteredByBehavior = if (isChecklist && behavior == ChecklistBehavior.HIDE) {
+            filteredByQuery.filter { !it.isChecked }
+        } else {
+            filteredByQuery
+        }
+
+        if (filteredByBehavior.size <= 1) return filteredByBehavior
+
+        // Precompute tag position and name lookups for O(1) comparator execution
+        val isTagSort = sortOrder == ListSortOrder.TAG_ALPHABETICAL || sortOrder == ListSortOrder.TAG_REVERSE_ALPHABETICAL
+        val tagPositionMap: Map<String, Int> = if (isTagSort) {
+            allTags.associate { it.id to it.position }
+        } else emptyMap()
+
+        val tagMap: Map<String, String> = if (isTagSort) {
+            allTags.associate { it.id to it.name }
+        } else emptyMap()
+
+        return filteredByBehavior.sortedWith { a, b ->
             // 1. Pinning priority (Checklists only)
             if (isChecklist) {
                 if (a.isPinned != b.isPinned) {
@@ -190,19 +228,19 @@ class GetFilteredEntriesUseCase {
                     if (res == 0) b.timestamp.compareTo(a.timestamp) else res
                 }
                 ListSortOrder.TAG_ALPHABETICAL -> {
-                    val aSortedTags = a.tagIds.mapNotNull { id -> allTags.find { it.id == id } }.sortedBy { it.position }
-                    val bSortedTags = b.tagIds.mapNotNull { id -> allTags.find { it.id == id } }.sortedBy { it.position }
-                    val aTag = aSortedTags.firstOrNull()?.name ?: ""
-                    val bTag = bSortedTags.firstOrNull()?.name ?: ""
-                    val res = aTag.compareTo(bTag, ignoreCase = true)
+                    val aFirstTagId = a.tagIds.minByOrNull { tagPositionMap[it] ?: Int.MAX_VALUE }
+                    val bFirstTagId = b.tagIds.minByOrNull { tagPositionMap[it] ?: Int.MAX_VALUE }
+                    val aTagName = aFirstTagId?.let { tagMap[it] } ?: ""
+                    val bTagName = bFirstTagId?.let { tagMap[it] } ?: ""
+                    val res = aTagName.compareTo(bTagName, ignoreCase = true)
                     if (res == 0) a.title.compareTo(b.title, ignoreCase = true) else res
                 }
                 ListSortOrder.TAG_REVERSE_ALPHABETICAL -> {
-                    val aSortedTags = a.tagIds.mapNotNull { id -> allTags.find { it.id == id } }.sortedBy { it.position }
-                    val bSortedTags = b.tagIds.mapNotNull { id -> allTags.find { it.id == id } }.sortedBy { it.position }
-                    val aTag = aSortedTags.firstOrNull()?.name ?: ""
-                    val bTag = bSortedTags.firstOrNull()?.name ?: ""
-                    val res = bTag.compareTo(aTag, ignoreCase = true)
+                    val aFirstTagId = a.tagIds.minByOrNull { tagPositionMap[it] ?: Int.MAX_VALUE }
+                    val bFirstTagId = b.tagIds.minByOrNull { tagPositionMap[it] ?: Int.MAX_VALUE }
+                    val aTagName = aFirstTagId?.let { tagMap[it] } ?: ""
+                    val bTagName = bFirstTagId?.let { tagMap[it] } ?: ""
+                    val res = bTagName.compareTo(aTagName, ignoreCase = true)
                     if (res == 0) a.title.compareTo(b.title, ignoreCase = true) else res
                 }
                 ListSortOrder.RATING_LOW_TO_HIGH -> {

@@ -146,6 +146,21 @@ class TileRenderEngine(
 
     val tileCache = TileLruCache(maxMemoryBytes)
 
+    private val imagePaint = Paint().apply {
+        isFilterBitmap = true
+        isAntiAlias = true
+        isDither = true
+    }
+
+    private val strokePaint = Paint().apply {
+        isAntiAlias = true
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+        style = Paint.Style.STROKE
+    }
+
+    private val strokePath = android.graphics.Path()
+
     fun getVisibleTileKeys(viewport: Rect, lod: Int, buffer: Int = 0): List<TileKey> {
         val worldSize = getTileWorldSize(lod)
         val minTX = floor((viewport.left - buffer * worldSize) / worldSize).toInt()
@@ -303,13 +318,6 @@ class TileRenderEngine(
         canvas.scale(tileScale, tileScale)
         canvas.translate(-tileRect.left, -tileRect.top)
 
-        // 1. Draw images with anti-aliasing and bilinear filtering
-        val imagePaint = Paint().apply {
-            isFilterBitmap = true
-            isAntiAlias = true
-            isDither = true
-        }
-
         visibleImages.forEach { img ->
             val nativeBmp = getBitmap(img.path)
             if (nativeBmp != null && !nativeBmp.isRecycled) {
@@ -331,29 +339,21 @@ class TileRenderEngine(
         }
 
         // 2. Draw strokes with anti-aliasing
-        val paint = Paint().apply {
-            isAntiAlias = true
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-            style = Paint.Style.STROKE
-        }
-        val path = android.graphics.Path()
-
         visibleStrokes.forEach { (_, stroke, _) ->
-            paint.color = stroke.colorArgb
-            paint.strokeWidth = stroke.width
+            strokePaint.color = stroke.colorArgb
+            strokePaint.strokeWidth = stroke.width
             val pts = stroke.points
             if (pts.isNotEmpty()) {
-                path.reset()
-                path.moveTo(pts[0].x, pts[0].y)
+                strokePath.reset()
+                strokePath.moveTo(pts[0].x, pts[0].y)
                 if (pts.size == 1) {
-                    path.lineTo(pts[0].x + 0.1f, pts[0].y)
+                    strokePath.lineTo(pts[0].x + 0.1f, pts[0].y)
                 } else {
                     for (i in 1 until pts.size) {
-                        path.lineTo(pts[i].x, pts[i].y)
+                        strokePath.lineTo(pts[i].x, pts[i].y)
                     }
                 }
-                canvas.drawPath(path, paint)
+                canvas.drawPath(strokePath, strokePaint)
             }
         }
 

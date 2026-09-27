@@ -59,7 +59,7 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
         _selectedFilterTagIds,
         _tagFilterMode,
         repository.getChecklistBehavior(),
-        repository.getAllLists(),
+        currentList,
         allTags
     ) { args ->
         val listId = args[0] as String?
@@ -68,11 +68,10 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
         val tagIds = args[3] as Set<String>
         val filterMode = args[4] as TagFilterMode
         val behavior = args[5] as ChecklistBehavior
-        val allLists = args[6] as List<NoteList>
+        val list = args[6] as NoteList?
         val tags = args[7] as List<Tag>
 
-        val currentList = allLists.find { it.id == listId }
-        val isChecklist = currentList?.type == ListType.CHECKLIST || currentList?.type == ListType.UPCOMING
+        val isChecklist = list?.type == ListType.CHECKLIST || list?.type == ListType.UPCOMING
         
         ChecklistFilterParams(listId, sortOrder, query, tagIds, filterMode, behavior, isChecklist, tags)
     }.flatMapLatest { params ->
