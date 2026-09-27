@@ -339,8 +339,9 @@ fun NoteListScreen(
             ) {
                 if (menuProgress > 0.001f) {
                     Column(
+                        horizontalAlignment = Alignment.End,
                         modifier = Modifier
-                            .fillMaxWidth()
+                            .width(200.dp)
                             .padding(bottom = 8.dp)
                             .layout { measurable, constraints ->
                                 val placeable = measurable.measure(constraints)
@@ -351,7 +352,7 @@ fun NoteListScreen(
                             }
                             .graphicsLayer {
                                 scaleY = menuProgress
-                                transformOrigin = TransformOrigin(0.5f, 1f)
+                                transformOrigin = TransformOrigin(1f, 1f)
                             },
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
@@ -1921,11 +1922,6 @@ private fun MainTabItem(
     val isLabelVisible = isSelected && showLabels
     val hapticFeedback = LocalHapticFeedback.current
 
-    val cornerRadius by animateDpAsState(
-        targetValue = if (isSelected) 12.dp else 24.dp,
-        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
-        label = "tabCornerRadius"
-    )
     val backgroundColor by animateColorAsState(
         targetValue = if (isSelected) {
             MaterialTheme.colorScheme.primaryContainer
@@ -1957,7 +1953,7 @@ private fun MainTabItem(
             onClick()
         },
         modifier = modifier.fillMaxHeight(),
-        shape = RoundedCornerShape(cornerRadius),
+        shape = CircleShape,
         color = backgroundColor,
         tonalElevation = if (isSelected) 2.dp else 0.dp
     ) {
@@ -2127,7 +2123,9 @@ private fun CreateOptionItem(
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 15.sp
                 ),
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
