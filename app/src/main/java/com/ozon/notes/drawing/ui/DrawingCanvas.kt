@@ -138,11 +138,61 @@ fun DrawingCanvas(
 
                         while (true) {
                             val event = awaitPointerEvent()
-                            if (event.changes.size > 1) {
+                            val pressedPointers = event.changes.filter { it.pressed }
+
+                            // Multi-touch Pinch to Zoom & Pan Gesture
+                            if (pressedPointers.size >= 2) {
                                 if (dragMode == DragMode.MOVE || dragMode.name.startsWith("RESIZE")) {
                                     controller.activeTransformation = null
                                 }
                                 currentPathPoints.clear()
+                                gestureRemovedStrokes.clear()
+                                gestureRemovedImages.clear()
+
+                                var prevCentroid = calculateCentroid(pressedPointers)
+                                var prevSpan = calculateSpan(pressedPointers, prevCentroid)
+
+                                while (true) {
+                                    val multiEvent = awaitPointerEvent()
+                                    val currentPressed = multiEvent.changes.filter { it.pressed }
+                                    if (currentPressed.size < 2) {
+                                        multiEvent.changes.forEach { it.consume() }
+                                        break
+                                    }
+
+                                    val currentCentroid = calculateCentroid(currentPressed)
+                                    val currentSpan = calculateSpan(currentPressed, currentCentroid)
+
+                                    val zoomFactor = if (prevSpan > 0f && currentSpan > 0f) {
+                                        currentSpan / prevSpan
+                                    } else 1f
+
+                                    val panDelta = currentCentroid - prevCentroid
+
+                                    val oldScale = controller.canvasScale
+                                    val newScale = (oldScale * zoomFactor).coerceIn(0.1f, 10f)
+                                    val scaleRatio = newScale / oldScale
+
+                                    val oldOffset = controller.canvasOffset
+                                    val newOffset = currentCentroid - (currentCentroid - oldOffset) * scaleRatio + panDelta
+
+                                    controller.canvasScale = newScale
+                                    controller.canvasOffset = newOffset
+
+                                    prevCentroid = currentCentroid
+                                    prevSpan = currentSpan
+
+                                    multiEvent.changes.forEach { it.consume() }
+                                }
+
+                                // Consume until all touches are fully released to prevent accidental single-touch draw on lift
+                                while (true) {
+                                    val upEvent = awaitPointerEvent()
+                                    upEvent.changes.forEach { it.consume() }
+                                    if (upEvent.changes.none { it.pressed }) {
+                                        break
+                                    }
+                                }
                                 break
                             }
 
@@ -746,4 +796,28 @@ private fun drawTileVectorFallback(
     }
 
     canvas.restore()
+}
+
+private fun calculateCentroid(pointers: List<PointerInputChange>): Offset {
+    if (pointers.isEmpty()) return Offset.Zero
+    var sumX = 0f
+    var sumY = 0f
+    for (i in pointers.indices) {
+        val pos = pointers[i].position
+        sumX += pos.x
+        sumY += pos.y
+    }
+    return Offset(sumX / pointers.size, sumY / pointers.size)
+}
+
+private fun calculateSpan(pointers: List<PointerInputChange>, centroid: Offset): Float {
+    if (pointers.size < 2) return 0f
+    var sumDist = 0f
+    for (i in pointers.indices) {
+        val pos = pointers[i].position
+        val dx = pos.x - centroid.x
+        val dy = pos.y - centroid.y
+        sumDist += kotlin.math.sqrt(dx * dx + dy * dy)
+    }
+    return sumDist / pointers.size
 }

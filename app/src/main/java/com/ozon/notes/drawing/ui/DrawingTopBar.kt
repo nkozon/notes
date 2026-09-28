@@ -66,177 +66,199 @@ fun DrawingTopBar(
     var showTitleDialog by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
 
-    Surface(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .shadow(8.dp, CircleShape)
-            .clip(CircleShape)
             .zIndex(25f),
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
-        tonalElevation = 6.dp
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
+        // Left pill: Back button and Title
+        Surface(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .weight(1f, fill = false)
+                .shadow(8.dp, CircleShape)
+                .clip(CircleShape),
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
+            tonalElevation = 6.dp
         ) {
-            IconButton(
-                onClick = onNavigateBack,
-                modifier = Modifier.size(40.dp)
+            Row(
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                    contentDescription = "Back",
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            }
-
-            if (isSplitScreen) {
                 IconButton(
-                    onClick = onToggleSidePanel,
+                    onClick = onNavigateBack,
                     modifier = Modifier.size(40.dp)
                 ) {
                     Icon(
-                        imageVector = if (isSidePanelVisible) Icons.Rounded.Fullscreen else Icons.Rounded.FullscreenExit,
-                        contentDescription = "Toggle Fullscreen",
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = "Back",
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
-            }
 
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(horizontal = 8.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { showTitleDialog = true },
-                contentAlignment = Alignment.CenterStart
-            ) {
-                Text(
-                    text = controller.title.ifBlank { "Drawing" },
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (controller.title.isBlank()) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else MaterialTheme.colorScheme.primary
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                )
-            }
-
-            if (controller.isDirty) {
-                IconButton(
-                    onClick = onSave,
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Save,
-                        contentDescription = "Save Note",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+                if (isSplitScreen) {
+                    IconButton(
+                        onClick = onToggleSidePanel,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isSidePanelVisible) Icons.Rounded.Fullscreen else Icons.Rounded.FullscreenExit,
+                            contentDescription = "Toggle Fullscreen",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
-            } else if (controller.showSavedCheckmark) {
-                IconButton(
-                    onClick = {},
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Check,
-                        contentDescription = "Saved",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
 
-            if (controller.canvasType != CanvasType.INFINITE) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (showPageOverview) MaterialTheme.colorScheme.primaryContainer
-                            else Color.Transparent
-                        )
-                        .combinedClickable(
-                            onClick = onTogglePageOverview,
-                            onLongClick = onAddPageAtEnd
-                        ),
-                    contentAlignment = Alignment.Center
+                        .padding(start = 4.dp, end = 12.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { showTitleDialog = true },
+                    contentAlignment = Alignment.CenterStart
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.GridView,
-                        contentDescription = "Page Overview",
-                        tint = if (showPageOverview) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary
+                    Text(
+                        text = controller.title.ifBlank { "Drawing" },
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (controller.title.isBlank()) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else MaterialTheme.colorScheme.primary
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                     )
                 }
             }
+        }
 
-            Box {
-                IconButton(
-                    onClick = { showMoreMenu = true },
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.MoreVert,
-                        contentDescription = "More",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
+        Spacer(modifier = Modifier.width(8.dp))
+
+        // Right pill: Action buttons (Save/Checkmark, Page Overview, More Menu)
+        Surface(
+            modifier = Modifier
+                .shadow(8.dp, CircleShape)
+                .clip(CircleShape),
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
+            tonalElevation = 6.dp
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (controller.isDirty) {
+                    IconButton(
+                        onClick = onSave,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Save,
+                            contentDescription = "Save Note",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                } else if (controller.showSavedCheckmark) {
+                    IconButton(
+                        onClick = {},
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Check,
+                            contentDescription = "Saved",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
-                DropdownMenu(
-                    expanded = showMoreMenu,
-                    onDismissRequest = { showMoreMenu = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Insert Image") },
-                        onClick = {
-                            showMoreMenu = false
-                            onInsertImage()
-                        },
-                        leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null) }
-                    )
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text(if (showGuidelines) "Hide Guidelines" else "Show Guidelines") },
-                        onClick = {
-                            showMoreMenu = false
-                            onToggleGuidelines()
-                        },
-                        leadingIcon = {
-                            Icon(
-                                if (showGuidelines) Icons.Rounded.GridOff else Icons.Rounded.GridOn,
-                                contentDescription = null
+
+                if (controller.canvasType != CanvasType.INFINITE) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (showPageOverview) MaterialTheme.colorScheme.primaryContainer
+                                else Color.Transparent
                             )
-                        }
-                    )
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        text = { Text("Export as PNG") },
-                        onClick = {
-                            showMoreMenu = false
-                            onExportPng()
-                        },
-                        leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null) }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Export as Bitmap PDF") },
-                        onClick = {
-                            showMoreMenu = false
-                            onExportPdfBitmap()
-                        },
-                        leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, contentDescription = null) }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Export as Vector PDF") },
-                        onClick = {
-                            showMoreMenu = false
-                            onExportPdfVector()
-                        },
-                        leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, contentDescription = null) }
-                    )
+                            .combinedClickable(
+                                onClick = onTogglePageOverview,
+                                onLongClick = onAddPageAtEnd
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.GridView,
+                            contentDescription = "Page Overview",
+                            tint = if (showPageOverview) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                Box {
+                    IconButton(
+                        onClick = { showMoreMenu = true },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.MoreVert,
+                            contentDescription = "More",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showMoreMenu,
+                        onDismissRequest = { showMoreMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Insert Image") },
+                            onClick = {
+                                showMoreMenu = false
+                                onInsertImage()
+                            },
+                            leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null) }
+                        )
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text(if (showGuidelines) "Hide Guidelines" else "Show Guidelines") },
+                            onClick = {
+                                showMoreMenu = false
+                                onToggleGuidelines()
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    if (showGuidelines) Icons.Rounded.GridOff else Icons.Rounded.GridOn,
+                                    contentDescription = null
+                                )
+                            }
+                        )
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = { Text("Export as PNG") },
+                            onClick = {
+                                showMoreMenu = false
+                                onExportPng()
+                            },
+                            leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Export as Bitmap PDF") },
+                            onClick = {
+                                showMoreMenu = false
+                                onExportPdfBitmap()
+                            },
+                            leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, contentDescription = null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Export as Vector PDF") },
+                            onClick = {
+                                showMoreMenu = false
+                                onExportPdfVector()
+                            },
+                            leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, contentDescription = null) }
+                        )
+                    }
                 }
             }
         }
