@@ -2,455 +2,67 @@ package com.ozon.notes
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.pdf.PdfDocument
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
-import android.view.MotionEvent
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.collectLatest
-import kotlin.math.floor
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.Spring
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.animation.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.gestures.*
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.automirrored.rounded.Redo
-import androidx.compose.material.icons.automirrored.rounded.Undo
-import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.zIndex
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.withTransform
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.painter.Painter
-import androidx.compose.ui.graphics.vector.rememberVectorPainter
-import androidx.compose.ui.input.pointer.*
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalViewConfiguration
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.ozon.notes.drawing.controller.DrawingCanvasController
+import com.ozon.notes.drawing.export.DrawingExportEngine
+import com.ozon.notes.drawing.geometry.DrawingGeometry
+import com.ozon.notes.drawing.history.DrawingAction
+import com.ozon.notes.drawing.history.GeometricChange
+import com.ozon.notes.drawing.history.PropertyChange
+import com.ozon.notes.drawing.render.TileRenderEngine
+import com.ozon.notes.drawing.ui.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.*
-import kotlin.math.roundToInt
 
-val SPATIAL_GRID_SIZE = 500f
-
-
-data class PropertyChange(
-    val oldColor: Int? = null,
-    val newColor: Int? = null,
-    val oldWidth: Float? = null,
-    val newWidth: Float? = null
-)
-
-data class GeometricChange(
-    val offset: com.ozon.notes.DrawingPoint? = null,
-    val scale: com.ozon.notes.DrawingPoint? = null,
-    val pivot: com.ozon.notes.DrawingPoint? = null
-)
-
-sealed class DrawingAction {
-    abstract val estimatedSize: Int
-
-    data class Add(
-        val strokes: List<com.ozon.notes.Stroke> = emptyList(),
-        val images: List<com.ozon.notes.DrawingImage> = emptyList()
-    ) : DrawingAction() {
-        override val estimatedSize: Int get() = 
-            strokes.sumOf { 64 + it.points.size * 8 } + images.size * 128
-    }
-    
-    data class Remove(
-        val strokes: List<com.ozon.notes.Stroke> = emptyList(),
-        val images: List<com.ozon.notes.DrawingImage> = emptyList()
-    ) : DrawingAction() {
-        override val estimatedSize: Int get() = 
-            strokes.sumOf { 64 + it.points.size * 8 } + images.size * 128
-    }
-    
-    data class Transform(
-        val strokeIds: Set<String> = emptySet(),
-        val imageIds: Set<String> = emptySet(),
-        val propertyChange: PropertyChange? = null,
-        val geometricChange: GeometricChange? = null,
-        val oldStrokes: List<com.ozon.notes.Stroke>? = null,
-        val newStrokes: List<com.ozon.notes.Stroke>? = null,
-        val oldImages: List<com.ozon.notes.DrawingImage>? = null,
-        val newImages: List<com.ozon.notes.DrawingImage>? = null,
-        val sharesPoints: Boolean = false
-    ) : DrawingAction() {
-        override val estimatedSize: Int get() {
-            var size = (strokeIds.size + imageIds.size) * 64 + 128
-            if (oldStrokes != null) {
-                size += if (sharesPoints) oldStrokes.size * 64 else oldStrokes.sumOf { 64 + it.points.size * 8 }
-            }
-            if (newStrokes != null) {
-                size += if (sharesPoints) newStrokes.size * 64 else newStrokes.sumOf { 64 + it.points.size * 8 }
-            }
-            size += (oldImages?.size ?: 0) * 128 + (newImages?.size ?: 0) * 128
-            return size
-        }
-    }
-}
+// Backward-compatibility aliases
+val SPATIAL_GRID_SIZE = com.ozon.notes.drawing.spatial.DEFAULT_SPATIAL_GRID_SIZE
 
 fun getBounds(
-    strokesList: List<com.ozon.notes.Stroke>, 
-    imagesList: List<com.ozon.notes.DrawingImage>,
+    strokesList: List<Stroke>,
+    imagesList: List<DrawingImage>,
     strokeBoundsMap: Map<String, Rect>? = null
-): Rect {
-    if (strokesList.isEmpty() && imagesList.isEmpty()) return Rect.Zero
-    var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
-    
-    strokesList.forEach { s ->
-        val cached = strokeBoundsMap?.get(s.id)
-        if (cached != null) {
-            minX = minOf(minX, cached.left); minY = minOf(minY, cached.top)
-            maxX = maxOf(maxX, cached.right); maxY = maxOf(maxY, cached.bottom)
-        } else {
-            val halfWidth = s.width / 2f
-            s.points.forEach { p ->
-                minX = minOf(minX, p.x - halfWidth); minY = minOf(minY, p.y - halfWidth)
-                maxX = maxOf(maxX, p.x + halfWidth); maxY = maxOf(maxY, p.y + halfWidth)
-            }
-        }
-    }
-    
-    imagesList.forEach { img ->
-        minX = minOf(minX, img.offset.x)
-        minY = minOf(minY, img.offset.y)
-        maxX = maxOf(maxX, img.offset.x + img.scale.x)
-        maxY = maxOf(maxY, img.offset.y + img.scale.y)
-    }
-    return Rect(minX, minY, maxX, maxY)
-}
-
-class UndoStackManager(private val maxMemoryBytes: Long = 32L * 1024 * 1024) {
-    val undoStack = mutableStateListOf<DrawingAction>()
-    val redoStack = mutableStateListOf<DrawingAction>()
-    
-    fun pushAction(action: DrawingAction) {
-        undoStack.add(action)
-        redoStack.clear()
-        enforceMemoryLimit()
-    }
-
-    fun popUndo(): DrawingAction? {
-        if (undoStack.isEmpty()) return null
-        val action = undoStack.removeAt(undoStack.size - 1)
-        redoStack.add(action)
-        return action
-    }
-
-    fun popRedo(): DrawingAction? {
-        if (redoStack.isEmpty()) return null
-        val action = redoStack.removeAt(redoStack.size - 1)
-        undoStack.add(action)
-        return action
-    }
-    
-    private fun enforceMemoryLimit() {
-        var totalSize = (undoStack.sumOf { it.estimatedSize.toLong() } + 
-                         redoStack.sumOf { it.estimatedSize.toLong() })
-        
-        while (totalSize > maxMemoryBytes && undoStack.isNotEmpty()) {
-            val removed = undoStack.removeAt(0)
-            totalSize -= removed.estimatedSize
-        }
-    }
-
-    fun clear() {
-        undoStack.clear()
-        redoStack.clear()
-    }
-}
-
-class SpatialIndexManager(private val gridSize: Float) {
-    var spatialIndex = mutableMapOf<Long, MutableList<String>>()
-    var strokeBoundsMap = mutableMapOf<String, Rect>()
-    var strokeMap = mutableMapOf<String, com.ozon.notes.Stroke>()
-
-    fun gridKey(x: Int, y: Int): Long = (x.toLong() shl 32) xor (y.toLong() and 0xffffffffL)
-
-    fun reset(initialStrokes: List<com.ozon.notes.Stroke>) {
-        spatialIndex = mutableMapOf()
-        strokeBoundsMap = mutableMapOf()
-        strokeMap = mutableMapOf()
-        initialStrokes.forEach { addStroke(it) }
-    }
-
-    fun addStroke(stroke: com.ozon.notes.Stroke) {
-        val rect = computeStrokeBounds(stroke)
-        strokeBoundsMap[stroke.id] = rect
-        strokeMap[stroke.id] = stroke
-        val minGX = (rect.left / gridSize).toInt()
-        val maxGX = (rect.right / gridSize).toInt()
-        val minGY = (rect.top / gridSize).toInt()
-        val maxGY = (rect.bottom / gridSize).toInt()
-        for (gx in minGX..maxGX) {
-            for (gy in minGY..maxGY) {
-                spatialIndex.getOrPut(gridKey(gx, gy)) { mutableListOf() }.add(stroke.id)
-            }
-        }
-    }
-
-    fun removeStroke(strokeId: String) {
-        val rect = strokeBoundsMap.remove(strokeId)
-        strokeMap.remove(strokeId)
-        if (rect != null) {
-            val minGX = (rect.left / gridSize).toInt()
-            val maxGX = (rect.right / gridSize).toInt()
-            val minGY = (rect.top / gridSize).toInt()
-            val maxGY = (rect.bottom / gridSize).toInt()
-            for (gx in minGX..maxGX) {
-                for (gy in minGY..maxGY) {
-                    val key = gridKey(gx, gy)
-                    spatialIndex[key]?.let { ids ->
-                        ids.remove(strokeId)
-                        if (ids.isEmpty()) spatialIndex.remove(key)
-                    }
-                }
-            }
-        }
-    }
-
-    fun updateStroke(oldStroke: com.ozon.notes.Stroke, newStroke: com.ozon.notes.Stroke) {
-        removeStroke(oldStroke.id)
-        addStroke(newStroke)
-    }
-
-    fun computeStrokeBounds(stroke: com.ozon.notes.Stroke): Rect {
-        val hw = stroke.width / 2f
-        var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE; var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
-        stroke.points.forEach { p ->
-            if (p.x - hw < minX) minX = p.x - hw
-            if (p.x + hw > maxX) maxX = p.x + hw
-            if (p.y - hw < minY) minY = p.y - hw
-            if (p.y + hw > maxY) maxY = p.y + hw
-        }
-        if (minX == Float.MAX_VALUE) return Rect.Zero
-        return Rect(minX, minY, maxX, maxY)
-    }
-}
-
-class PdfBitmapCacheManager(private val maxMemoryBytes: Long = 48L * 1024 * 1024) {
-    val bitmaps = mutableStateMapOf<Int, Bitmap>()
-    val scales = mutableMapOf<Int, Float>()
-    private val accessOrder = mutableListOf<Int>()
-    private var currentSize = 0L
-
-    fun get(index: Int): Bitmap? {
-        val bitmap = bitmaps[index]
-        if (bitmap != null) {
-            markAccessed(index)
-        }
-        return bitmap
-    }
-
-    fun markAccessed(index: Int) {
-        if (bitmaps.containsKey(index)) {
-            accessOrder.remove(index)
-            accessOrder.add(index)
-        }
-    }
-
-    fun put(index: Int, bitmap: Bitmap, scale: Float) {
-        val oldBitmap = bitmaps[index]
-        if (oldBitmap != null) {
-            currentSize -= oldBitmap.allocationByteCount
-            oldBitmap.recycle()
-        }
-        
-        bitmaps[index] = bitmap
-        scales[index] = scale
-        currentSize += bitmap.allocationByteCount
-        
-        accessOrder.remove(index)
-        accessOrder.add(index)
-        
-        evictIfNeeded()
-    }
-
-    private fun evictIfNeeded() {
-        while (currentSize > maxMemoryBytes && accessOrder.isNotEmpty()) {
-            val indexToRemove = accessOrder.removeAt(0)
-            val bitmap = bitmaps.remove(indexToRemove)
-            scales.remove(indexToRemove)
-            if (bitmap != null) {
-                currentSize -= bitmap.allocationByteCount
-                bitmap.recycle()
-            }
-        }
-    }
-
-    fun clear() {
-        bitmaps.values.forEach { it.recycle() }
-        bitmaps.clear()
-        scales.clear()
-        accessOrder.clear()
-        currentSize = 0L
-    }
-}
-
-class LruPathCache(private val maxSize: Int) {
-    private val cache = object : LinkedHashMap<String, android.graphics.Path>(maxSize, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, android.graphics.Path>?): Boolean {
-            return size > maxSize
-        }
-    }
-
-    @Synchronized
-    fun get(id: String): android.graphics.Path? = cache[id]
-
-    @Synchronized
-    fun put(id: String, path: android.graphics.Path) {
-        cache[id] = path
-    }
-
-    @Synchronized
-    fun remove(id: String) {
-        cache.remove(id)
-    }
-
-    @Synchronized
-    fun clear() {
-        cache.clear()
-    }
-
-    @Synchronized
-    fun keys(): Set<String> = cache.keys.toSet()
-}
-
-class DrawingImageCache(private val context: Context) {
-    private val memoryCache = java.util.concurrent.ConcurrentHashMap<String, Bitmap>()
-
-    fun get(path: String): Bitmap? {
-        memoryCache[path]?.let { if (!it.isRecycled) return it }
-        return loadDirect(path)
-    }
-
-    fun loadDirect(path: String): Bitmap? {
-        try {
-            var f = File(path)
-            if (!f.exists()) {
-                val fileName = path.removePrefix("media/").split("/").last().split("\\").last()
-                val fallback = File(context.filesDir, fileName)
-                if (fallback.exists()) f = fallback
-            }
-            if (!f.exists()) return null
-
-            val maxDim = 2048
-            val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            android.graphics.BitmapFactory.decodeFile(f.absolutePath, opts)
-            val (w, h) = opts.outWidth to opts.outHeight
-            if (w <= 0 || h <= 0) return null
-
-            var inSampleSize = 1
-            if (w > maxDim || h > maxDim) {
-                val halfW = w / 2; val halfH = h / 2
-                while ((halfW / inSampleSize) >= maxDim || (halfH / inSampleSize) >= maxDim) {
-                    inSampleSize *= 2
-                }
-            }
-            opts.inJustDecodeBounds = false
-            opts.inSampleSize = inSampleSize
-            opts.inPreferredConfig = Bitmap.Config.ARGB_8888
-            val bmp = android.graphics.BitmapFactory.decodeFile(f.absolutePath, opts)
-            if (bmp != null) {
-                memoryCache[path] = bmp
-            }
-            return bmp
-        } catch (e: Exception) {
-            e.printStackTrace()
-            return null
-        }
-    }
-
-    fun remove(path: String) {
-        memoryCache.remove(path)
-    }
-
-    fun clear() {
-        memoryCache.clear()
-    }
-}
+): Rect = DrawingGeometry.getBounds(strokesList, imagesList, strokeBoundsMap)
 
 data class TileRenderSnapshot(
     val lod: Int,
-    val keys: List<TileKey>,
+    val keys: List<com.ozon.notes.drawing.render.TileKey>,
     val sCount: Int,
     val iCount: Int,
     val selS: Set<String>,
@@ -467,23 +79,8 @@ fun DrawingNoteScreen(
     onNavigateUp: () -> Unit
 ) {
     val context = LocalContext.current
-    val focusManager = LocalFocusManager.current
-    val isSidePanelVisible by notesViewModel.isSidePanelVisible.collectAsStateWithLifecycle()
-    val forceStylusOnly by notesViewModel.forceStylusOnly.collectAsStateWithLifecycle()
-    val lastDrawingColor by notesViewModel.lastDrawingColor.collectAsStateWithLifecycle()
-    val lastDrawingThickness by notesViewModel.lastDrawingThickness.collectAsStateWithLifecycle()
-    val thicknessPresets by notesViewModel.drawingThicknessPresets.collectAsStateWithLifecycle()
-    val smoothingStrength by settingsViewModel.smoothingStrength.collectAsStateWithLifecycle()
-    val savedToolbarAnchor by notesViewModel.toolbarAnchor.collectAsStateWithLifecycle()
-    val appTheme by settingsViewModel.themeState.collectAsStateWithLifecycle()
-    val isDarkTheme = when (appTheme) {
-        AppTheme.LIGHT -> false
-        AppTheme.DARK -> true
-        AppTheme.SYSTEM -> androidx.compose.foundation.isSystemInDarkTheme()
-    }
-    
-    val snackbarHostState = remember { SnackbarHostState() }
     val coroutineScope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     fun showSnackbar(message: String) {
         coroutineScope.launch {
@@ -496,76 +93,48 @@ fun DrawingNoteScreen(
             )
         }
     }
-    
-    var title by remember { mutableStateOf("") }
-    var isPinned by remember { mutableStateOf(false) }
-    var isContentHidden by remember { mutableStateOf(false) }
-    val strokeMap = remember { mutableStateMapOf<String, com.ozon.notes.Stroke>() }
-    val strokeOrder = remember { mutableStateListOf<String>() }
-    val imageMap = remember { mutableStateMapOf<String, com.ozon.notes.DrawingImage>() }
-    val imageOrder = remember { mutableStateListOf<String>() }
-    
-    val currentStrokes by remember { derivedStateOf { strokeOrder.mapNotNull { strokeMap[it] } } }
-    val currentImages by remember { derivedStateOf { imageOrder.mapNotNull { imageMap[it] } } }
 
-    val strokeToIndex by remember { derivedStateOf { strokeOrder.withIndex().associate { it.value to it.index } } }
+    val controller = remember {
+        DrawingCanvasController(context = context, noteId = noteId)
+    }
 
-    val undoStackManager = remember { UndoStackManager() }
-    val gestureRemovedStrokes = remember { mutableStateListOf<com.ozon.notes.Stroke>() }
-    val gestureRemovedImages = remember { mutableStateListOf<com.ozon.notes.DrawingImage>() }
-    
-    var canvasType by remember { mutableStateOf(CanvasType.INFINITE) }
-    var pageLayout by remember { mutableStateOf(PageLayout()) }
-    var pdfInfo by remember { mutableStateOf<PdfInfo?>(null) }
-    var pageCount by remember { mutableIntStateOf(1) }
-    var viewportLoaded by remember { mutableStateOf(false) }
-    var wasSaved by remember { mutableStateOf(false) }
-    var lastSavedTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    var isDirty by remember { mutableStateOf(false) }
-    var showSavedCheckmark by remember { mutableStateOf(false) }
-    var showGuidelines by remember { mutableStateOf(false) }
-    var showPageOverview by remember { mutableStateOf(false) }
-    var showTitleDialog by remember { mutableStateOf(false) }
+    // --- State collections from ViewModels ---
+    val isSidePanelVisible by notesViewModel.isSidePanelVisible.collectAsStateWithLifecycle()
+    val forceStylusOnly by notesViewModel.forceStylusOnly.collectAsStateWithLifecycle()
+    val lastDrawingColor by notesViewModel.lastDrawingColor.collectAsStateWithLifecycle()
+    val lastDrawingThickness by notesViewModel.lastDrawingThickness.collectAsStateWithLifecycle()
+    val thicknessPresets by notesViewModel.drawingThicknessPresets.collectAsStateWithLifecycle()
+    val smoothingStrength by settingsViewModel.smoothingStrength.collectAsStateWithLifecycle()
+    val savedToolbarAnchor by notesViewModel.toolbarAnchor.collectAsStateWithLifecycle()
+    val appTheme by settingsViewModel.themeState.collectAsStateWithLifecycle()
 
-    var currentTool by remember { mutableStateOf(DrawingTool.PEN) }
-    var activeDrawingTool by remember { mutableStateOf<DrawingTool?>(null) }
-    val currentPathPoints = remember { mutableStateListOf<DrawingPoint>() }
-    var selectedStrokeIds by remember { mutableStateOf(setOf<String>()) }
-    var selectedImageIds by remember { mutableStateOf(setOf<String>()) }
-    var activeTransformation by remember { mutableStateOf<GeometricChange?>(null) }
+    val isDarkTheme = when (appTheme) {
+        AppTheme.LIGHT -> false
+        AppTheme.DARK -> true
+        AppTheme.SYSTEM -> isSystemInDarkTheme()
+    }
 
-    val tileEngine = remember { TileRenderEngine() }
-    var tileCacheVersion by remember { mutableIntStateOf(0) }
+    // Sync VM settings into controller on init
+    LaunchedEffect(lastDrawingColor, lastDrawingThickness, thicknessPresets) {
+        controller.selectedPenColor = Color(lastDrawingColor)
+        controller.penThickness = lastDrawingThickness
+        controller.thicknessPresets = thicknessPresets
+    }
 
-    // Cached Path for the active stroke — reused every frame to avoid GC pressure
-    val activeStrokePath = remember { Path() }
-
-    var clipboardStrokes by remember { mutableStateOf<List<com.ozon.notes.Stroke>?>(null) }
-    
     var toolbarAnchor by remember(savedToolbarAnchor) { mutableStateOf(savedToolbarAnchor) }
     var isToolbarCollapsed by remember { mutableStateOf(false) }
+    var showGuidelines by remember { mutableStateOf(false) }
+    var showPageOverview by remember { mutableStateOf(false) }
 
-    var canvasOffset by remember { mutableStateOf(Offset.Zero) }
-    var canvasScale by remember { mutableFloatStateOf(1f) }
-    var penThickness by remember { mutableFloatStateOf(lastDrawingThickness) }
-    var eraserThickness by remember { mutableFloatStateOf(20f) }
-    var selectedPenColor by remember { mutableStateOf(Color(lastDrawingColor)) }
-    
     var showThicknessPopup by remember { mutableStateOf(false) }
     var showColorPopup by remember { mutableStateOf(false) }
-    var showSelectionThicknessPopup by remember { mutableStateOf(false) }
-    var showSelectionColorPopup by remember { mutableStateOf(false) }
     var showSelectionExportDialog by remember { mutableStateOf(false) }
-    var pendingExportSelection by remember { mutableStateOf<Pair<List<com.ozon.notes.Stroke>, List<com.ozon.notes.DrawingImage>>?>(null) }
-
-    var canvasSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
-    var lastStylusTouchTime by remember { mutableLongStateOf(0L) }
-
-    val viewConfiguration = LocalViewConfiguration.current
+    var pendingExportSelection by remember { mutableStateOf<Pair<List<Stroke>, List<DrawingImage>>?>(null) }
 
     val isFullscreenTablet = isSplitScreen && !isSidePanelVisible
     val shouldBeImmersive = !isSplitScreen || isFullscreenTablet
 
+    // System bars immersion
     LaunchedEffect(shouldBeImmersive, isDarkTheme) {
         if (shouldBeImmersive) {
             (context as? ComponentActivity)?.enableEdgeToEdge(
@@ -578,46 +147,44 @@ fun DrawingNoteScreen(
             (context as? ComponentActivity)?.enableEdgeToEdge(
                 statusBarStyle = SystemBarStyle.auto(
                     android.graphics.Color.TRANSPARENT,
-                    android.graphics.Color.TRANSPARENT,
+                    android.graphics.Color.TRANSPARENT
                 ) { isDarkTheme },
                 navigationBarStyle = SystemBarStyle.auto(
                     android.graphics.Color.TRANSPARENT,
-                    android.graphics.Color.TRANSPARENT,
+                    android.graphics.Color.TRANSPARENT
                 ) { isDarkTheme }
             )
         }
     }
-    
+
     DisposableEffect(isDarkTheme) {
         onDispose {
             (context as? ComponentActivity)?.enableEdgeToEdge(
                 statusBarStyle = SystemBarStyle.auto(
                     android.graphics.Color.TRANSPARENT,
-                    android.graphics.Color.TRANSPARENT,
+                    android.graphics.Color.TRANSPARENT
                 ) { isDarkTheme },
                 navigationBarStyle = SystemBarStyle.auto(
                     android.graphics.Color.TRANSPARENT,
-                    android.graphics.Color.TRANSPARENT,
+                    android.graphics.Color.TRANSPARENT
                 ) { isDarkTheme }
             )
         }
     }
 
-    val updatedSelectedStrokeIds by rememberUpdatedState(selectedStrokeIds)
-    val updatedSelectedImageIds by rememberUpdatedState(selectedImageIds)
-    val pdfBitmapCache = remember { PdfBitmapCacheManager() }
+    // PDF Renderer holder
     var pdfRenderer by remember { mutableStateOf<PdfRenderer?>(null) }
 
-    DisposableEffect(pdfInfo) {
+    DisposableEffect(controller.pdfInfo) {
         onDispose {
             pdfRenderer?.close()
             pdfRenderer = null
-            pdfBitmapCache.clear()
+            controller.pdfBitmapCache.clear()
         }
     }
 
-    LaunchedEffect(pdfInfo) {
-        val info = pdfInfo
+    LaunchedEffect(controller.pdfInfo) {
+        val info = controller.pdfInfo
         if (info != null) {
             withContext(Dispatchers.IO) {
                 try {
@@ -645,95 +212,52 @@ fun DrawingNoteScreen(
         }
     }
 
-    val pagePositions = remember(pdfInfo, pageLayout, pageCount, canvasType) {
-        val info = pdfInfo
-        if (canvasType == CanvasType.PDF && info != null) {
-            val totalCount = maxOf(info.pageCount, pageCount)
-            val positions = ArrayList<Rect>(totalCount)
-            var currentY = 0f
-            for (i in 0 until totalCount) {
-                val pageSize = info.pageSizes.getOrNull(i) ?: PdfPageSize(
-                    info.pageSizes.firstOrNull()?.width ?: 800f,
-                    info.pageSizes.firstOrNull()?.height ?: 1100f
-                )
-                val fullWidth = pageLayout.marginLeft + pageSize.width + pageLayout.marginRight
-                val fullHeight = pageLayout.marginTop + pageSize.height + pageLayout.marginBottom
-                positions.add(Rect(0f, currentY, fullWidth, currentY + fullHeight))
-                currentY += fullHeight + pageLayout.spacing
-            }
-            positions
-        } else if (canvasType == CanvasType.PAGED) {
-            val positions = ArrayList<Rect>(pageCount)
-            var currentY = 0f
-            for (i in 0 until pageCount) {
-                positions.add(Rect(0f, currentY, pageLayout.width, currentY + pageLayout.height))
-                currentY += pageLayout.height + pageLayout.spacing
-            }
-            positions
-        } else {
-            emptyList<Rect>()
-        }
-    }
-    
-    // Viewport calculation for on-demand rendering - uses derivedStateOf to prevent stale closures
-    val currentViewport by remember {
-        derivedStateOf {
-            Rect(
-                left = (-canvasOffset.x / canvasScale) - 400f, // even larger buffer for reliability
-                top = (-canvasOffset.y / canvasScale) - 400f,
-                right = ((canvasSize.width - canvasOffset.x) / canvasScale) + 400f,
-                bottom = ((canvasSize.height - canvasOffset.y) / canvasScale) + 400f
-            )
-        }
-    }
-
+    // On-demand asynchronous PDF page rendering
     @OptIn(kotlinx.coroutines.FlowPreview::class)
-    LaunchedEffect(pdfRenderer, pdfInfo) {
-        if (pdfRenderer == null || pdfInfo == null) return@LaunchedEffect
-        
-        // Use snapshotFlow to observe the derivedStateOf currentViewport
-        snapshotFlow { currentViewport }
+    LaunchedEffect(pdfRenderer, controller.pdfInfo) {
+        if (pdfRenderer == null || controller.pdfInfo == null) return@LaunchedEffect
+
+        snapshotFlow { controller.currentViewport }
             .debounce(50)
             .collect { viewport ->
                 val renderer = pdfRenderer ?: return@collect
-                
+                val pagePositions = controller.pagePositions
+
                 withContext(Dispatchers.IO) {
-                    // Filter visible indices based on the latest viewport
                     val visibleIndices = pagePositions.indices.filter { pagePositions[it].overlaps(viewport) }
                         .sortedBy { Math.abs(pagePositions[it].center.y - viewport.center.y) }
 
                     if (visibleIndices.isEmpty()) return@withContext
 
-                    // Render visible pages sequentially but with proximity priority
                     visibleIndices.forEach { i ->
                         kotlinx.coroutines.yield()
-                        
-                        val targetQuality = (canvasScale * 1.3f).coerceIn(0.7f, 2.2f)
-                        val currentQuality = pdfBitmapCache.scales[i] ?: 0f
-                        
+
+                        val targetQuality = (controller.canvasScale * 1.3f).coerceIn(0.7f, 2.2f)
+                        val currentQuality = controller.pdfBitmapCache.scales[i] ?: 0f
+
                         val needsHigherQuality = targetQuality > currentQuality * 1.15f
                         val needsLowerQuality = currentQuality > targetQuality * 2.5f
-                        
-                        val existingBitmap = pdfBitmapCache.get(i)
+
+                        val existingBitmap = controller.pdfBitmapCache.get(i)
                         if (existingBitmap == null || needsHigherQuality || needsLowerQuality) {
-                            var page: android.graphics.pdf.PdfRenderer.Page? = null
+                            var page: PdfRenderer.Page? = null
                             try {
                                 page = synchronized(renderer) { renderer.openPage(i) }
-                                
+
                                 val maxDim = 2048f
                                 val safetyScale = minOf(maxDim / page.width, maxDim / page.height).coerceAtMost(1.0f)
                                 val finalQuality = (targetQuality * safetyScale).coerceAtLeast(0.1f)
-                                
+
                                 val bw = (page.width * finalQuality).toInt()
                                 val bh = (page.height * finalQuality).toInt()
-                                
+
                                 if (bw > 0 && bh > 0) {
                                     val bitmap = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
                                     bitmap.eraseColor(android.graphics.Color.WHITE)
                                     synchronized(renderer) { page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY) }
-                                    
+
                                     withContext(Dispatchers.Main) {
-                                        pdfBitmapCache.put(i, bitmap, finalQuality)
+                                        controller.pdfBitmapCache.put(i, bitmap, finalQuality)
                                     }
                                 }
                             } catch (e: Exception) {
@@ -742,9 +266,8 @@ fun DrawingNoteScreen(
                                 page?.let { p -> synchronized(renderer) { p.close() } }
                             }
                         } else {
-                            // If already cached and quality is fine, just ensure it's marked as accessed
                             withContext(Dispatchers.Main) {
-                                pdfBitmapCache.markAccessed(i)
+                                controller.pdfBitmapCache.markAccessed(i)
                             }
                         }
                     }
@@ -752,34 +275,24 @@ fun DrawingNoteScreen(
             }
     }
 
-    val spatialIndexManager = remember { SpatialIndexManager(SPATIAL_GRID_SIZE) }
-    val imageCache = remember { DrawingImageCache(context) }
-
-    val tilePaint = remember {
-        android.graphics.Paint().apply {
-            isFilterBitmap = true
-            isAntiAlias = true
-            isDither = true
-        }
-    }
-
+    // High-performance background LOD Tile Render loop
     LaunchedEffect(Unit) {
         snapshotFlow {
-            val lod = TileRenderEngine.getLod(canvasScale)
-            val keys = tileEngine.getVisibleTileKeys(currentViewport, lod, buffer = 1)
+            val lod = TileRenderEngine.getLod(controller.canvasScale)
+            val keys = controller.tileEngine.getVisibleTileKeys(controller.currentViewport, lod, buffer = 1)
             TileRenderSnapshot(
                 lod = lod,
                 keys = keys,
-                sCount = strokeOrder.size,
-                iCount = imageOrder.size,
-                selS = selectedStrokeIds,
-                selI = selectedImageIds
+                sCount = controller.strokeOrder.size,
+                iCount = controller.imageOrder.size,
+                selS = controller.selectedStrokeIds,
+                selI = controller.selectedImageIds
             )
         }
         .distinctUntilChanged()
         .collectLatest { snapshot: TileRenderSnapshot ->
             withContext(Dispatchers.Default) {
-                val vCenter = currentViewport.center
+                val vCenter = controller.currentViewport.center
                 val sortedKeys = snapshot.keys.sortedBy { key ->
                     val rect = TileRenderEngine.getTileRect(key)
                     val dx = rect.center.x - vCenter.x
@@ -789,281 +302,48 @@ fun DrawingNoteScreen(
 
                 var renderedCount = 0
                 for (key in sortedKeys) {
-                    if (tileEngine.tileCache.get(key) == null && !tileEngine.tileCache.isEmpty(key)) {
-                        tileEngine.renderTileDirect(
+                    if (controller.tileEngine.tileCache.get(key) == null && !controller.tileEngine.tileCache.isEmpty(key)) {
+                        controller.tileEngine.renderTileDirect(
                             key = key,
-                            spatialIndexManager = spatialIndexManager,
-                            strokeMap = strokeMap,
-                            strokeToIndex = strokeToIndex,
-                            imageMap = imageMap,
-                            imageOrder = imageOrder,
-                            getBitmap = { path -> imageCache.get(path) },
+                            spatialIndex = controller.spatialIndex,
+                            strokeMap = controller.strokeMap,
+                            strokeToIndex = controller.strokeToIndex,
+                            imageMap = controller.imageMap,
+                            imageOrder = controller.imageOrder,
+                            getBitmap = { path -> controller.imageCache.get(path) },
                             excludedStrokeIds = snapshot.selS,
                             excludedImageIds = snapshot.selI
                         )
                         renderedCount++
                         if (renderedCount % 3 == 0) {
                             withContext(Dispatchers.Main) {
-                                tileCacheVersion++
+                                controller.tileCacheVersion++
                             }
                         }
                     }
                 }
                 if (renderedCount > 0 && renderedCount % 3 != 0) {
                     withContext(Dispatchers.Main) {
-                        tileCacheVersion++
+                        controller.tileCacheVersion++
                     }
                 }
             }
         }
-    }
-
-    val selectionBounds by remember {
-        derivedStateOf {
-            val selectedStrokes = selectedStrokeIds.mapNotNull { strokeMap[it] }.filter { it.tool != DrawingTool.ERASER }
-            val selectedImages = selectedImageIds.mapNotNull { imageMap[it] }
-            if (selectedStrokes.isEmpty() && selectedImages.isEmpty()) null
-            else getBounds(selectedStrokes, selectedImages, spatialIndexManager.strokeBoundsMap)
-        }
-    }
-    
-    val updatedBounds by rememberUpdatedState(selectionBounds)
-    val updatedTool by rememberUpdatedState(currentTool)
-    val updatedCanvasOffset by rememberUpdatedState(canvasOffset)
-    val updatedCanvasScale by rememberUpdatedState(canvasScale)
-    val updatedForceStylus by rememberUpdatedState(forceStylusOnly)
-    
-    // Reference cache to detect if points changed for an ID
-    val strokeRefCache = remember { java.util.concurrent.ConcurrentHashMap<String, com.ozon.notes.Stroke>() }
-    
-    // We no longer need the full rebuild LaunchedEffect(strokes)
-
-    val lodCaches = remember { List(4) { LruPathCache(500) } }
-    val renderPaint = remember {
-        android.graphics.Paint().apply {
-            isAntiAlias = true
-            strokeCap = android.graphics.Paint.Cap.ROUND
-            strokeJoin = android.graphics.Paint.Join.ROUND
-            style = android.graphics.Paint.Style.STROKE
-        }
-    }
-    val selectedColorArgb = remember { Color.Blue.copy(alpha = 0.6f).toArgb() }
-    val batchedPaths = remember { mutableMapOf<Long, android.graphics.Path>() }
-
-    // High-fidelity path builder: preserves smooth natural handwriting curves with minimal sub-pixel filtering
-    fun buildPathForLod(stroke: com.ozon.notes.Stroke, lodThreshold: Float): android.graphics.Path {
-        val path = android.graphics.Path()
-        val pts = stroke.points
-        val n = pts.size
-        if (n == 0) return path
-        if (n == 1) {
-            path.moveTo(pts[0].x, pts[0].y)
-            path.lineTo(pts[0].x + 0.1f, pts[0].y)
-            return path
-        }
-
-        path.moveTo(pts[0].x, pts[0].y)
-        val thresholdSq = lodThreshold * lodThreshold
-        var lastX = pts[0].x
-        var lastY = pts[0].y
-        val lastIdx = n - 1
-
-        for (i in 1 until n) {
-            val p = pts[i]
-            val dx = p.x - lastX
-            val dy = p.y - lastY
-            if (i == lastIdx || (dx * dx + dy * dy) >= thresholdSq) {
-                path.lineTo(p.x, p.y)
-                lastX = p.x
-                lastY = p.y
-            }
-        }
-
-        return path
-    }
-
-    // Clean caches on stroke deletion to free memory
-    // Clean caches on stroke deletion to free memory
-    LaunchedEffect(strokeOrder.size) {
-        val currentIds = strokeMap.keys.toSet()
-        withContext(Dispatchers.Default) {
-            lodCaches.forEach { cache ->
-                val keysToRemove = cache.keys().filter { it !in currentIds }
-                keysToRemove.forEach { cache.remove(it) }
-            }
-            // Clean up reference cache too
-            val refsToRemove = strokeRefCache.keys().asSequence().filter { it !in currentIds }.toList()
-            refsToRemove.forEach { strokeRefCache.remove(it) }
-        }
-    }
-
-
-
-    LaunchedEffect(selectionBounds == null) {
-        if (selectionBounds == null) {
-            showSelectionThicknessPopup = false
-            showSelectionColorPopup = false
-        }
-    }
-
-    fun recordAction(action: DrawingAction) {
-        undoStackManager.pushAction(action)
-    }
-
-       fun invalidateStrokePath(id: String) {
-        lodCaches.forEach { it.remove(id) }
-    }
-
-    fun applyAction(action: DrawingAction, isUndo: Boolean) {
-        when (action) {
-            is DrawingAction.Add -> {
-                if (isUndo) {
-                    action.strokes.forEach { 
-                        strokeMap.remove(it.id)
-                        strokeOrder.remove(it.id)
-                        spatialIndexManager.removeStroke(it.id)
-                        invalidateStrokePath(it.id)
-                    }
-                    action.images.forEach {
-                        imageMap.remove(it.id)
-                        imageOrder.remove(it.id)
-                    }
-                } else {
-                    action.strokes.forEach {
-                        strokeMap[it.id] = it
-                        if (it.id !in strokeOrder) strokeOrder.add(it.id)
-                        spatialIndexManager.addStroke(it)
-                    }
-                    action.images.forEach {
-                        imageMap[it.id] = it
-                        if (it.id !in imageOrder) imageOrder.add(it.id)
-                    }
-                }
-            }
-            is DrawingAction.Remove -> {
-                if (isUndo) {
-                    action.strokes.forEach {
-                        strokeMap[it.id] = it
-                        if (it.id !in strokeOrder) strokeOrder.add(it.id)
-                        spatialIndexManager.addStroke(it)
-                    }
-                    action.images.forEach {
-                        imageMap[it.id] = it
-                        if (it.id !in imageOrder) imageOrder.add(it.id)
-                    }
-                } else {
-                    action.strokes.forEach {
-                        strokeMap.remove(it.id)
-                        strokeOrder.remove(it.id)
-                        spatialIndexManager.removeStroke(it.id)
-                        invalidateStrokePath(it.id)
-                    }
-                    action.images.forEach {
-                        imageMap.remove(it.id)
-                        imageOrder.remove(it.id)
-                    }
-                }
-            }
-            is DrawingAction.Transform -> {
-                if (action.geometricChange != null || action.propertyChange != null) {
-                    val factor = if (isUndo) -1f else 1f
-                    action.strokeIds.forEach { id ->
-                        val s = strokeMap[id] ?: return@forEach
-                        var newS = s
-                        action.geometricChange?.let { geo ->
-                            invalidateStrokePath(id)
-                            geo.offset?.let { off ->
-                                newS = newS.copy(points = newS.points.map { p -> DrawingPoint(p.x + off.x * factor, p.y + off.y * factor) })
-                            }
-                            if (geo.scale != null && geo.pivot != null) {
-                                val sx = if (isUndo) 1f / geo.scale.x else geo.scale.x
-                                val sy = if (isUndo) 1f / geo.scale.y else geo.scale.y
-                                newS = newS.copy(points = newS.points.map { p ->
-                                    DrawingPoint(geo.pivot.x + (p.x - geo.pivot.x) * sx, geo.pivot.y + (p.y - geo.pivot.y) * sy)
-                                })
-                            }
-                        }
-                        action.propertyChange?.let { prop ->
-                            newS = newS.copy(
-                                colorArgb = if (isUndo) prop.oldColor ?: newS.colorArgb else prop.newColor ?: newS.colorArgb,
-                                width = if (isUndo) prop.oldWidth ?: newS.width else prop.newWidth ?: newS.width
-                            )
-                        }
-                        spatialIndexManager.updateStroke(s, newS)
-                        strokeMap[id] = newS
-                    }
-                    action.imageIds.forEach { id ->
-                        val img = imageMap[id] ?: return@forEach
-                        var newImg = img
-                        action.geometricChange?.let { geo ->
-                            geo.offset?.let { off ->
-                                newImg = newImg.copy(offset = DrawingPoint(newImg.offset.x + off.x * factor, newImg.offset.y + off.y * factor))
-                            }
-                            if (geo.scale != null && geo.pivot != null) {
-                                val sx = if (isUndo) 1f / geo.scale.x else geo.scale.x
-                                val sy = if (isUndo) 1f / geo.scale.y else geo.scale.y
-                                val newOffset = DrawingPoint(geo.pivot.x + (newImg.offset.x - geo.pivot.x) * sx, geo.pivot.y + (newImg.offset.y - geo.pivot.y) * sy)
-                                val newScale = DrawingPoint(newImg.scale.x * sx, newImg.scale.y * sy)
-                                newImg = newImg.copy(offset = newOffset, scale = newScale)
-                            }
-                        }
-                        imageMap[id] = newImg
-                    }
-                }
-                
-                if (action.oldStrokes != null && action.newStrokes != null) {
-                    val replacementStrokes = (if (isUndo) action.oldStrokes else action.newStrokes).associateBy { it.id }
-                    replacementStrokes.forEach { (id, replacement) ->
-                        strokeMap[id]?.let { old ->
-                            if (!action.sharesPoints) invalidateStrokePath(id)
-                            spatialIndexManager.updateStroke(old, replacement)
-                            strokeMap[id] = replacement
-                        }
-                    }
-                }
-                if (action.oldImages != null && action.newImages != null) {
-                    val replacementImages = (if (isUndo) action.oldImages else action.newImages).associateBy { it.id }
-                    replacementImages.forEach { (id, replacement) ->
-                        imageMap[id] = replacement
-                    }
-                }
-            }
-        }
-        tileEngine.invalidateAll()
-        val lod = TileRenderEngine.getLod(canvasScale)
-        val visibleKeys = tileEngine.getVisibleTileKeys(currentViewport, lod, buffer = 0)
-        visibleKeys.forEach { key ->
-            tileEngine.renderTileDirect(
-                key = key,
-                spatialIndexManager = spatialIndexManager,
-                strokeMap = strokeMap,
-                strokeToIndex = strokeToIndex,
-                imageMap = imageMap,
-                imageOrder = imageOrder,
-                getBitmap = { path -> imageCache.get(path) },
-                excludedStrokeIds = selectedStrokeIds,
-                excludedImageIds = selectedImageIds
-            )
-        }
-        tileCacheVersion++
-        isDirty = true
     }
 
     fun saveDrawing() {
-        val id = noteId ?: return // Cannot save without an ID
-        // Check if note is currently being deleted
+        val id = noteId ?: return
         if (notesViewModel.deletingIds.value.contains(id)) return
-        
-        // Check if note was deleted from the ViewModel's global state
         val noteStillExists = notesViewModel.notesState.value.any { it.id == id }
-        if (!noteStillExists && noteId != null) return 
+        if (!noteStillExists) return
 
-        wasSaved = true
-        isDirty = false
+        controller.wasSaved = true
+        controller.isDirty = false
         val now = System.currentTimeMillis()
-        lastSavedTime = now
-        showSavedCheckmark = true
-        val finalTitle = title.ifBlank { "New Drawing" }
+        controller.lastSavedTime = now
+        controller.showSavedCheckmark = true
+        val finalTitle = controller.title.ifBlank { "New Drawing" }
+
         notesViewModel.onEvent(NoteEvent.SaveNote(
             Note(
                 id = id,
@@ -1071,343 +351,49 @@ fun DrawingNoteScreen(
                 content = "Drawing Note",
                 type = NoteType.DRAWING,
                 timestamp = now,
-                isPinned = isPinned,
-                isContentHidden = isContentHidden,
-                drawingData = DrawingData(
-                    strokes = currentStrokes, 
-                    images = currentImages,
-                    canvasType = canvasType,
-                    pageLayout = pageLayout,
-                    pdfInfo = pdfInfo,
-                    pageCount = pageCount,
-                    viewportX = canvasOffset.x,
-                    viewportY = canvasOffset.y,
-                    viewportScale = canvasScale
-                )
+                isPinned = controller.isPinned,
+                isContentHidden = controller.isContentHidden,
+                drawingData = controller.buildExportData()
             )
         ))
     }
-    val currentViewingPageIndex by remember(pagePositions, canvasOffset, canvasScale, canvasSize) {
-        derivedStateOf {
-            if (pagePositions.isEmpty()) 0
-            else {
-                val centerY = (-canvasOffset.y + canvasSize.height / 2f) / canvasScale
-                val idx = pagePositions.indexOfFirst { it.top <= centerY && centerY <= it.bottom }
-                if (idx != -1) idx
-                else {
-                    pagePositions.indices.minByOrNull { Math.abs(pagePositions[it].center.y - centerY) } ?: 0
-                }
-            }
-        }
-    }
 
-    fun jumpToPage(index: Int) {
-        if (index in pagePositions.indices && canvasSize.height > 0) {
-            val pageRect = pagePositions[index]
-            val targetY = -(pageRect.top * canvasScale) + (canvasSize.height - pageRect.height * canvasScale) / 2f
-            val targetX = (canvasSize.width - pageRect.width * canvasScale) / 2f
-            canvasOffset = Offset(targetX, targetY)
-        }
-    }
-
-    fun insertPage(atIndex: Int) {
-        val pageHeight = if (canvasType == CanvasType.PDF) (pdfInfo?.pageSizes?.firstOrNull()?.height ?: 1100f) else (if (pageLayout.height > 0) pageLayout.height else 1100f)
-        val step = pageHeight + pageLayout.spacing
-        val insertThreshold = atIndex * step
-
-        val updatedStrokes = strokeMap.values.map { stroke ->
-            val midY = if (stroke.points.isNotEmpty()) (stroke.points.minOf { it.y } + stroke.points.maxOf { it.y }) / 2f else 0f
-            if (midY >= insertThreshold) {
-                stroke.copy(points = stroke.points.map { it.copy(y = it.y + step) })
-            } else {
-                stroke
-            }
-        }
-
-        val updatedImages = imageMap.values.map { img ->
-            val midY = img.offset.y + img.scale.y / 2f
-            if (midY >= insertThreshold) {
-                img.copy(offset = img.offset.copy(y = img.offset.y + step))
-            } else {
-                img
-            }
-        }
-
-        strokeMap.clear()
-        strokeOrder.clear()
-        updatedStrokes.forEach {
-            strokeMap[it.id] = it
-            strokeOrder.add(it.id)
-        }
-        imageMap.clear()
-        imageOrder.clear()
-        updatedImages.forEach {
-            imageMap[it.id] = it
-            imageOrder.add(it.id)
-        }
-        spatialIndexManager.reset(currentStrokes)
-        tileEngine.invalidateAll()
-        tileCacheVersion++
-        pageCount++
-        isDirty = true
-        showSnackbar("Page ${atIndex + 1} added")
-    }
-
-    fun addPageBefore(index: Int) {
-        insertPage(index)
-    }
-
-    fun addPageAfter(index: Int) {
-        insertPage(index + 1)
-    }
-
-    fun addPageAtEnd() {
-        insertPage(pageCount)
-    }
-
-    fun duplicatePage(index: Int) {
-        if (index !in 0 until pageCount) return
-        val pageHeight = if (canvasType == CanvasType.PDF) (pdfInfo?.pageSizes?.firstOrNull()?.height ?: 1100f) else (if (pageLayout.height > 0) pageLayout.height else 1100f)
-        val step = pageHeight + pageLayout.spacing
-        val targetIndex = index + 1
-
-        val newClonedStrokes = mutableListOf<com.ozon.notes.Stroke>()
-        val updatedStrokes = strokeMap.values.map { stroke ->
-            val midY = if (stroke.points.isNotEmpty()) (stroke.points.minOf { it.y } + stroke.points.maxOf { it.y }) / 2f else 0f
-            val strokePage = (midY / step).toInt()
-            if (strokePage == index) {
-                newClonedStrokes.add(
-                    stroke.copy(
-                        id = UUID.randomUUID().toString(),
-                        points = stroke.points.map { it.copy(y = it.y + step) }
-                    )
-                )
-            }
-            if (strokePage >= targetIndex) {
-                stroke.copy(points = stroke.points.map { it.copy(y = it.y + step) })
-            } else {
-                stroke
-            }
-        }
-
-        val newClonedImages = mutableListOf<com.ozon.notes.DrawingImage>()
-        val updatedImages = imageMap.values.map { img ->
-            val midY = img.offset.y + img.scale.y / 2f
-            val imgPage = (midY / step).toInt()
-            if (imgPage == index) {
-                newClonedImages.add(
-                    img.copy(
-                        id = UUID.randomUUID().toString(),
-                        offset = img.offset.copy(y = img.offset.y + step)
-                    )
-                )
-            }
-            if (imgPage >= targetIndex) {
-                img.copy(offset = img.offset.copy(y = img.offset.y + step))
-            } else {
-                img
-            }
-        }
-
-        strokeMap.clear()
-        strokeOrder.clear()
-        (updatedStrokes + newClonedStrokes).forEach {
-            strokeMap[it.id] = it
-            strokeOrder.add(it.id)
-        }
-        imageMap.clear()
-        imageOrder.clear()
-        (updatedImages + newClonedImages).forEach {
-            imageMap[it.id] = it
-            imageOrder.add(it.id)
-        }
-        spatialIndexManager.reset(currentStrokes)
-        tileEngine.invalidateAll()
-        tileCacheVersion++
-        pageCount++
-        isDirty = true
-        showSnackbar("Page ${index + 1} duplicated")
-    }
-
-    fun deletePage(index: Int) {
-        if (pageCount <= 1) {
-            showSnackbar("Cannot delete the only page")
-            return
-        }
-        if (index !in 0 until pageCount) return
-        val pageHeight = if (canvasType == CanvasType.PDF) (pdfInfo?.pageSizes?.firstOrNull()?.height ?: 1100f) else (if (pageLayout.height > 0) pageLayout.height else 1100f)
-        val step = pageHeight + pageLayout.spacing
-
-        val remainingStrokes = strokeMap.values.mapNotNull { stroke ->
-            val midY = if (stroke.points.isNotEmpty()) (stroke.points.minOf { it.y } + stroke.points.maxOf { it.y }) / 2f else 0f
-            val strokePage = (midY / step).toInt()
-            when {
-                strokePage == index -> null
-                strokePage > index -> stroke.copy(points = stroke.points.map { it.copy(y = it.y - step) })
-                else -> stroke
-            }
-        }
-
-        val remainingImages = imageMap.values.mapNotNull { img ->
-            val midY = img.offset.y + img.scale.y / 2f
-            val imgPage = (midY / step).toInt()
-            when {
-                imgPage == index -> null
-                imgPage > index -> img.copy(offset = img.offset.copy(y = img.offset.y - step))
-                else -> img
-            }
-        }
-
-        strokeMap.clear()
-        strokeOrder.clear()
-        remainingStrokes.forEach {
-            strokeMap[it.id] = it
-            strokeOrder.add(it.id)
-        }
-        imageMap.clear()
-        imageOrder.clear()
-        remainingImages.forEach {
-            imageMap[it.id] = it
-            imageOrder.add(it.id)
-        }
-        spatialIndexManager.reset(currentStrokes)
-        tileEngine.invalidateAll()
-        tileCacheVersion++
-        pageCount--
-        isDirty = true
-        showSnackbar("Page ${index + 1} deleted")
-    }
-
-    fun movePage(fromIndex: Int, toIndex: Int) {
-        if (fromIndex == toIndex || fromIndex !in 0 until pageCount || toIndex !in 0 until pageCount) return
-        val pageHeight = if (canvasType == CanvasType.PDF) (pdfInfo?.pageSizes?.firstOrNull()?.height ?: 1100f) else (if (pageLayout.height > 0) pageLayout.height else 1100f)
-        val step = pageHeight + pageLayout.spacing
-
-        val fromShift = (toIndex - fromIndex) * step
-        val intermediateShift = if (fromIndex < toIndex) -step else step
-
-        val updatedStrokes = strokeMap.values.map { stroke ->
-            val midY = if (stroke.points.isNotEmpty()) (stroke.points.minOf { it.y } + stroke.points.maxOf { it.y }) / 2f else 0f
-            val strokePage = (midY / step).toInt().coerceIn(0, pageCount - 1)
-            
-            when {
-                strokePage == fromIndex -> {
-                    stroke.copy(points = stroke.points.map { it.copy(y = it.y + fromShift) })
-                }
-                fromIndex < toIndex && strokePage in (fromIndex + 1)..toIndex -> {
-                    stroke.copy(points = stroke.points.map { it.copy(y = it.y + intermediateShift) })
-                }
-                fromIndex > toIndex && strokePage in toIndex until fromIndex -> {
-                    stroke.copy(points = stroke.points.map { it.copy(y = it.y + intermediateShift) })
-                }
-                else -> stroke
-            }
-        }
-
-        val updatedImages = imageMap.values.map { img ->
-            val midY = img.offset.y + img.scale.y / 2f
-            val imgPage = (midY / step).toInt().coerceIn(0, pageCount - 1)
-
-            when {
-                imgPage == fromIndex -> {
-                    img.copy(offset = img.offset.copy(y = img.offset.y + fromShift))
-                }
-                fromIndex < toIndex && imgPage in (fromIndex + 1)..toIndex -> {
-                    img.copy(offset = img.offset.copy(y = img.offset.y + intermediateShift))
-                }
-                fromIndex > toIndex && imgPage in toIndex until fromIndex -> {
-                    img.copy(offset = img.offset.copy(y = img.offset.y + intermediateShift))
-                }
-                else -> img
-            }
-        }
-
-        strokeMap.clear()
-        strokeOrder.clear()
-        updatedStrokes.forEach {
-            strokeMap[it.id] = it
-            strokeOrder.add(it.id)
-        }
-        imageMap.clear()
-        imageOrder.clear()
-        updatedImages.forEach {
-            imageMap[it.id] = it
-            imageOrder.add(it.id)
-        }
-        spatialIndexManager.reset(currentStrokes)
-        tileEngine.invalidateAll()
-        tileCacheVersion++
-        isDirty = true
-        showSnackbar("Page moved to position ${toIndex + 1}")
-    }
-
+    // Auto-save every 30 seconds if dirty
     LaunchedEffect(Unit) {
         while (true) {
             delay(30000)
-            if (isDirty) saveDrawing()
+            if (controller.isDirty) saveDrawing()
         }
     }
 
-    LaunchedEffect(showSavedCheckmark, lastSavedTime) {
-        if (showSavedCheckmark) {
+    LaunchedEffect(controller.showSavedCheckmark, controller.lastSavedTime) {
+        if (controller.showSavedCheckmark) {
             delay(5000)
-            showSavedCheckmark = false
+            controller.showSavedCheckmark = false
         }
     }
 
     DisposableEffect(Unit) {
         onDispose {
-            if (isDirty && !wasSaved) saveDrawing()
-            pdfBitmapCache.clear()
-            tileEngine.clear()
+            if (controller.isDirty && !controller.wasSaved) saveDrawing()
+            controller.release()
         }
     }
 
-    androidx.activity.compose.BackHandler {
-        if (isDirty) {
-            saveDrawing()
-        }
+    BackHandler {
+        if (controller.isDirty) saveDrawing()
         onNavigateUp()
     }
 
+    // Initial load of Note by ID
     LaunchedEffect(noteId) {
         if (noteId != null) {
             val note = notesViewModel.getNoteById(noteId)
             if (note != null && note.type == NoteType.DRAWING) {
-                title = note.title
-                isPinned = note.isPinned
-                isContentHidden = note.isContentHidden
-                if (note.timestamp > 0) {
-                    lastSavedTime = note.timestamp
-                }
-                val initialStrokes = note.drawingData?.strokes ?: emptyList()
-                strokeMap.clear()
-                strokeOrder.clear()
-                initialStrokes.forEach {
-                    strokeMap[it.id] = it
-                    strokeOrder.add(it.id)
-                }
-                spatialIndexManager.reset(initialStrokes)
-                tileEngine.invalidateAll()
-                tileCacheVersion++
-                
-                val initialImages = note.drawingData?.images ?: emptyList()
-                imageMap.clear()
-                imageOrder.clear()
-                initialImages.forEach {
-                    imageMap[it.id] = it
-                    imageOrder.add(it.id)
-                }
-                
-                canvasType = note.drawingData?.canvasType ?: CanvasType.INFINITE
-                pageLayout = note.drawingData?.pageLayout ?: PageLayout()
-                pdfInfo = note.drawingData?.pdfInfo
-                pageCount = note.drawingData?.pageCount ?: 1
-                
-                isDirty = false
+                controller.loadDrawingData(note)
 
-                // Handle initial PDF import if pdfInfo is missing but backgroundPdfPath exists (as a URI)
-                if (canvasType == CanvasType.PDF && pdfInfo == null && note.drawingData?.backgroundPdfPath != null) {
+                // Initial PDF import if pdfInfo is missing but backgroundPdfPath exists (URI)
+                if (controller.canvasType == CanvasType.PDF && controller.pdfInfo == null && note.drawingData?.backgroundPdfPath != null) {
                     val uri = Uri.parse(note.drawingData.backgroundPdfPath)
                     withContext(Dispatchers.IO) {
                         try {
@@ -1417,7 +403,7 @@ fun DrawingNoteScreen(
                             file.outputStream().use { outputStream ->
                                 inputStream?.copyTo(outputStream)
                             }
-                            
+
                             val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
                             val renderer = PdfRenderer(pfd)
                             val count = renderer.pageCount
@@ -1436,12 +422,9 @@ fun DrawingNoteScreen(
                                 pageCount = count,
                                 pageSizes = sizes
                             )
-                            pdfInfo = newPdfInfo
-                            pageCount = count
-                            
-                            // Important: update the note in DB with the new PDF info immediately
-                            // Use a direct update to avoid overwriting other changes
-                            saveDrawing() 
+                            controller.pdfInfo = newPdfInfo
+                            controller.pageCount = count
+                            saveDrawing()
                         } catch (e: Exception) {
                             withContext(Dispatchers.Main) {
                                 showSnackbar("Failed to import PDF: ${e.message}")
@@ -1449,134 +432,75 @@ fun DrawingNoteScreen(
                         }
                     }
                 }
-                
-                if (note.drawingData?.viewportScale != null && note.drawingData.viewportScale > 0) {
-                    canvasOffset = Offset(note.drawingData.viewportX, note.drawingData.viewportY)
-                    canvasScale = note.drawingData.viewportScale
-                    viewportLoaded = true
-                } else {
-                    viewportLoaded = false 
-                }
             }
         }
     }
 
     // Auto-center viewport on first load if not loaded from save
-    LaunchedEffect(canvasSize, viewportLoaded) {
-        if (!viewportLoaded && canvasSize.width > 0 && canvasSize.height > 0) {
-            val pageWidth = if (canvasType == CanvasType.PDF) (pdfInfo?.pageSizes?.firstOrNull()?.width ?: 800f) else pageLayout.width
-            val pageHeight = if (canvasType == CanvasType.PDF) (pdfInfo?.pageSizes?.firstOrNull()?.height ?: 1100f) else pageLayout.height
-            
+    LaunchedEffect(controller.canvasSize, controller.viewportLoaded) {
+        if (!controller.viewportLoaded && controller.canvasSize.width > 0 && controller.canvasSize.height > 0) {
+            val pageWidth = if (controller.canvasType == CanvasType.PDF) (controller.pdfInfo?.pageSizes?.firstOrNull()?.width ?: 800f) else controller.pageLayout.width
+            val pageHeight = if (controller.canvasType == CanvasType.PDF) (controller.pdfInfo?.pageSizes?.firstOrNull()?.height ?: 1100f) else controller.pageLayout.height
+
             if (pageWidth > 0 && pageHeight > 0) {
-                val fullWidth = if (canvasType == CanvasType.PDF) pageLayout.marginLeft + pageWidth + pageLayout.marginRight else pageWidth
-                val fullHeight = if (canvasType == CanvasType.PDF) pageLayout.marginTop + pageHeight + pageLayout.marginBottom else pageHeight
-                
-                val scale = (minOf(canvasSize.width / fullWidth, canvasSize.height / fullHeight) * 0.9f).coerceIn(0.1f, 5f)
-                canvasScale = scale
-                canvasOffset = Offset(
-                    (canvasSize.width - fullWidth * scale) / 2f,
-                    (canvasSize.height - fullHeight * scale) / 2f
+                val fullWidth = if (controller.canvasType == CanvasType.PDF) controller.pageLayout.marginLeft + pageWidth + controller.pageLayout.marginRight else pageWidth
+                val fullHeight = if (controller.canvasType == CanvasType.PDF) controller.pageLayout.marginTop + pageHeight + controller.pageLayout.marginBottom else pageHeight
+
+                val scale = (minOf(controller.canvasSize.width / fullWidth, controller.canvasSize.height / fullHeight) * 0.9f).coerceIn(0.1f, 5f)
+                controller.canvasScale = scale
+                controller.canvasOffset = Offset(
+                    (controller.canvasSize.width - fullWidth * scale) / 2f,
+                    (controller.canvasSize.height - fullHeight * scale) / 2f
                 )
             }
-            viewportLoaded = true
+            controller.viewportLoaded = true
         }
     }
 
+    // Export Document Launchers
     val pngLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/png")) { uri ->
         uri?.let {
             coroutineScope.launch(Dispatchers.IO) {
-                val (eStrokes, eImages) = pendingExportSelection ?: (currentStrokes to currentImages)
-                val eCanvasType = if (pendingExportSelection != null) CanvasType.INFINITE else canvasType
-                context.contentResolver.openOutputStream(it)?.use { stream -> exportToPng(stream, eStrokes, eImages, canvasSize, eCanvasType, pageLayout, pdfInfo, pageCount) }
-                withContext(Dispatchers.Main) { 
-                    showSnackbar("Exported as PNG") 
+                val (eStrokes, eImages) = pendingExportSelection ?: (controller.currentStrokes to controller.currentImages)
+                val eCanvasType = if (pendingExportSelection != null) CanvasType.INFINITE else controller.canvasType
+                context.contentResolver.openOutputStream(it)?.use { stream ->
+                    DrawingExportEngine.exportToPng(context, stream, eStrokes, eImages, controller.canvasSize, eCanvasType, controller.pageLayout, controller.pdfInfo, controller.pageCount)
+                }
+                withContext(Dispatchers.Main) {
+                    showSnackbar("Exported as PNG")
                     pendingExportSelection = null
                 }
             }
         }
     }
+
     val pdfBitmapLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         uri?.let {
             coroutineScope.launch(Dispatchers.IO) {
-                val (eStrokes, eImages) = pendingExportSelection ?: (currentStrokes to currentImages)
-                val eCanvasType = if (pendingExportSelection != null) CanvasType.INFINITE else canvasType
-                context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, eStrokes, eImages, canvasSize, vector = false, eCanvasType, pageLayout, pdfInfo, pageCount) }
-                withContext(Dispatchers.Main) { 
-                    showSnackbar("Exported as Bitmap PDF") 
+                val (eStrokes, eImages) = pendingExportSelection ?: (controller.currentStrokes to controller.currentImages)
+                val eCanvasType = if (pendingExportSelection != null) CanvasType.INFINITE else controller.canvasType
+                context.contentResolver.openOutputStream(it)?.use { stream ->
+                    DrawingExportEngine.exportToPdf(context, stream, eStrokes, eImages, controller.canvasSize, vector = false, eCanvasType, controller.pageLayout, controller.pdfInfo, controller.pageCount)
+                }
+                withContext(Dispatchers.Main) {
+                    showSnackbar("Exported as Bitmap PDF")
                     pendingExportSelection = null
                 }
             }
         }
     }
+
     val pdfVectorLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         uri?.let {
             coroutineScope.launch(Dispatchers.IO) {
-                val (eStrokes, eImages) = pendingExportSelection ?: (currentStrokes to currentImages)
-                val eCanvasType = if (pendingExportSelection != null) CanvasType.INFINITE else canvasType
-                context.contentResolver.openOutputStream(it)?.use { stream -> exportToPdf(stream, eStrokes, eImages, canvasSize, vector = true, eCanvasType, pageLayout, pdfInfo, pageCount) }
-                withContext(Dispatchers.Main) { 
-                    showSnackbar("Exported as Vector PDF") 
-                    pendingExportSelection = null
+                val (eStrokes, eImages) = pendingExportSelection ?: (controller.currentStrokes to controller.currentImages)
+                val eCanvasType = if (pendingExportSelection != null) CanvasType.INFINITE else controller.canvasType
+                context.contentResolver.openOutputStream(it)?.use { stream ->
+                    DrawingExportEngine.exportToPdf(context, stream, eStrokes, eImages, controller.canvasSize, vector = true, eCanvasType, controller.pageLayout, controller.pdfInfo, controller.pageCount)
                 }
-            }
-        }
-    }
-
-    fun saveImageLocally(uri: android.net.Uri): String? {
-        return try {
-            val inputStream = context.contentResolver.openInputStream(uri)
-            val file = File(context.filesDir, "drawing_img_${UUID.randomUUID()}.png")
-            file.outputStream().use { outputStream ->
-                inputStream?.copyTo(outputStream)
-            }
-            file.absolutePath
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri?.let {
-            val path = saveImageLocally(it)
-            if (path != null) {
-                val screenCenter = Offset(canvasSize.width / 2f, canvasSize.height / 2f)
-                val worldCenter = (screenCenter - canvasOffset) / canvasScale
-                
-                val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                android.graphics.BitmapFactory.decodeFile(path, options)
-                val w = options.outWidth.toFloat()
-                val h = options.outHeight.toFloat()
-                
-                val newImage = com.ozon.notes.DrawingImage(
-                    path = path,
-                    offset = DrawingPoint(worldCenter.x - (w/2), worldCenter.y - (h/2)),
-                    scale = DrawingPoint(w, h)
-                )
-                imageMap[newImage.id] = newImage
-                imageOrder.add(newImage.id)
-                recordAction(DrawingAction.Add(images = listOf(newImage)))
-                tileEngine.invalidateArea(Rect(worldCenter.x - (w/2), worldCenter.y - (h/2), worldCenter.x + (w/2), worldCenter.y + (h/2)))
-                tileCacheVersion++
-                selectedImageIds = setOf(newImage.id)
-                selectedStrokeIds = emptySet()
-                isDirty = true
-            }
-        }
-    }
-    
-    LaunchedEffect(imageMap.values.map { it.path }) {
-        val currentPaths = imageMap.values.map { it.path }.toSet()
-        withContext(Dispatchers.IO) {
-            var anyLoaded = false
-            currentPaths.forEach { path ->
-                if (imageCache.get(path) != null) {
-                    anyLoaded = true
-                }
-            }
-            if (anyLoaded) {
                 withContext(Dispatchers.Main) {
-                    tileEngine.invalidateAll()
-                    tileCacheVersion++
+                    showSnackbar("Exported as Vector PDF")
+                    pendingExportSelection = null
                 }
             }
         }
@@ -1585,29 +509,53 @@ fun DrawingNoteScreen(
     fun launchExport(launcher: androidx.activity.result.ActivityResultLauncher<String>, extension: String) {
         val sdf = SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault())
         val dateStr = sdf.format(Date())
-        val fileName = "${title.ifBlank { "Drawing" }} - $dateStr.$extension"
+        val fileName = "${controller.title.ifBlank { "Drawing" }} - $dateStr.$extension"
         launcher.launch(fileName)
     }
 
-    fun handlePaste() {
-        clipboardStrokes?.let { clipboard ->
-            val b = getBounds(clipboard, emptyList())
-            val screenCenter = Offset(canvasSize.width / 2f, canvasSize.height / 2f)
-            val worldCenter = (screenCenter - canvasOffset) / canvasScale
-            val offsetX = worldCenter.x - b.center.x
-            val offsetY = worldCenter.y - b.center.y
-            val pasted = clipboard.map { s -> s.copy(id = UUID.randomUUID().toString(), points = s.points.map { DrawingPoint(it.x + offsetX, it.y + offsetY) }) }
-            pasted.forEach {
-                strokeMap[it.id] = it
-                strokeOrder.add(it.id)
-                spatialIndexManager.addStroke(it)
+    // Image Picker Launcher
+    val imagePickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let {
+            try {
+                val inputStream = context.contentResolver.openInputStream(it)
+                val file = File(context.filesDir, "drawing_img_${UUID.randomUUID()}.png")
+                file.outputStream().use { outputStream ->
+                    inputStream?.copyTo(outputStream)
+                }
+                val path = file.absolutePath
+
+                val screenCenter = Offset(controller.canvasSize.width / 2f, controller.canvasSize.height / 2f)
+                val worldCenter = (screenCenter - controller.canvasOffset) / controller.canvasScale
+
+                val options = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                android.graphics.BitmapFactory.decodeFile(path, options)
+                val w = options.outWidth.toFloat().coerceAtLeast(100f)
+                val h = options.outHeight.toFloat().coerceAtLeast(100f)
+
+                val newImage = DrawingImage(
+                    path = path,
+                    offset = DrawingPoint(worldCenter.x - (w / 2), worldCenter.y - (h / 2)),
+                    scale = DrawingPoint(w, h)
+                )
+                controller.addImage(newImage)
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
-            val pastedBounds = getBounds(pasted, emptyList())
-            tileEngine.invalidateArea(pastedBounds)
-            tileCacheVersion++
-            recordAction(DrawingAction.Add(strokes = pasted))
-            selectedStrokeIds = pasted.map { it.id }.toSet()
-            isDirty = true
+        }
+    }
+
+    val currentViewingPageIndex by remember(controller.pagePositions, controller.canvasOffset, controller.canvasScale, controller.canvasSize) {
+        derivedStateOf {
+            val positions = controller.pagePositions
+            if (positions.isEmpty()) 0
+            else {
+                val centerY = (-controller.canvasOffset.y + controller.canvasSize.height / 2f) / controller.canvasScale
+                val idx = positions.indexOfFirst { it.top <= centerY && centerY <= it.bottom }
+                if (idx != -1) idx
+                else {
+                    positions.indices.minByOrNull { Math.abs(positions[it].center.y - centerY) } ?: 0
+                }
+            }
         }
     }
 
@@ -1646,9 +594,10 @@ fun DrawingNoteScreen(
                     } else Modifier
                 )
                 .background(Color(0xFFF9F9F9))
-                .onSizeChanged { canvasSize = it }
+                .onSizeChanged { controller.canvasSize = it }
         ) {
-            if (canvasType == CanvasType.PDF && pdfInfo == null) {
+            // PDF Loading placeholder
+            if (controller.canvasType == CanvasType.PDF && controller.pdfInfo == null) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator()
@@ -1658,1006 +607,38 @@ fun DrawingNoteScreen(
                 }
             }
 
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .shadow(8.dp, CircleShape)
-                    .clip(CircleShape)
-                    .zIndex(25f),
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
-                tonalElevation = 6.dp
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = { 
-                            if (isDirty) {
-                                saveDrawing() 
-                            }
-                            onNavigateUp() 
-                        },
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    if (isSplitScreen) {
-                        IconButton(
-                            onClick = { notesViewModel.onEvent(NoteEvent.ToggleSidePanel) },
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isSidePanelVisible) Icons.Rounded.Fullscreen else Icons.Rounded.FullscreenExit,
-                                contentDescription = "Toggle Fullscreen",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 8.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { showTitleDialog = true },
-                        contentAlignment = Alignment.CenterStart
-                    ) {
-                        Text(
-                            text = title.ifBlank { "Drawing" },
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (title.isBlank()) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else MaterialTheme.colorScheme.primary
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                        )
-                    }
-
-                    if (isDirty) {
-                        IconButton(
-                            onClick = { saveDrawing() },
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Save,
-                                contentDescription = "Save Note",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    } else if (showSavedCheckmark) {
-                        IconButton(
-                            onClick = { /* already saved */ },
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Check,
-                                contentDescription = "Saved",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-
-                    if (canvasType != CanvasType.INFINITE) {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (showPageOverview) MaterialTheme.colorScheme.primaryContainer 
-                                    else Color.Transparent
-                                )
-                                .combinedClickable(
-                                    onClick = { showPageOverview = !showPageOverview },
-                                    onLongClick = { addPageAtEnd() }
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.GridView,
-                                contentDescription = "Page Overview (Long-press to add page)",
-                                tint = if (showPageOverview) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-
-                    var showMoreMenu by remember { mutableStateOf(false) }
-                    Box {
-                        IconButton(
-                            onClick = { showMoreMenu = true },
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.MoreVert,
-                                contentDescription = "More",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = showMoreMenu, 
-                            onDismissRequest = { showMoreMenu = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Insert Image") },
-                                onClick = { 
-                                    showMoreMenu = false
-                                    imagePickerLauncher.launch("image/*")
-                                },
-                                leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null) }
-                            )
-                            HorizontalDivider()
-                            DropdownMenuItem(
-                                text = { Text("Export as PNG") }, 
-                                onClick = { showMoreMenu = false; launchExport(pngLauncher, "png") },
-                                leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Export as PDF (Bitmap)") }, 
-                                onClick = { showMoreMenu = false; launchExport(pdfBitmapLauncher, "pdf") },
-                                leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, contentDescription = null) }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Export as PDF (Vector)") }, 
-                                onClick = { showMoreMenu = false; launchExport(pdfVectorLauncher, "pdf") },
-                                leadingIcon = { Icon(Icons.Rounded.PictureAsPdf, contentDescription = null) }
-                            )
-                            HorizontalDivider()
-                            DropdownMenuItem(
-                                text = { Text(if (showGuidelines) "Hide Guidelines" else "Show Guidelines") },
-                                onClick = { 
-                                    showMoreMenu = false
-                                    showGuidelines = !showGuidelines 
-                                },
-                                leadingIcon = { Icon(if (showGuidelines) Icons.Rounded.GridOff else Icons.Rounded.GridOn, contentDescription = null) }
-                            )
-                        }
-                    }
+            // Top Bar
+            DrawingTopBar(
+                controller = controller,
+                isSplitScreen = isSplitScreen,
+                isSidePanelVisible = isSidePanelVisible,
+                onToggleSidePanel = { notesViewModel.onEvent(NoteEvent.ToggleSidePanel) },
+                showGuidelines = showGuidelines,
+                onToggleGuidelines = { showGuidelines = !showGuidelines },
+                showPageOverview = showPageOverview,
+                onTogglePageOverview = { showPageOverview = !showPageOverview },
+                onAddPageAtEnd = { controller.insertPage(controller.pageCount) },
+                onInsertImage = { imagePickerLauncher.launch("image/*") },
+                onExportPng = { launchExport(pngLauncher, "png") },
+                onExportPdfBitmap = { launchExport(pdfBitmapLauncher, "pdf") },
+                onExportPdfVector = { launchExport(pdfVectorLauncher, "pdf") },
+                onSave = { saveDrawing() },
+                onNavigateBack = {
+                    if (controller.isDirty) saveDrawing()
+                    onNavigateUp()
                 }
-            }
+            )
 
-            // 1. Drawing Layer
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .zIndex(0f)
-                    .pointerInput(Unit) {
-                        awaitEachGesture {
-                            awaitFirstDown(requireUnconsumed = false)
-                            focusManager.clearFocus()
-                            do {
-                                val event = awaitPointerEvent()
-                                if (event.changes.size >= 2) {
-                                    val zoom = event.calculateZoom()
-                                    val pan = event.calculatePan()
-                                    val centroid = event.calculateCentroid(useCurrent = false)
-                                    
-                                    if (zoom != 1f || pan != Offset.Zero) {
-                                        val oldScale = canvasScale
-                                        val newScale = (canvasScale * zoom).coerceIn(0.1f, 10f)
-                                        canvasOffset = (canvasOffset - centroid) * (newScale / oldScale) + centroid + pan
-                                        canvasScale = newScale
-                                    }
-                                    event.changes.forEach { it.consume() }
-                                }
-                            } while (event.changes.any { it.pressed })
-                        }
-                    }
-                    .pointerInput(updatedTool, updatedForceStylus) {
-                        awaitPointerEventScope {
-                            while (true) {
-                                val firstEvent = awaitPointerEvent()
-                                if (firstEvent.changes.size > 1) continue
-                                
-                                val down = firstEvent.changes.find { it.changedToDown() } ?: continue
-                                focusManager.clearFocus()
-                                
-                                val isStylus = down.type == PointerType.Stylus || down.type == PointerType.Eraser
-                                val isEraserType = down.type == PointerType.Eraser
-                                
-                                fun isStylusButtonPressed(event: PointerEvent): Boolean {
-                                    if (event.buttons.isSecondaryPressed || event.buttons.isTertiaryPressed) return true
-                                    val native = event.motionEvent
-                                    if (native != null) {
-                                        val bs = native.buttonState
-                                        if ((bs and MotionEvent.BUTTON_STYLUS_PRIMARY != 0) ||
-                                            (bs and MotionEvent.BUTTON_STYLUS_SECONDARY != 0) ||
-                                            (bs and MotionEvent.BUTTON_SECONDARY != 0)) {
-                                            return true
-                                        }
-                                        val am = native.actionMasked
-                                        if (am == 211 || am == 212 || am == 213 || am == 214) return true
-                                    }
-                                    return false
-                                }
+            // Central Interactive Drawing Canvas
+            DrawingCanvas(
+                controller = controller,
+                smoothingStrength = smoothingStrength,
+                forceStylusOnly = forceStylusOnly,
+                showGuidelines = showGuidelines,
+                modifier = Modifier.fillMaxSize()
+            )
 
-                                var currentWorkingTool = if (isStylus && (isEraserType || isStylusButtonPressed(firstEvent))) {
-                                    DrawingTool.ERASER
-                                } else {
-                                    updatedTool
-                                }
-                                activeDrawingTool = currentWorkingTool
-
-                                val currentTime = System.currentTimeMillis()
-                                if (isStylus) lastStylusTouchTime = currentTime
-                                else if (currentTime - lastStylusTouchTime < 500) { down.consume(); continue }
-                                
-                                showThicknessPopup = false
-                                val startPos = down.position
-                                val worldStartPos = (startPos - updatedCanvasOffset) / updatedCanvasScale
-                                val bStart = updatedBounds
-                                val selectedStrokesAtStart = updatedSelectedStrokeIds
-                                val selectedImagesAtStart = updatedSelectedImageIds
-                                
-                                val dragMode = when {
-                                    updatedForceStylus && !isStylus -> DragMode.PAN
-                                    currentWorkingTool == DrawingTool.HAND -> DragMode.PAN
-                                    currentWorkingTool == DrawingTool.LASSO && bStart != null -> {
-                                        val h = 40f / updatedCanvasScale
-                                        when {
-                                            worldStartPos.x in (bStart.left-h)..(bStart.left+h) && worldStartPos.y in (bStart.top-h)..(bStart.top+h) -> DragMode.RESIZE_TL
-                                            worldStartPos.x in (bStart.right-h)..(bStart.right+h) && worldStartPos.y in (bStart.top-h)..(bStart.top+h) -> DragMode.RESIZE_TR
-                                            worldStartPos.x in (bStart.left-h)..(bStart.left+h) && worldStartPos.y in (bStart.bottom-h)..(bStart.bottom+h) -> DragMode.RESIZE_BL
-                                            worldStartPos.x in (bStart.right-h)..(bStart.right+h) && worldStartPos.y in (bStart.bottom-h)..(bStart.bottom+h) -> DragMode.RESIZE_BR
-                                            bStart.contains(worldStartPos) -> DragMode.MOVE
-                                            else -> DragMode.LASSO
-                                        }
-                                    }
-                                    currentWorkingTool == DrawingTool.LASSO -> DragMode.LASSO
-                                    else -> DragMode.DRAW
-                                }
-
-                                if (dragMode == DragMode.LASSO || dragMode == DragMode.DRAW) {
-                                    if (selectedStrokeIds.isNotEmpty() || selectedImageIds.isNotEmpty()) {
-                                        val prevStrokes = selectedStrokeIds.mapNotNull { strokeMap[it] }
-                                        val prevImages = selectedImageIds.mapNotNull { imageMap[it] }
-                                        val prevBounds = getBounds(prevStrokes, prevImages, spatialIndexManager.strokeBoundsMap)
-                                        
-                                        selectedStrokeIds = emptySet()
-                                        selectedImageIds = emptySet()
-                                        
-                                        tileEngine.invalidateArea(prevBounds)
-                                        val lod = TileRenderEngine.getLod(canvasScale)
-                                        val affectedKeys = tileEngine.getVisibleTileKeys(prevBounds, lod, buffer = 1)
-                                        affectedKeys.forEach { key ->
-                                            tileEngine.renderTileDirect(
-                                                key = key,
-                                                spatialIndexManager = spatialIndexManager,
-                                                strokeMap = strokeMap,
-                                                strokeToIndex = strokeToIndex,
-                                                imageMap = imageMap,
-                                                imageOrder = imageOrder,
-                                                getBitmap = { path -> imageCache.get(path) },
-                                                excludedStrokeIds = emptySet(),
-                                                excludedImageIds = emptySet()
-                                            )
-                                        }
-                                        tileCacheVersion++
-                                    }
-                                    currentPathPoints.clear()
-                                    currentPathPoints.add(DrawingPoint(worldStartPos.x, worldStartPos.y))
-                                }
-
-                                var smoothedX = worldStartPos.x
-                                var smoothedY = worldStartPos.y
-                                val alpha = when (smoothingStrength) {
-                                    SmoothingStrength.NONE -> 1.0f
-                                    SmoothingStrength.LIGHT -> 0.7f
-                                    SmoothingStrength.MODERATE -> 0.45f
-                                    SmoothingStrength.HEAVY -> 0.25f
-                                }
-
-                                val touchSlop = viewConfiguration.touchSlop
-                                val effectiveSlop = if (dragMode == DragMode.DRAW || dragMode == DragMode.LASSO || isStylus) 0.1f else touchSlop
-                                var hasMovedPastSlop = false
-                                var lastPosition = startPos
-                                
-                                gestureRemovedStrokes.clear()
-                                gestureRemovedImages.clear()
-                                
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    if (event.changes.size > 1) {
-                                        if (dragMode == DragMode.MOVE || dragMode.name.startsWith("RESIZE")) {
-                                            activeTransformation = null
-                                        }
-                                        currentPathPoints.clear()
-                                        break
-                                    }
-
-                                    val change = event.changes.find { it.id == down.id } ?: break
-                                    if (change.changedToUp()) {
-                                        if (hasMovedPastSlop && currentPathPoints.size > 1 && dragMode == DragMode.DRAW) {
-                                            if (currentWorkingTool != DrawingTool.ERASER) {
-                                                val newStroke = com.ozon.notes.Stroke(
-                                                    points = currentPathPoints.toList(),
-                                                    colorArgb = selectedPenColor.toArgb(),
-                                                    width = penThickness,
-                                                    tool = currentWorkingTool
-                                                )
-                                                strokeMap[newStroke.id] = newStroke
-                                                strokeOrder.add(newStroke.id)
-                                                spatialIndexManager.addStroke(newStroke)
-                                                strokeRefCache[newStroke.id] = newStroke
-                                                val bounds = spatialIndexManager.computeStrokeBounds(newStroke)
-                                                val paddedBounds = Rect(bounds.left - 25f, bounds.top - 25f, bounds.right + 25f, bounds.bottom + 25f)
-                                                tileEngine.invalidateArea(paddedBounds)
-                                                val lod = TileRenderEngine.getLod(canvasScale)
-                                                val affectedKeys = tileEngine.getVisibleTileKeys(paddedBounds, lod, buffer = 1)
-                                                affectedKeys.forEach { key ->
-                                                    tileEngine.renderTileDirect(
-                                                        key = key,
-                                                        spatialIndexManager = spatialIndexManager,
-                                                        strokeMap = strokeMap,
-                                                        strokeToIndex = strokeToIndex,
-                                                        imageMap = imageMap,
-                                                        imageOrder = imageOrder,
-                                                        getBitmap = { path -> imageCache.get(path) }
-                                                    )
-                                                }
-                                                tileCacheVersion++
-                                                recordAction(DrawingAction.Add(strokes = listOf(newStroke)))
-                                                isDirty = true
-                                            }
-                                            currentPathPoints.clear()
-                                        }
-                                        if (gestureRemovedStrokes.isNotEmpty() || gestureRemovedImages.isNotEmpty()) {
-                                            recordAction(DrawingAction.Remove(
-                                                strokes = gestureRemovedStrokes.toList(),
-                                                images = gestureRemovedImages.toList()
-                                            ))
-                                        }
-                                        if (dragMode == DragMode.MOVE || dragMode.name.startsWith("RESIZE")) {
-                                            if (activeTransformation != null) {
-                                                val action = DrawingAction.Transform(
-                                                    strokeIds = selectedStrokesAtStart,
-                                                    imageIds = selectedImagesAtStart,
-                                                    geometricChange = activeTransformation
-                                                )
-                                                applyAction(action, isUndo = false)
-                                                recordAction(action)
-                                                activeTransformation = null
-                                            }
-                                            currentPathPoints.clear()
-                                        }
-                                        break
-                                    }
-
-                                    val newTool = if (isStylus && (isEraserType || isStylusButtonPressed(event))) DrawingTool.ERASER else updatedTool
-
-                                    if (newTool != currentWorkingTool && dragMode == DragMode.DRAW && hasMovedPastSlop) {
-                                        if (currentPathPoints.size > 1) {
-                                             if (currentWorkingTool != DrawingTool.ERASER) {
-                                                 val newStroke = com.ozon.notes.Stroke(
-                                                     points = currentPathPoints.toList(),
-                                                     colorArgb = selectedPenColor.toArgb(),
-                                                     width = penThickness,
-                                                     tool = currentWorkingTool
-                                                 )
-                                                 strokeMap[newStroke.id] = newStroke
-                                                 strokeOrder.add(newStroke.id)
-                                                 spatialIndexManager.addStroke(newStroke)
-                                                 strokeRefCache[newStroke.id] = newStroke
-                                                 val bounds = spatialIndexManager.computeStrokeBounds(newStroke)
-                                                 val paddedBounds = Rect(bounds.left - 25f, bounds.top - 25f, bounds.right + 25f, bounds.bottom + 25f)
-                                                 tileEngine.invalidateArea(paddedBounds)
-                                                 val lod = TileRenderEngine.getLod(canvasScale)
-                                                 val affectedKeys = tileEngine.getVisibleTileKeys(paddedBounds, lod, buffer = 1)
-                                                 affectedKeys.forEach { key ->
-                                                     tileEngine.renderTileDirect(
-                                                         key = key,
-                                                         spatialIndexManager = spatialIndexManager,
-                                                         strokeMap = strokeMap,
-                                                         strokeToIndex = strokeToIndex,
-                                                         imageMap = imageMap,
-                                                         imageOrder = imageOrder,
-                                                         getBitmap = { path -> imageCache.get(path) }
-                                                     )
-                                                 }
-                                                 tileCacheVersion++
-                                                 recordAction(DrawingAction.Add(strokes = listOf(newStroke)))
-                                                 isDirty = true
-                                             }
-                                             val lastPt = currentPathPoints.last()
-                                             currentPathPoints.clear()
-                                             currentPathPoints.add(lastPt)
-                                             smoothedX = lastPt.x
-                                             smoothedY = lastPt.y
-                                         }
-                                         currentWorkingTool = newTool
-                                         activeDrawingTool = newTool
-                                     }
-
-                                    val currentPos = change.position
-                                    val dist = (currentPos - startPos).getDistance()
-                                    if (!hasMovedPastSlop && dist >= effectiveSlop) hasMovedPastSlop = true
-
-                                    if (hasMovedPastSlop) {
-                                        val dragDelta = currentPos - lastPosition
-                                        val worldPos = (currentPos - updatedCanvasOffset) / updatedCanvasScale
-                                        when (dragMode) {
-                                            DragMode.PAN -> canvasOffset += dragDelta
-                                            DragMode.MOVE -> {
-                                                val totalMove = (currentPos - startPos) / updatedCanvasScale
-                                                activeTransformation = GeometricChange(offset = DrawingPoint(totalMove.x, totalMove.y))
-                                            }
-                                            DragMode.RESIZE_TL, DragMode.RESIZE_TR, DragMode.RESIZE_BL, DragMode.RESIZE_BR -> {
-                                                if (bStart != null) {
-                                                    val pivot = when (dragMode) {
-                                                        DragMode.RESIZE_TL -> Offset(bStart.right, bStart.bottom)
-                                                        DragMode.RESIZE_TR -> Offset(bStart.left, bStart.bottom)
-                                                        DragMode.RESIZE_BL -> Offset(bStart.right, bStart.top)
-                                                        DragMode.RESIZE_BR -> Offset(bStart.left, bStart.top)
-                                                        else -> Offset.Zero
-                                                    }
-                                                    val oldW = (bStart.right - bStart.left).coerceAtLeast(1f)
-                                                    val oldH = (bStart.bottom - bStart.top).coerceAtLeast(1f)
-                                                    val newW = Math.abs(worldPos.x - pivot.x).coerceAtLeast(1f)
-                                                    val newH = Math.abs(worldPos.y - pivot.y).coerceAtLeast(1f)
-                                                    val sX = newW / oldW; val sY = newH / oldH
-                                                    activeTransformation = GeometricChange(
-                                                        scale = DrawingPoint(sX, sY),
-                                                        pivot = DrawingPoint(pivot.x, pivot.y)
-                                                    )
-                                                }
-                                            }
-                                            DragMode.LASSO, DragMode.DRAW -> {
-                                                val addedPoints = mutableListOf<DrawingPoint>()
-                                                change.historical.forEach { h -> 
-                                                    val rawX = (h.position.x - updatedCanvasOffset.x) / updatedCanvasScale
-                                                    val rawY = (h.position.y - updatedCanvasOffset.y) / updatedCanvasScale
-                                                    
-                                                    if (currentWorkingTool == DrawingTool.PEN && alpha < 1.0f) {
-                                                        smoothedX = alpha * rawX + (1 - alpha) * smoothedX
-                                                        smoothedY = alpha * rawY + (1 - alpha) * smoothedY
-                                                    } else {
-                                                        smoothedX = rawX
-                                                        smoothedY = rawY
-                                                    }
-                                                    
-                                                    val pt = DrawingPoint(smoothedX, smoothedY)
-                                                    addedPoints.add(pt)
-                                                    currentPathPoints.add(pt)
-                                                }
-                                                val rawX = worldPos.x
-                                                val rawY = worldPos.y
-                                                
-                                                if (currentWorkingTool == DrawingTool.PEN && alpha < 1.0f) {
-                                                    smoothedX = alpha * rawX + (1 - alpha) * smoothedX
-                                                    smoothedY = alpha * rawY + (1 - alpha) * smoothedY
-                                                } else {
-                                                    smoothedX = rawX
-                                                    smoothedY = rawY
-                                                }
-                                                
-                                                val currentPt = DrawingPoint(smoothedX, smoothedY)
-                                                addedPoints.add(currentPt)
-                                                currentPathPoints.add(currentPt)
-
-                                                if (dragMode == DragMode.DRAW && currentWorkingTool == DrawingTool.ERASER) {
-                                                    val eraserRadius = eraserThickness / 2f
-                                                    var minX = Float.MAX_VALUE; var minY = Float.MAX_VALUE
-                                                    var maxX = -Float.MAX_VALUE; var maxY = -Float.MAX_VALUE
-                                                    addedPoints.forEach { p ->
-                                                        if (p.x < minX) minX = p.x
-                                                        if (p.x > maxX) maxX = p.x
-                                                        if (p.y < minY) minY = p.y
-                                                        if (p.y > maxY) maxY = p.y
-                                                    }
-                                                    val eraseRect = Rect(minX - eraserRadius, minY - eraserRadius, maxX + eraserRadius, maxY + eraserRadius)
-                                                    
-                                                    val minGX = (eraseRect.left / SPATIAL_GRID_SIZE).toInt()
-                                                    val maxGX = (eraseRect.right / SPATIAL_GRID_SIZE).toInt()
-                                                    val minGY = (eraseRect.top / SPATIAL_GRID_SIZE).toInt()
-                                                    val maxGY = (eraseRect.bottom / SPATIAL_GRID_SIZE).toInt()
-                                                    
-                                                    val candidateIds = mutableSetOf<String>()
-                                                    for (gx in minGX..maxGX) {
-                                                        for (gy in minGY..maxGY) {
-                                                            spatialIndexManager.spatialIndex[spatialIndexManager.gridKey(gx, gy)]?.let { candidateIds.addAll(it) }
-                                                        }
-                                                    }
-
-                                                    val toErase = candidateIds.mapNotNull { spatialIndexManager.strokeMap[it] }.filter { stroke ->
-                                                        if (stroke.tool == DrawingTool.ERASER) {
-                                                            false
-                                                        } else {
-                                                            val bounds = spatialIndexManager.strokeBoundsMap[stroke.id]
-                                                            if (bounds != null && !bounds.overlaps(eraseRect)) {
-                                                                false
-                                                            } else {
-                                                                val thresholdSq = (eraserRadius + stroke.width / 2f).let { it * it }
-                                                                var hit = false
-                                                                for (i in 0 until stroke.points.size - 1) {
-                                                                    val p1 = stroke.points[i]
-                                                                    val p2 = stroke.points[i + 1]
-                                                                    for (ep in addedPoints) {
-                                                                        if (distanceToSegmentSq(ep.x, ep.y, p1.x, p1.y, p2.x, p2.y) < thresholdSq) {
-                                                                            hit = true
-                                                                            break
-                                                                        }
-                                                                    }
-                                                                    if (hit) break
-                                                                }
-                                                                if (!hit && stroke.points.size == 1) {
-                                                                    val p = stroke.points[0]
-                                                                    for (ep in addedPoints) {
-                                                                        val dx = p.x - ep.x; val dy = p.y - ep.y
-                                                                        if (dx*dx + dy*dy < thresholdSq) { hit = true; break }
-                                                                    }
-                                                                }
-                                                                hit
-                                                            }
-                                                        }
-                                                    }
-                                                    
-                                                    if (toErase.isNotEmpty()) {
-                                                        gestureRemovedStrokes.addAll(toErase)
-                                                        val eraseBounds = getBounds(toErase, emptyList(), spatialIndexManager.strokeBoundsMap)
-                                                        val totalEraseArea = Rect(
-                                                            minOf(eraseBounds.left, eraseRect.left) - 25f,
-                                                            minOf(eraseBounds.top, eraseRect.top) - 25f,
-                                                            maxOf(eraseBounds.right, eraseRect.right) + 25f,
-                                                            maxOf(eraseBounds.bottom, eraseRect.bottom) + 25f
-                                                        )
-                                                        toErase.forEach { stroke ->
-                                                            val bounds = spatialIndexManager.strokeBoundsMap[stroke.id] ?: spatialIndexManager.computeStrokeBounds(stroke)
-                                                            strokeMap.remove(stroke.id)
-                                                            strokeOrder.remove(stroke.id)
-                                                            spatialIndexManager.removeStroke(stroke.id)
-                                                            invalidateStrokePath(stroke.id)
-                                                            tileEngine.invalidateArea(bounds)
-                                                        }
-                                                        tileEngine.invalidateArea(eraseRect)
-                                                        val lod = TileRenderEngine.getLod(canvasScale)
-                                                        val affectedKeys = tileEngine.getVisibleTileKeys(totalEraseArea, lod, buffer = 1)
-                                                        affectedKeys.forEach { key ->
-                                                            tileEngine.renderTileDirect(
-                                                                key = key,
-                                                                spatialIndexManager = spatialIndexManager,
-                                                                strokeMap = strokeMap,
-                                                                strokeToIndex = strokeToIndex,
-                                                                imageMap = imageMap,
-                                                                imageOrder = imageOrder,
-                                                                getBitmap = { path -> imageCache.get(path) }
-                                                            )
-                                                        }
-                                                        tileCacheVersion++
-                                                        isDirty = true
-                                                    }
-                                                }
-                                            }
-                                            else -> {}
-                                        }
-                                        change.consume()
-                                    }
-                                    lastPosition = currentPos
-                                }
-
-                                if (!hasMovedPastSlop) {
-                                    if (bStart == null || !bStart.contains(worldStartPos)) {
-                                        if (selectedStrokeIds.isNotEmpty() || selectedImageIds.isNotEmpty()) {
-                                            val prevStrokes = selectedStrokeIds.mapNotNull { strokeMap[it] }
-                                            val prevImages = selectedImageIds.mapNotNull { imageMap[it] }
-                                            val prevBounds = getBounds(prevStrokes, prevImages, spatialIndexManager.strokeBoundsMap)
-                                            
-                                            selectedStrokeIds = emptySet()
-                                            selectedImageIds = emptySet()
-                                            
-                                            tileEngine.invalidateArea(prevBounds)
-                                            val lod = TileRenderEngine.getLod(canvasScale)
-                                            val affectedKeys = tileEngine.getVisibleTileKeys(prevBounds, lod, buffer = 1)
-                                            affectedKeys.forEach { key ->
-                                                tileEngine.renderTileDirect(
-                                                    key = key,
-                                                    spatialIndexManager = spatialIndexManager,
-                                                    strokeMap = strokeMap,
-                                                    strokeToIndex = strokeToIndex,
-                                                    imageMap = imageMap,
-                                                    imageOrder = imageOrder,
-                                                    getBitmap = { path -> imageCache.get(path) },
-                                                    excludedStrokeIds = emptySet(),
-                                                    excludedImageIds = emptySet()
-                                                )
-                                            }
-                                            tileCacheVersion++
-                                        }
-                                        if (updatedTool == DrawingTool.LASSO) {
-                                            val tappedImage = imageMap.values.findLast { img ->
-                                                val rect = Rect(img.offset.x, img.offset.y, img.offset.x + img.scale.x, img.offset.y + img.scale.y)
-                                                rect.contains(worldStartPos)
-                                            }
-                                            if (tappedImage != null) selectedImageIds = setOf(tappedImage.id)
-                                        }
-                                    }
-                                } else {
-                                    if (dragMode == DragMode.LASSO && currentPathPoints.size > 2) {
-                                        val lassoPoints = currentPathPoints.toList()
-                                        
-                                        // Use a higher precision for the region to handle small world coordinates
-                                        val scaleFactor = 100f
-                                        val lassoPath = android.graphics.Path().apply { 
-                                            lassoPoints.forEachIndexed { i, p -> 
-                                                if (i == 0) moveTo(p.x * scaleFactor, p.y * scaleFactor) 
-                                                else lineTo(p.x * scaleFactor, p.y * scaleFactor) 
-                                            }
-                                            close() 
-                                        }
-                                        
-                                        val region = android.graphics.Region()
-                                        val b = android.graphics.RectF()
-                                        lassoPath.computeBounds(b, true)
-                                        region.setPath(lassoPath, android.graphics.Region(b.left.toInt(), b.top.toInt(), b.right.toInt(), b.bottom.toInt()))
-                                        
-                                        val minGX = floor(b.left / (scaleFactor * SPATIAL_GRID_SIZE)).toInt()
-                                        val maxGX = floor(b.right / (scaleFactor * SPATIAL_GRID_SIZE)).toInt()
-                                        val minGY = floor(b.top / (scaleFactor * SPATIAL_GRID_SIZE)).toInt()
-                                        val maxGY = floor(b.bottom / (scaleFactor * SPATIAL_GRID_SIZE)).toInt()
-                                        
-                                        val candidateIds = mutableSetOf<String>()
-                                        for (gx in minGX..maxGX) {
-                                            for (gy in minGY..maxGY) {
-                                                spatialIndexManager.spatialIndex[spatialIndexManager.gridKey(gx, gy)]?.let { candidateIds.addAll(it) }
-                                            }
-                                        }
-
-                                        val newIds = mutableSetOf<String>()
-                                        val penStrokes = candidateIds.mapNotNull { spatialIndexManager.strokeMap[it] }.filter { it.tool != DrawingTool.ERASER && it.points.any { pt -> region.contains((pt.x * scaleFactor).toInt(), (pt.y * scaleFactor).toInt()) } }
-                                        penStrokes.forEach { newIds.add(it.id) }
-                                        
-                                        if (newIds.isNotEmpty()) {
-                                            val selBounds = getBounds(penStrokes, emptyList(), spatialIndexManager.strokeBoundsMap)
-                                            
-                                            val minEGX = floor(selBounds.left / SPATIAL_GRID_SIZE).toInt()
-                                            val maxEGX = floor(selBounds.right / SPATIAL_GRID_SIZE).toInt()
-                                            val minEGY = floor(selBounds.top / SPATIAL_GRID_SIZE).toInt()
-                                            val maxEGY = floor(selBounds.bottom / SPATIAL_GRID_SIZE).toInt()
-                                            
-                                            val eraserCandidates = mutableSetOf<String>()
-                                            for (gx in minEGX..maxEGX) {
-                                                for (gy in minEGY..maxEGY) {
-                                                    spatialIndexManager.spatialIndex[spatialIndexManager.gridKey(gx, gy)]?.let { eraserCandidates.addAll(it) }
-                                                }
-                                            }
-
-                                            eraserCandidates.mapNotNull { spatialIndexManager.strokeMap[it] }.filter { it.tool == DrawingTool.ERASER }.forEach { eraser -> if (eraser.points.any { pt -> selBounds.contains(Offset(pt.x, pt.y)) }) newIds.add(eraser.id) }
-                                            
-                                            selectedStrokeIds = newIds
-                                            
-                                            val allSelectedStrokes = newIds.mapNotNull { strokeMap[it] }
-                                            val fullSelBounds = getBounds(allSelectedStrokes, emptyList(), spatialIndexManager.strokeBoundsMap)
-                                            tileEngine.invalidateArea(fullSelBounds)
-                                            val lod = TileRenderEngine.getLod(canvasScale)
-                                            val affectedKeys = tileEngine.getVisibleTileKeys(fullSelBounds, lod, buffer = 1)
-                                            affectedKeys.forEach { key ->
-                                                tileEngine.renderTileDirect(
-                                                    key = key,
-                                                    spatialIndexManager = spatialIndexManager,
-                                                    strokeMap = strokeMap,
-                                                    strokeToIndex = strokeToIndex,
-                                                    imageMap = imageMap,
-                                                    imageOrder = imageOrder,
-                                                    getBitmap = { path -> imageCache.get(path) },
-                                                    excludedStrokeIds = newIds,
-                                                    excludedImageIds = selectedImageIds
-                                                )
-                                            }
-                                            tileCacheVersion++
-                                            currentPathPoints.clear()
-                                        } else {
-                                            currentPathPoints.clear()
-                                        }
-                                    }
-                                }
-                                activeDrawingTool = null
-                            }
-                        }
-                    }
-            ) {
-                // LAYER 1: Background & Multi-Resolution Tile-Based Drawing Content
-                Canvas(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            translationX = canvasOffset.x
-                            translationY = canvasOffset.y
-                            scaleX = canvasScale
-                            scaleY = canvasScale
-                            transformOrigin = TransformOrigin(0f, 0f)
-                        }
-                ) {
-                    val _tileVer = tileCacheVersion // Observe tile cache changes
-                    val activeLod = TileRenderEngine.getLod(canvasScale)
-                    val visibleKeys = tileEngine.getVisibleTileKeys(currentViewport, activeLod)
-
-                    // 1. Render PDF Background
-                    if (canvasType == CanvasType.PDF && pdfInfo != null) {
-                        var first = -1
-                        for (i in pagePositions.indices) {
-                            if (pagePositions[i].bottom > currentViewport.top) {
-                                first = i
-                                break
-                            }
-                        }
-                        if (first != -1) {
-                            for (i in first until pagePositions.size) {
-                                if (pagePositions[i].top > currentViewport.bottom) break
-                                val pageRect = pagePositions[i]
-                                
-                                drawRect(color = Color.White, topLeft = pageRect.topLeft, size = pageRect.size)
-                                pdfBitmapCache.bitmaps[i]?.let { bitmap ->
-                                    drawImage(
-                                        image = bitmap.asImageBitmap(),
-                                        dstOffset = IntOffset((pageRect.left + pageLayout.marginLeft).toInt(), (pageRect.top + pageLayout.marginTop).toInt()),
-                                        dstSize = IntSize((pageRect.width - pageLayout.marginLeft - pageLayout.marginRight).toInt(), (pageRect.height - pageLayout.marginTop - pageLayout.marginBottom).toInt()),
-                                        filterQuality = FilterQuality.Medium
-                                    )
-                                }
-                                drawRect(color = Color.LightGray, topLeft = pageRect.topLeft, size = pageRect.size, style = Stroke(width = 1f / canvasScale))
-                            }
-                        }
-                    }
-
-                    // 2. Render Paged Background
-                    if (canvasType == CanvasType.PAGED) {
-                        var first = -1
-                        for (i in pagePositions.indices) {
-                            if (pagePositions[i].bottom > currentViewport.top) {
-                                first = i
-                                break
-                            }
-                        }
-                        if (first != -1) {
-                            for (i in first until pagePositions.size) {
-                                if (pagePositions[i].top > currentViewport.bottom) break
-                                val pageRect = pagePositions[i]
-                                drawRect(color = Color.White, topLeft = pageRect.topLeft, size = pageRect.size)
-                                drawRect(color = Color.LightGray, topLeft = pageRect.topLeft, size = pageRect.size, style = Stroke(width = 1f / canvasScale))
-                            }
-                        }
-                    }
-
-                    // 3. Render Guidelines (if enabled)
-                    if (showGuidelines) {
-                        val spacing = 40f
-                        val guidelineColor = Color.LightGray.copy(alpha = 0.3f)
-                        val strokeWidth = 1f / canvasScale
-
-                        if (canvasType == CanvasType.INFINITE) {
-                            val startY = (currentViewport.top / spacing).toInt() * spacing
-                            val endY = currentViewport.bottom
-                            var y = startY
-                            while (y <= endY) {
-                                drawLine(
-                                    color = guidelineColor,
-                                    start = Offset(currentViewport.left, y),
-                                    end = Offset(currentViewport.right, y),
-                                    strokeWidth = strokeWidth
-                                )
-                                y += spacing
-                            }
-                        } else {
-                            pagePositions.forEach { pageRect ->
-                                if (currentViewport.overlaps(pageRect)) {
-                                    var y = pageRect.top + spacing
-                                    while (y < pageRect.bottom) {
-                                        drawLine(
-                                            color = guidelineColor,
-                                            start = Offset(pageRect.left, y),
-                                            end = Offset(pageRect.right, y),
-                                            strokeWidth = strokeWidth
-                                        )
-                                        y += spacing
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // 4. Multi-Resolution Tile-Based Drawing Content
-                    drawIntoCanvas { canvas ->
-                        val native = canvas.nativeCanvas
-                        visibleKeys.forEach { key ->
-                            val tileRect = TileRenderEngine.getTileRect(key)
-                            val cachedBitmap = tileEngine.tileCache.get(key)
-                            val dstRectF = android.graphics.RectF(
-                                tileRect.left,
-                                tileRect.top,
-                                tileRect.right + 0.35f,
-                                tileRect.bottom + 0.35f
-                            )
-
-                            if (cachedBitmap != null && !cachedBitmap.isRecycled) {
-                                native.drawBitmap(cachedBitmap, null, dstRectF, tilePaint)
-                            } else {
-                                // 1. Instant Parent LOD fallback (coarser zoom, single hardware blit)
-                                val parentFallback = tileEngine.getParentTileFallback(key)
-                                if (parentFallback != null) {
-                                    val (parentBmp, srcRect) = parentFallback
-                                    native.drawBitmap(parentBmp, srcRect, dstRectF, tilePaint)
-                                } else {
-                                    // 2. Instant Child LOD fallback (finer zoom quadrants, single hardware blit)
-                                    val childFallbacks = tileEngine.getChildTilesFallback(key)
-                                    if (childFallbacks.isNotEmpty()) {
-                                        childFallbacks.forEach { (childBmp, childRect) ->
-                                            val childDst = android.graphics.RectF(
-                                                childRect.left,
-                                                childRect.top,
-                                                childRect.right + 0.35f,
-                                                childRect.bottom + 0.35f
-                                            )
-                                            native.drawBitmap(childBmp, null, childDst, tilePaint)
-                                        }
-                                    } else if (!tileEngine.tileCache.isEmpty(key)) {
-                                        // 3. Last resort if no parent or child bitmap exists in cache
-                                        drawTileVectorFallback(
-                                            canvas = native,
-                                            tileRect = tileRect,
-                                            spatialIndexManager = spatialIndexManager,
-                                            strokeMap = strokeMap,
-                                            strokeToIndex = strokeToIndex,
-                                            imageMap = imageMap,
-                                            imageOrder = imageOrder,
-                                            getBitmap = { path -> imageCache.get(path) },
-                                            excludedStrokeIds = selectedStrokeIds,
-                                            excludedImageIds = selectedImageIds,
-                                            renderPaint = renderPaint
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // LAYER 2: Active Stroke, Selection & Live Transformations (Real-time)
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    withTransform({
-                        translate(canvasOffset.x, canvasOffset.y)
-                        scale(canvasScale, canvasScale, Offset.Zero)
-                    }) {
-                        val drawingTool = activeDrawingTool ?: updatedTool
-
-                        // 1. Live Active Stroke
-                        if (currentPathPoints.isNotEmpty()) {
-                            activeStrokePath.rewind()
-                            currentPathPoints.forEachIndexed { i, p ->
-                                if (i == 0) activeStrokePath.moveTo(p.x, p.y)
-                                else activeStrokePath.lineTo(p.x, p.y)
-                            }
-                            if (drawingTool == DrawingTool.LASSO) {
-                                drawPath(
-                                    path = activeStrokePath,
-                                    color = Color.Blue,
-                                    style = Stroke(
-                                        width = 1.dp.toPx() / canvasScale,
-                                        pathEffect = PathEffect.dashPathEffect(
-                                            floatArrayOf(10f / canvasScale, 10f / canvasScale),
-                                            0f
-                                        )
-                                    )
-                                )
-                            } else if (drawingTool != DrawingTool.HAND) {
-                                drawPath(
-                                    path = activeStrokePath,
-                                    color = if (drawingTool == DrawingTool.ERASER) Color.LightGray else selectedPenColor,
-                                    style = Stroke(
-                                        width = if (drawingTool == DrawingTool.ERASER) eraserThickness else penThickness,
-                                        cap = StrokeCap.Round,
-                                        join = StrokeJoin.Round
-                                    )
-                                )
-                            }
-                        }
-
-                        // 2. Selected Strokes & Images with Live Transformation
-                        if (selectedStrokeIds.isNotEmpty() || selectedImageIds.isNotEmpty()) {
-                            val liveXform = activeTransformation
-                            withTransform({
-                                if (liveXform != null) {
-                                    liveXform.offset?.let { translate(it.x, it.y) }
-                                    if (liveXform.scale != null && liveXform.pivot != null) {
-                                        scale(liveXform.scale.x, liveXform.scale.y, Offset(liveXform.pivot.x, liveXform.pivot.y))
-                                    }
-                                }
-                            }) {
-                                // Draw selected images
-                                selectedImageIds.forEach { id ->
-                                    val img = imageMap[id] ?: return@forEach
-                                    val bmp = imageCache.get(img.path)
-                                    if (bmp != null && !bmp.isRecycled) {
-                                        drawImage(
-                                            image = bmp.asImageBitmap(),
-                                            dstOffset = IntOffset(img.offset.x.roundToInt(), img.offset.y.roundToInt()),
-                                            dstSize = IntSize(img.scale.x.roundToInt(), img.scale.y.roundToInt()),
-                                            filterQuality = FilterQuality.Medium
-                                        )
-                                    }
-                                }
-                                // Draw selected strokes
-                                val livePath = Path()
-                                selectedStrokeIds.forEach { id ->
-                                    val stroke = strokeMap[id] ?: return@forEach
-                                    livePath.rewind()
-                                    val pts = stroke.points
-                                    if (pts.isNotEmpty()) {
-                                        livePath.moveTo(pts[0].x, pts[0].y)
-                                        if (pts.size == 1) {
-                                            livePath.lineTo(pts[0].x + 0.1f, pts[0].y)
-                                        } else {
-                                            for (i in 1 until pts.size) {
-                                                livePath.lineTo(pts[i].x, pts[i].y)
-                                            }
-                                        }
-                                        drawPath(
-                                            path = livePath,
-                                            color = Color(stroke.colorArgb),
-                                            style = Stroke(
-                                                width = stroke.width,
-                                                cap = StrokeCap.Round,
-                                                join = StrokeJoin.Round
-                                            )
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        // 3. Selection Bounding Box & Handles
-                        selectionBounds?.let { bounds ->
-                            val liveXform = activeTransformation
-                            withTransform({
-                                if (liveXform != null) {
-                                    liveXform.offset?.let { translate(it.x, it.y) }
-                                    if (liveXform.scale != null && liveXform.pivot != null) {
-                                        scale(liveXform.scale.x, liveXform.scale.y, Offset(liveXform.pivot.x, liveXform.pivot.y))
-                                    }
-                                }
-                            }) {
-                                drawRect(
-                                    color = Color.Blue,
-                                    topLeft = bounds.topLeft,
-                                    size = bounds.size,
-                                    style = Stroke(
-                                        width = 1.dp.toPx() / canvasScale,
-                                        pathEffect = PathEffect.dashPathEffect(
-                                            floatArrayOf(10f / canvasScale, 10f / canvasScale),
-                                            0f
-                                        )
-                                    )
-                                )
-                                val r = 6.dp.toPx() / canvasScale
-                                val strokeW = 2.dp.toPx() / canvasScale
-                                listOf(
-                                    bounds.topLeft,
-                                    bounds.topRight,
-                                    bounds.bottomLeft,
-                                    bounds.bottomRight
-                                ).forEach { c ->
-                                    drawCircle(color = Color.White, radius = r, center = c)
-                                    drawCircle(
-                                        color = Color.Blue,
-                                        radius = r,
-                                        center = c,
-                                        style = Stroke(width = strokeW)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
+            // System bar gradients
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -2667,265 +648,74 @@ fun DrawingNoteScreen(
                 SystemBarGradients(color = Color.White, showTop = true, showBottom = true)
             }
 
+            // Toolbar and Selection Layer
             Box(modifier = Modifier.fillMaxSize().zIndex(11f)) {
                 DrawingToolbar(
-                    currentTool = currentTool,
-                    onToolChange = { 
-                        if (selectedStrokeIds.isNotEmpty() || selectedImageIds.isNotEmpty()) {
-                            val prevStrokes = selectedStrokeIds.mapNotNull { strokeMap[it] }
-                            val prevImages = selectedImageIds.mapNotNull { imageMap[it] }
-                            val prevBounds = getBounds(prevStrokes, prevImages, spatialIndexManager.strokeBoundsMap)
-                            
-                            selectedStrokeIds = emptySet()
-                            selectedImageIds = emptySet()
-                            
-                            tileEngine.invalidateArea(prevBounds)
-                            val lod = TileRenderEngine.getLod(canvasScale)
-                            val affectedKeys = tileEngine.getVisibleTileKeys(prevBounds, lod, buffer = 1)
-                            affectedKeys.forEach { key ->
-                                tileEngine.renderTileDirect(
-                                    key = key,
-                                    spatialIndexManager = spatialIndexManager,
-                                    strokeMap = strokeMap,
-                                    strokeToIndex = strokeToIndex,
-                                    imageMap = imageMap,
-                                    imageOrder = imageOrder,
-                                    getBitmap = { path -> imageCache.get(path) },
-                                    excludedStrokeIds = emptySet(),
-                                    excludedImageIds = emptySet()
-                                )
-                            }
-                            tileCacheVersion++
-                        }
-                        if (currentTool == it && (it == DrawingTool.PEN || it == DrawingTool.ERASER)) {
+                    currentTool = controller.currentTool,
+                    onToolChange = { tool ->
+                        controller.clearSelection()
+                        if (controller.currentTool == tool && (tool == DrawingTool.PEN || tool == DrawingTool.ERASER)) {
                             showThicknessPopup = !showThicknessPopup
                             showColorPopup = false
                         } else {
-                            currentTool = it
+                            controller.currentTool = tool
                             showThicknessPopup = false
                             showColorPopup = false
                         }
                     },
                     anchor = toolbarAnchor,
-                    onAnchorChange = { 
+                    onAnchorChange = {
                         toolbarAnchor = it
                         notesViewModel.onEvent(NoteEvent.UpdateToolbarAnchor(it))
                     },
                     isCollapsed = isToolbarCollapsed,
                     onToggleCollapse = { isToolbarCollapsed = it },
-                    penThickness = penThickness,
-                    onPenThicknessChange = { 
-                        penThickness = it
+                    penThickness = controller.penThickness,
+                    onPenThicknessChange = {
+                        controller.penThickness = it
                         notesViewModel.onEvent(NoteEvent.UpdateLastDrawingThickness(it))
                     },
-                    eraserThickness = eraserThickness,
-                    onEraserThicknessChange = { eraserThickness = it },
+                    eraserThickness = controller.eraserThickness,
+                    onEraserThicknessChange = { controller.eraserThickness = it },
                     showThicknessPopup = showThicknessPopup,
-                    selectedPenColor = selectedPenColor,
-                    onPenColorChange = { 
-                        selectedPenColor = it
+                    selectedPenColor = controller.selectedPenColor,
+                    onPenColorChange = {
+                        controller.selectedPenColor = it
                         notesViewModel.onEvent(NoteEvent.UpdateLastDrawingColor(it.toArgb()))
                     },
                     showColorPopup = showColorPopup,
-                    onToggleColorPopup = { showColorPopup = it; if (it) showThicknessPopup = false },
-                    undoEnabled = undoStackManager.undoStack.isNotEmpty(),
-                    onUndo = { 
-                        undoStackManager.popUndo()?.let { applyAction(it, isUndo = true) }
+                    onToggleColorPopup = {
+                        showColorPopup = it
+                        if (it) showThicknessPopup = false
                     },
-                    redoEnabled = undoStackManager.redoStack.isNotEmpty(),
-                    onRedo = { 
-                        undoStackManager.popRedo()?.let { applyAction(it, isUndo = false) }
+                    undoEnabled = controller.historyManager.canUndo,
+                    onUndo = { controller.undo() },
+                    redoEnabled = controller.historyManager.canRedo,
+                    onRedo = { controller.redo() },
+                    canvasScale = controller.canvasScale,
+                    onResetZoom = {
+                        controller.canvasScale = 1f
+                        controller.canvasOffset = Offset.Zero
                     },
-                    canvasScale = canvasScale,
-                    onResetZoom = { canvasScale = 1f; canvasOffset = Offset.Zero },
-                    thicknessPresets = thicknessPresets,
-                    onThicknessPresetsChange = { 
+                    thicknessPresets = controller.thicknessPresets,
+                    onThicknessPresetsChange = {
+                        controller.thicknessPresets = it
                         notesViewModel.onEvent(NoteEvent.UpdateDrawingThicknessPresets(it))
                     }
                 )
 
-                selectionBounds?.let { bounds ->
-                    val density = LocalDensity.current
-                    val px16 = with(density) { 16.dp.toPx() }
-                    val px64 = with(density) { 64.dp.toPx() }
-                    val px56 = with(density) { 56.dp.toPx() }
-
-                    Surface(
-                        modifier = Modifier
-                            .offset {
-                                val liveXform = activeTransformation
-                                var x = bounds.center.x
-                                var y = bounds.top
-                                var bBottom = bounds.bottom
-                                
-                                if (liveXform != null) {
-                                    liveXform.offset?.let { x += it.x; y += it.y; bBottom += it.y }
-                                    if (liveXform.scale != null && liveXform.pivot != null) {
-                                        val sx = liveXform.scale.x; val sy = liveXform.scale.y
-                                        val px = liveXform.pivot.x; val py = liveXform.pivot.y
-                                        x = px + (x - px) * sx
-                                        y = py + (y - py) * sy
-                                        bBottom = py + (bBottom - py) * sy
-                                    }
-                                }
-
-                                // Read canvasScale/canvasOffset in the layout phase to avoid recomposition
-                                val screenX = x * canvasScale + canvasOffset.x
-                                val screenY = y * canvasScale + canvasOffset.y
-                                val isTooHigh = screenY < 200f
-                                val yOffset = if (isTooHigh) (bBottom * canvasScale + canvasOffset.y + px16) else (screenY - px64)
-                                IntOffset((screenX - 72.dp.toPx().toInt()).roundToInt(), yOffset.roundToInt())
-                            }
-                            .shadow(4.dp, CircleShape).clip(CircleShape),
-                        color = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
-                        tonalElevation = 6.dp
-                    ) {
-                        Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { 
-                                pendingExportSelection = selectedStrokeIds.mapNotNull { strokeMap[it] } to selectedImageIds.mapNotNull { imageMap[it] }
-                                showSelectionExportDialog = true 
-                            }) { Icon(Icons.Rounded.FileDownload, contentDescription = "Export Selection") }
-                            IconButton(onClick = {
-                                val newStrokes = selectedStrokeIds.mapNotNull { strokeMap[it] }.map { s -> s.copy(id = UUID.randomUUID().toString(), points = s.points.map { DrawingPoint(it.x + 20f, it.y + 20f) }) }
-                                val newImages = selectedImageIds.mapNotNull { imageMap[it] }.map { img -> img.copy(id = UUID.randomUUID().toString(), offset = DrawingPoint(img.offset.x + 20f, img.offset.y + 20f)) }
-                                newStrokes.forEach {
-                                    strokeMap[it.id] = it
-                                    strokeOrder.add(it.id)
-                                    spatialIndexManager.addStroke(it)
-                                }
-                                newImages.forEach {
-                                    imageMap[it.id] = it
-                                    imageOrder.add(it.id)
-                                }
-                                val newBounds = getBounds(newStrokes, newImages)
-                                tileEngine.invalidateArea(newBounds)
-                                tileCacheVersion++
-                                recordAction(DrawingAction.Add(strokes = newStrokes, images = newImages))
-                                selectedStrokeIds = newStrokes.map { it.id }.toSet()
-                                selectedImageIds = newImages.map { it.id }.toSet()
-                                isDirty = true
-                                showSnackbar("Duplicated")
-                            }) { Icon(Icons.Rounded.ContentCopy, contentDescription = "Duplicate") }
-                            IconButton(onClick = { 
-                                val removedS = selectedStrokeIds.mapNotNull { strokeMap[it] }
-                                val removedI = selectedImageIds.mapNotNull { imageMap[it] }
-                                val removedBounds = getBounds(removedS, removedI, spatialIndexManager.strokeBoundsMap)
-                                removedS.forEach { 
-                                    strokeMap.remove(it.id)
-                                    strokeOrder.remove(it.id)
-                                    spatialIndexManager.removeStroke(it.id) 
-                                }
-                                removedI.forEach {
-                                    imageMap.remove(it.id)
-                                    imageOrder.remove(it.id)
-                                }
-                                selectedStrokeIds = emptySet(); selectedImageIds = emptySet()
-                                tileEngine.invalidateArea(removedBounds)
-                                val lod = TileRenderEngine.getLod(canvasScale)
-                                val affectedKeys = tileEngine.getVisibleTileKeys(removedBounds, lod, buffer = 1)
-                                affectedKeys.forEach { key ->
-                                    tileEngine.renderTileDirect(
-                                        key = key,
-                                        spatialIndexManager = spatialIndexManager,
-                                        strokeMap = strokeMap,
-                                        strokeToIndex = strokeToIndex,
-                                        imageMap = imageMap,
-                                        imageOrder = imageOrder,
-                                        getBitmap = { path -> imageCache.get(path) },
-                                        excludedStrokeIds = emptySet(),
-                                        excludedImageIds = emptySet()
-                                    )
-                                }
-                                tileCacheVersion++
-                                recordAction(DrawingAction.Remove(strokes = removedS, images = removedI))
-                                showSelectionThicknessPopup = false; showSelectionColorPopup = false
-                                isDirty = true
-                            }) { Icon(Icons.Rounded.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error) }
-                            if (selectedStrokeIds.isNotEmpty()) {
-                                VerticalDivider(modifier = Modifier.height(24.dp).padding(horizontal = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                                IconButton(onClick = { showSelectionColorPopup = !showSelectionColorPopup; showSelectionThicknessPopup = false }) {
-                                    val firstColor = strokeMap[selectedStrokeIds.first()]?.colorArgb ?: Color.Black.toArgb()
-                                    Box(modifier = Modifier.size(20.dp).clip(CircleShape).background(Color(firstColor)).border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f), CircleShape))
-                                }
-                                IconButton(onClick = { showSelectionThicknessPopup = !showSelectionThicknessPopup; showSelectionColorPopup = false }) { Icon(Icons.Rounded.LineWeight, contentDescription = "Thickness") }
-                            }
-                        }
+                // Selection Contextual Overlay
+                DrawingSelectionOverlay(
+                    controller = controller,
+                    onExportSelection = { s, i ->
+                        pendingExportSelection = s to i
+                        showSelectionExportDialog = true
                     }
-
-                    Column(
-                        modifier = Modifier
-                            .offset {
-                                val liveXform = activeTransformation
-                                var x = bounds.center.x
-                                var y = bounds.top
-                                var bBottom = bounds.bottom
-                                
-                                if (liveXform != null) {
-                                    liveXform.offset?.let { x += it.x; y += it.y; bBottom += it.y }
-                                    if (liveXform.scale != null && liveXform.pivot != null) {
-                                        val sx = liveXform.scale.x; val sy = liveXform.scale.y
-                                        val px = liveXform.pivot.x; val py = liveXform.pivot.y
-                                        x = px + (x - px) * sx
-                                        y = py + (y - py) * sy
-                                        bBottom = py + (bBottom - py) * sy
-                                    }
-                                }
-
-                                val screenX = x * canvasScale + canvasOffset.x
-                                val screenY = y * canvasScale + canvasOffset.y
-                                val isTooHigh = screenY < 200f
-                                val yOffset = if (isTooHigh) (bBottom * canvasScale + canvasOffset.y + px16) else (screenY - px64)
-                                IntOffset((screenX - 100.dp.toPx()).roundToInt(), (yOffset + (if (isTooHigh) 60.dp.toPx() else -200.dp.toPx())).roundToInt())
-                            }
-                            .zIndex(15f),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        if (showSelectionColorPopup) {
-                            ColorPopup(
-                                selectedColor = Color(strokeMap[selectedStrokeIds.first()]?.colorArgb ?: Color.Black.toArgb()),
-                                onColorChange = { newColor ->
-                                    val oldS = selectedStrokeIds.mapNotNull { strokeMap[it] }
-                                    val newS = oldS.map { it.copy(colorArgb = newColor.toArgb()) }
-                                    oldS.zip(newS).forEach { (old, new) -> 
-                                        strokeMap[new.id] = new
-                                        spatialIndexManager.updateStroke(old, new) 
-                                    }
-                                    val sBounds = getBounds(newS, emptyList())
-                                    tileEngine.invalidateArea(sBounds)
-                                    tileCacheVersion++
-                                    recordAction(DrawingAction.Transform(oldStrokes = oldS, newStrokes = newS, sharesPoints = true))
-                                    showSelectionColorPopup = false
-                                    isDirty = true
-                                },
-                                onOpenPicker = { /* Picker */ }
-                            )
-                        }
-                        if (showSelectionThicknessPopup) {
-                            ThicknessPopup(
-                                thickness = strokeMap[selectedStrokeIds.first()]?.width ?: 2.5f,
-                                onThicknessChange = { newWidth -> 
-                                    val oldS = selectedStrokeIds.mapNotNull { strokeMap[it] }
-                                    val newS = oldS.map { it.copy(width = newWidth) }
-                                    oldS.zip(newS).forEach { (old, new) -> 
-                                        strokeMap[new.id] = new
-                                        spatialIndexManager.updateStroke(old, new) 
-                                    }
-                                    val sBounds = getBounds(newS, emptyList())
-                                    tileEngine.invalidateArea(sBounds)
-                                    tileCacheVersion++
-                                    recordAction(DrawingAction.Transform(oldStrokes = oldS, newStrokes = newS, sharesPoints = true))
-                                    isDirty = true
-                                },
-                                color = Color(strokeMap[selectedStrokeIds.first()]?.colorArgb ?: Color.Black.toArgb()),
-                                min = 0.5f,
-                                max = 50f
-                            )
-                        }
-                    }
-                }
+                )
             }
 
-            if (isSplitScreen && canvasType != CanvasType.INFINITE) {
+            // Tablet Side Panel Page Overview
+            if (isSplitScreen && controller.canvasType != CanvasType.INFINITE) {
                 AnimatedVisibility(
                     visible = showPageOverview,
                     enter = slideInHorizontally { it } + fadeIn(),
@@ -2935,98 +725,77 @@ fun DrawingNoteScreen(
                         .zIndex(20f)
                 ) {
                     PageOverviewSidePanel(
-                        canvasType = canvasType,
-                        pagePositions = pagePositions,
-                        pageLayout = pageLayout,
+                        canvasType = controller.canvasType,
+                        pagePositions = controller.pagePositions,
+                        pageLayout = controller.pageLayout,
                         pdfRenderer = pdfRenderer,
-                        pdfInfo = pdfInfo,
-                        pageCount = pageCount,
+                        pdfInfo = controller.pdfInfo,
+                        pageCount = controller.pageCount,
                         currentViewingPageIndex = currentViewingPageIndex,
-                        strokes = currentStrokes,
-                        images = currentImages,
+                        strokes = controller.currentStrokes,
+                        images = controller.currentImages,
                         onClose = { showPageOverview = false },
-                        onJumpToPage = { jumpToPage(it) },
-                        onAddPage = { addPageAtEnd() },
-                        onAddPageBefore = { addPageBefore(it) },
-                        onAddPageAfter = { addPageAfter(it) },
-                        onDuplicatePage = { duplicatePage(it) },
-                        onDeletePage = { deletePage(it) },
-                        onMovePage = { from, to -> movePage(from, to) }
+                        onJumpToPage = { controller.jumpToPage(it) },
+                        onAddPage = { controller.insertPage(controller.pageCount) },
+                        onAddPageBefore = { controller.insertPage(it) },
+                        onAddPageAfter = { controller.insertPage(it + 1) },
+                        onDuplicatePage = { controller.duplicatePage(it) },
+                        onDeletePage = {
+                            if (controller.deletePage(it)) {
+                                showSnackbar("Page ${it + 1} deleted")
+                            } else {
+                                showSnackbar("Cannot delete the only page")
+                            }
+                        },
+                        onMovePage = { from, to -> controller.movePage(from, to) }
                     )
                 }
-            }
-
-            if (showTitleDialog) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .zIndex(21f)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) { showTitleDialog = false }
-                )
-            }
-
-            AnimatedVisibility(
-                visible = showTitleDialog,
-                enter = scaleIn(
-                    animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow),
-                    initialScale = 0.88f,
-                    transformOrigin = TransformOrigin(0.15f, 0f)
-                ) + fadeIn(),
-                exit = scaleOut(
-                    targetScale = 0.88f,
-                    transformOrigin = TransformOrigin(0.15f, 0f)
-                ) + fadeOut(),
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .zIndex(22f)
-            ) {
-                DrawingTitleDetailsPopup(
-                    title = title,
-                    onTitleChange = { 
-                        title = it
-                        isDirty = true
-                    },
-                    lastSavedTime = lastSavedTime,
-                    onClose = { showTitleDialog = false }
-                )
             }
         }
     }
 
-    if (!isSplitScreen && canvasType != CanvasType.INFINITE && showPageOverview) {
+    // Phone Bottom Sheet Page Overview
+    if (!isSplitScreen && controller.canvasType != CanvasType.INFINITE && showPageOverview) {
         PageOverviewBottomSheet(
-            canvasType = canvasType,
-            pagePositions = pagePositions,
-            pageLayout = pageLayout,
+            canvasType = controller.canvasType,
+            pagePositions = controller.pagePositions,
+            pageLayout = controller.pageLayout,
             pdfRenderer = pdfRenderer,
-            pdfInfo = pdfInfo,
-            pageCount = pageCount,
+            pdfInfo = controller.pdfInfo,
+            pageCount = controller.pageCount,
             currentViewingPageIndex = currentViewingPageIndex,
-            strokes = currentStrokes,
-            images = currentImages,
+            strokes = controller.currentStrokes,
+            images = controller.currentImages,
             onDismiss = { showPageOverview = false },
-            onJumpToPage = { 
-                jumpToPage(it)
+            onJumpToPage = {
+                controller.jumpToPage(it)
                 showPageOverview = false
             },
-            onAddPage = { addPageAtEnd() },
-            onAddPageBefore = { addPageBefore(it) },
-            onAddPageAfter = { addPageAfter(it) },
-            onDuplicatePage = { duplicatePage(it) },
-            onDeletePage = { deletePage(it) },
-            onMovePage = { from, to -> movePage(from, to) }
+            onAddPage = { controller.insertPage(controller.pageCount) },
+            onAddPageBefore = { controller.insertPage(it) },
+            onAddPageAfter = { controller.insertPage(it + 1) },
+            onDuplicatePage = { controller.duplicatePage(it) },
+            onDeletePage = {
+                if (controller.deletePage(it)) {
+                    showSnackbar("Page ${it + 1} deleted")
+                } else {
+                    showSnackbar("Cannot delete the only page")
+                }
+            },
+            onMovePage = { from, to -> controller.movePage(from, to) }
         )
     }
 
+    // Selection Export Dialog
     if (showSelectionExportDialog) {
         pendingExportSelection?.let { selection ->
             SelectionExportDialog(
                 strokes = selection.first,
                 images = selection.second,
-                onDismiss = { showSelectionExportDialog = false; pendingExportSelection = null },
+                onDismiss = {
+                    showSelectionExportDialog = false
+                    pendingExportSelection = null
+                },
                 onExportPng = { launchExport(pngLauncher, "png") },
                 onExportPdfBitmap = { launchExport(pdfBitmapLauncher, "pdf") },
                 onExportPdfVector = { launchExport(pdfVectorLauncher, "pdf") }
@@ -3034,1531 +803,3 @@ fun DrawingNoteScreen(
         }
     }
 }
-
-@Composable
-private fun PageThumbnail(
-    pageIndex: Int,
-    canvasType: CanvasType,
-    pagePositions: List<Rect>,
-    pageLayout: PageLayout,
-    pdfRenderer: PdfRenderer?,
-    pdfInfo: PdfInfo?,
-    strokes: List<com.ozon.notes.Stroke>,
-    images: List<com.ozon.notes.DrawingImage>,
-    modifier: Modifier = Modifier
-) {
-    val pageRect = pagePositions.getOrNull(pageIndex)
-    val pageWidth = pageRect?.width ?: (if (pageLayout.width > 0) pageLayout.width else 800f)
-    val pageHeight = pageRect?.height ?: (if (pageLayout.height > 0) pageLayout.height else 1100f)
-    val pageTop = pageRect?.top ?: (pageIndex * (pageHeight + pageLayout.spacing))
-    val pageBottom = pageRect?.bottom ?: (pageTop + pageHeight)
-
-    val pageStrokes = remember(strokes, pageIndex, pageTop, pageBottom) {
-        strokes.filter { stroke ->
-            stroke.points.any { it.y in pageTop..pageBottom }
-        }
-    }
-
-    var thumbnailBitmap by remember(pageIndex, canvasType, pdfRenderer) { 
-        mutableStateOf<Bitmap?>(null) 
-    }
-
-    LaunchedEffect(pageIndex, canvasType, pdfRenderer, pageStrokes, pageWidth, pageHeight, pageTop) {
-        withContext(Dispatchers.Default) {
-            try {
-                // Generate a lightweight, low-res thumbnail bitmap (max ~180px dimension)
-                val maxDim = 180f
-                val scaleFactor = (maxDim / maxOf(pageWidth, pageHeight)).coerceIn(0.05f, 0.35f)
-                val thumbWidth = (pageWidth * scaleFactor).toInt().coerceAtLeast(1)
-                val thumbHeight = (pageHeight * scaleFactor).toInt().coerceAtLeast(1)
-
-                val bmp = Bitmap.createBitmap(thumbWidth, thumbHeight, Bitmap.Config.ARGB_8888)
-                val canvas = android.graphics.Canvas(bmp)
-                bmp.eraseColor(android.graphics.Color.WHITE)
-
-                // 1. Draw PDF Page background onto the bitmap canvas
-                if (canvasType == CanvasType.PDF && pdfRenderer != null && (pdfInfo == null || pageIndex < pdfInfo.pageCount)) {
-                    val pageSize = pdfInfo?.pageSizes?.getOrNull(pageIndex) ?: PdfPageSize(pageWidth, pageHeight)
-                    val pdfBmpWidth = (pageSize.width * scaleFactor).toInt().coerceAtLeast(1)
-                    val pdfBmpHeight = (pageSize.height * scaleFactor).toInt().coerceAtLeast(1)
-                    val pdfBmp = Bitmap.createBitmap(pdfBmpWidth, pdfBmpHeight, Bitmap.Config.ARGB_8888)
-                    pdfBmp.eraseColor(android.graphics.Color.WHITE)
-
-                    var page: PdfRenderer.Page? = null
-                    try {
-                        synchronized(pdfRenderer) {
-                            page = pdfRenderer.openPage(pageIndex)
-                            page.render(pdfBmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                        }
-                        val left = pageLayout.marginLeft * scaleFactor
-                        val top = pageLayout.marginTop * scaleFactor
-                        canvas.drawBitmap(pdfBmp, left, top, null)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    } finally {
-                        pdfBmp.recycle()
-                        page?.let { p ->
-                            synchronized(pdfRenderer) { p.close() }
-                        }
-                    }
-                }
-
-                // 2. Draw user strokes onto the bitmap canvas in background thread
-                if (pageStrokes.isNotEmpty()) {
-                    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                        style = android.graphics.Paint.Style.STROKE
-                        strokeCap = android.graphics.Paint.Cap.ROUND
-                        strokeJoin = android.graphics.Paint.Join.ROUND
-                    }
-                    val path = android.graphics.Path()
-
-                    pageStrokes.forEach { stroke ->
-                        if (stroke.points.size > 1) {
-                            path.reset()
-                            stroke.points.forEachIndexed { i, p ->
-                                val x = p.x * scaleFactor
-                                val y = (p.y - pageTop) * scaleFactor
-                                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                            }
-                            paint.color = stroke.colorArgb
-                            paint.strokeWidth = (stroke.width * scaleFactor).coerceAtLeast(1f)
-                            canvas.drawPath(path, paint)
-                        }
-                    }
-                }
-
-                withContext(Dispatchers.Main) {
-                    thumbnailBitmap = bmp
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-    }
-
-    Box(
-        modifier = modifier
-            .aspectRatio(pageWidth / pageHeight)
-            .background(Color.White, RoundedCornerShape(8.dp))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-            .clip(RoundedCornerShape(8.dp))
-    ) {
-        val bmp = thumbnailBitmap
-        if (bmp != null && !bmp.isRecycled) {
-            Image(
-                bitmap = bmp.asImageBitmap(),
-                contentDescription = null,
-                contentScale = ContentScale.FillBounds,
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-    }
-}
-
-@Composable
-private fun PageOverviewItem(
-    pageIndex: Int,
-    pageCount: Int,
-    isCurrentViewing: Boolean,
-    canvasType: CanvasType,
-    pagePositions: List<Rect>,
-    pageLayout: PageLayout,
-    pdfRenderer: PdfRenderer?,
-    pdfInfo: PdfInfo?,
-    strokes: List<com.ozon.notes.Stroke>,
-    images: List<com.ozon.notes.DrawingImage>,
-    onSelect: () -> Unit,
-    onAddBefore: () -> Unit,
-    onAddAfter: () -> Unit,
-    onMoveUp: () -> Unit,
-    onMoveDown: () -> Unit,
-    onDuplicate: () -> Unit,
-    onDelete: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    var showMenu by remember { mutableStateOf(false) }
-
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable { onSelect() },
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isCurrentViewing) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-            else MaterialTheme.colorScheme.surfaceContainer
-        ),
-        border = if (isCurrentViewing) BorderStroke(2.5.dp, MaterialTheme.colorScheme.primary)
-        else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            // Top Bar with Black Pill Page Number and 3-dot menu
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Black pill-shaped rectangle behind the page number
-                Surface(
-                    shape = CircleShape,
-                    color = Color.Black.copy(alpha = 0.82f),
-                    contentColor = Color.White,
-                    shadowElevation = 2.dp
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = "${pageIndex + 1}",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                        if (isCurrentViewing) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF4CAF50))
-                            )
-                        }
-                    }
-                }
-
-                // 3-dot menu for all paged/PDF canvas pages
-                Box {
-                    IconButton(
-                        onClick = { showMenu = true },
-                        modifier = Modifier.size(26.dp)
-                    ) {
-                        Icon(
-                            Icons.Rounded.MoreVert,
-                            contentDescription = "Page Options",
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Add Page Before") },
-                            leadingIcon = {
-                                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            },
-                            onClick = {
-                                showMenu = false
-                                onAddBefore()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Add Page After") },
-                            leadingIcon = {
-                                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            },
-                            onClick = {
-                                showMenu = false
-                                onAddAfter()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Duplicate Page") },
-                            leadingIcon = {
-                                Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
-                            },
-                            onClick = {
-                                showMenu = false
-                                onDuplicate()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Move Up") },
-                            leadingIcon = {
-                                Icon(Icons.Rounded.KeyboardArrowUp, contentDescription = null, modifier = Modifier.size(18.dp))
-                            },
-                            enabled = pageIndex > 0,
-                            onClick = {
-                                showMenu = false
-                                onMoveUp()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Move Down") },
-                            leadingIcon = {
-                                Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(18.dp))
-                            },
-                            enabled = pageIndex < pageCount - 1,
-                            onClick = {
-                                showMenu = false
-                                onMoveDown()
-                            }
-                        )
-                        HorizontalDivider()
-                        DropdownMenuItem(
-                            text = { Text("Delete Page", color = MaterialTheme.colorScheme.error) },
-                            leadingIcon = {
-                                Icon(Icons.Rounded.DeleteOutline, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
-                            },
-                            enabled = pageCount > 1,
-                            onClick = {
-                                showMenu = false
-                                onDelete()
-                            }
-                        )
-                    }
-                }
-            }
-
-            // Miniature Thumbnail Preview
-            PageThumbnail(
-                pageIndex = pageIndex,
-                canvasType = canvasType,
-                pagePositions = pagePositions,
-                pageLayout = pageLayout,
-                pdfRenderer = pdfRenderer,
-                pdfInfo = pdfInfo,
-                strokes = strokes,
-                images = images,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-    }
-}
-
-@Composable
-private fun PageOverviewSidePanel(
-    canvasType: CanvasType,
-    pagePositions: List<Rect>,
-    pageLayout: PageLayout,
-    pdfRenderer: PdfRenderer?,
-    pdfInfo: PdfInfo?,
-    pageCount: Int,
-    currentViewingPageIndex: Int,
-    strokes: List<com.ozon.notes.Stroke>,
-    images: List<com.ozon.notes.DrawingImage>,
-    onClose: () -> Unit,
-    onJumpToPage: (Int) -> Unit,
-    onAddPage: () -> Unit,
-    onAddPageBefore: (Int) -> Unit,
-    onAddPageAfter: (Int) -> Unit,
-    onDuplicatePage: (Int) -> Unit,
-    onDeletePage: (Int) -> Unit,
-    onMovePage: (Int, Int) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier
-            .width(360.dp)
-            .fillMaxHeight()
-            .statusBarsPadding()
-            .padding(top = 68.dp, bottom = 24.dp, end = 16.dp),
-        shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        tonalElevation = 8.dp,
-        shadowElevation = 8.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp)
-        ) {
-            // Header
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        Icons.Rounded.GridView,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Text(
-                        text = if (canvasType == CanvasType.PDF) "PDF Pages" else "Pages",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.secondaryContainer
-                    ) {
-                        Text(
-                            text = "$pageCount",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                        )
-                    }
-                }
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Rounded.Close, contentDescription = "Close")
-                }
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            // Add Page Button
-            Button(
-                onClick = onAddPage,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            ) {
-                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Add Page", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            // 2-Column Grid of Pages
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(pageCount) { index ->
-                    PageOverviewItem(
-                        pageIndex = index,
-                        pageCount = pageCount,
-                        isCurrentViewing = index == currentViewingPageIndex,
-                        canvasType = canvasType,
-                        pagePositions = pagePositions,
-                        pageLayout = pageLayout,
-                        pdfRenderer = pdfRenderer,
-                        pdfInfo = pdfInfo,
-                        strokes = strokes,
-                        images = images,
-                        onSelect = { onJumpToPage(index) },
-                        onAddBefore = { onAddPageBefore(index) },
-                        onAddAfter = { onAddPageAfter(index) },
-                        onMoveUp = { onMovePage(index, index - 1) },
-                        onMoveDown = { onMovePage(index, index + 1) },
-                        onDuplicate = { onDuplicatePage(index) },
-                        onDelete = { onDeletePage(index) }
-                    )
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun PageOverviewBottomSheet(
-    canvasType: CanvasType,
-    pagePositions: List<Rect>,
-    pageLayout: PageLayout,
-    pdfRenderer: PdfRenderer?,
-    pdfInfo: PdfInfo?,
-    pageCount: Int,
-    currentViewingPageIndex: Int,
-    strokes: List<com.ozon.notes.Stroke>,
-    images: List<com.ozon.notes.DrawingImage>,
-    onDismiss: () -> Unit,
-    onJumpToPage: (Int) -> Unit,
-    onAddPage: () -> Unit,
-    onAddPageBefore: (Int) -> Unit,
-    onAddPageAfter: (Int) -> Unit,
-    onDuplicatePage: (Int) -> Unit,
-    onDeletePage: (Int) -> Unit,
-    onMovePage: (Int, Int) -> Unit
-) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
-        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-        ) {
-            // Header
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        Icons.Rounded.GridView,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Text(
-                        text = if (canvasType == CanvasType.PDF) "PDF Pages ($pageCount)" else "Pages ($pageCount)",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                FilledTonalButton(
-                    onClick = onAddPage,
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("Add Page")
-                }
-            }
-
-            // 2-Column Grid of Pages
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 480.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(pageCount) { index ->
-                    PageOverviewItem(
-                        pageIndex = index,
-                        pageCount = pageCount,
-                        isCurrentViewing = index == currentViewingPageIndex,
-                        canvasType = canvasType,
-                        pagePositions = pagePositions,
-                        pageLayout = pageLayout,
-                        pdfRenderer = pdfRenderer,
-                        pdfInfo = pdfInfo,
-                        strokes = strokes,
-                        images = images,
-                        onSelect = { onJumpToPage(index) },
-                        onAddBefore = { onAddPageBefore(index) },
-                        onAddAfter = { onAddPageAfter(index) },
-                        onMoveUp = { onMovePage(index, index - 1) },
-                        onMoveDown = { onMovePage(index, index + 1) },
-                        onDuplicate = { onDuplicatePage(index) },
-                        onDelete = { onDeletePage(index) }
-                    )
-                }
-            }
-            Spacer(Modifier.height(16.dp))
-        }
-    }
-}
-
-@Composable
-fun DrawingToolbar(
-    currentTool: DrawingTool, onToolChange: (DrawingTool) -> Unit, anchor: ToolbarAnchor, onAnchorChange: (ToolbarAnchor) -> Unit,
-    isCollapsed: Boolean, onToggleCollapse: (Boolean) -> Unit, penThickness: Float, onPenThicknessChange: (Float) -> Unit,
-    eraserThickness: Float, onEraserThicknessChange: (Float) -> Unit, showThicknessPopup: Boolean,
-    selectedPenColor: Color, onPenColorChange: (Color) -> Unit, showColorPopup: Boolean, onToggleColorPopup: (Boolean) -> Unit,
-    undoEnabled: Boolean, onUndo: () -> Unit, redoEnabled: Boolean, onRedo: () -> Unit,
-    canvasScale: Float, onResetZoom: () -> Unit,
-    thicknessPresets: List<Float> = emptyList(), onThicknessPresetsChange: (List<Float>) -> Unit = {}
-) {
-    var dragOffset by remember { mutableStateOf(Offset.Zero) }
-    var predictedAnchor by remember { mutableStateOf<ToolbarAnchor?>(null) }
-    var showFullColorPicker by remember { mutableStateOf(false) }
-
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val screenWidth = constraints.maxWidth.toFloat()
-        val screenHeight = constraints.maxHeight.toFloat()
-
-        val alignment = when (anchor) {
-            ToolbarAnchor.TOP -> Alignment.TopCenter
-            ToolbarAnchor.BOTTOM -> Alignment.BottomCenter
-            ToolbarAnchor.LEFT -> Alignment.CenterStart
-            ToolbarAnchor.RIGHT -> Alignment.CenterEnd
-            ToolbarAnchor.TOP_LEFT -> Alignment.TopStart
-            ToolbarAnchor.TOP_RIGHT -> Alignment.TopEnd
-            ToolbarAnchor.BOTTOM_LEFT -> Alignment.BottomStart
-            ToolbarAnchor.BOTTOM_RIGHT -> Alignment.BottomEnd
-        }
-        
-        val isTop = anchor == ToolbarAnchor.TOP || anchor == ToolbarAnchor.TOP_LEFT || anchor == ToolbarAnchor.TOP_RIGHT
-        val isBottom = anchor == ToolbarAnchor.BOTTOM || anchor == ToolbarAnchor.BOTTOM_LEFT || anchor == ToolbarAnchor.BOTTOM_RIGHT
-        val isHorizontal = anchor == ToolbarAnchor.TOP || anchor == ToolbarAnchor.BOTTOM || 
-                           anchor == ToolbarAnchor.TOP_LEFT || anchor == ToolbarAnchor.TOP_RIGHT ||
-                           anchor == ToolbarAnchor.BOTTOM_LEFT || anchor == ToolbarAnchor.BOTTOM_RIGHT
-
-        // Helper to get alignment for any anchor
-        fun getAlignment(a: ToolbarAnchor) = when (a) {
-            ToolbarAnchor.TOP -> Alignment.TopCenter
-            ToolbarAnchor.BOTTOM -> Alignment.BottomCenter
-            ToolbarAnchor.LEFT -> Alignment.CenterStart
-            ToolbarAnchor.RIGHT -> Alignment.CenterEnd
-            ToolbarAnchor.TOP_LEFT -> Alignment.TopStart
-            ToolbarAnchor.TOP_RIGHT -> Alignment.TopEnd
-            ToolbarAnchor.BOTTOM_LEFT -> Alignment.BottomStart
-            ToolbarAnchor.BOTTOM_RIGHT -> Alignment.BottomEnd
-        }
-
-        // --- Drag Preview ---
-        predictedAnchor?.let { pred ->
-            val pTop = pred == ToolbarAnchor.TOP || pred == ToolbarAnchor.TOP_LEFT || pred == ToolbarAnchor.TOP_RIGHT
-            val pBottom = pred == ToolbarAnchor.BOTTOM || pred == ToolbarAnchor.BOTTOM_LEFT || pred == ToolbarAnchor.BOTTOM_RIGHT
-            val pIsHorizontal = pred == ToolbarAnchor.TOP || pred == ToolbarAnchor.BOTTOM || 
-                              pred == ToolbarAnchor.TOP_LEFT || pred == ToolbarAnchor.TOP_RIGHT ||
-                              pred == ToolbarAnchor.BOTTOM_LEFT || pred == ToolbarAnchor.BOTTOM_RIGHT
-
-            Box(
-                modifier = Modifier
-                    .align(getAlignment(pred))
-                    .then(
-                        if (!isCollapsed && pIsHorizontal) Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                        else Modifier.padding(horizontal = 16.dp)
-                    )
-                    .then(
-                        if (pTop) Modifier.statusBarsPadding().padding(top = 60.dp)
-                        else if (pBottom) Modifier.navigationBarsPadding().padding(bottom = 12.dp)
-                        else Modifier.padding(vertical = 12.dp)
-                    )
-            ) {
-                Surface(
-                    modifier = Modifier
-                        .then(
-                            if (isCollapsed) Modifier.size(48.dp, 48.dp)
-                            else if (pIsHorizontal) Modifier.fillMaxWidth().height(54.dp)
-                            else Modifier.size(54.dp, 240.dp)
-                        ),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
-                ) {}
-            }
-        }
-
-        Column(
-            modifier = Modifier
-                .align(alignment)
-                .then(
-                    if (!isCollapsed && isHorizontal) Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                    else Modifier.padding(horizontal = 16.dp)
-                )
-                .then(
-                    if (isTop) Modifier.statusBarsPadding().padding(top = 60.dp)
-                    else if (isBottom) Modifier.navigationBarsPadding().padding(bottom = 12.dp)
-                    else Modifier.padding(vertical = 12.dp)
-                ),
-            horizontalAlignment = if (!isCollapsed && isHorizontal) Alignment.CenterHorizontally else when(anchor) {
-                ToolbarAnchor.TOP_LEFT, ToolbarAnchor.BOTTOM_LEFT, ToolbarAnchor.LEFT -> Alignment.Start
-                ToolbarAnchor.TOP_RIGHT, ToolbarAnchor.BOTTOM_RIGHT, ToolbarAnchor.RIGHT -> Alignment.End
-                else -> Alignment.CenterHorizontally
-            }
-        ) {
-            if (!isCollapsed && showThicknessPopup) {
-                ThicknessPopup(
-                    thickness = if (currentTool == DrawingTool.PEN) penThickness else eraserThickness, 
-                    onThicknessChange = if (currentTool == DrawingTool.PEN) onPenThicknessChange else onEraserThicknessChange, 
-                    color = if (currentTool == DrawingTool.PEN) selectedPenColor else Color.LightGray,
-                    presets = thicknessPresets,
-                    onPresetLongClick = { index ->
-                        val current = if (currentTool == DrawingTool.PEN) penThickness else eraserThickness
-                        val newPresets = thicknessPresets.toMutableList().apply { set(index, current) }
-                        onThicknessPresetsChange(newPresets)
-                    },
-                    min = 0.5f,
-                    max = 50f
-                )
-                Spacer(Modifier.height(8.dp))
-            }
-            if (!isCollapsed && showColorPopup) {
-                ColorPopup(selectedColor = selectedPenColor, onColorChange = { onPenColorChange(it); onToggleColorPopup(false) }, onOpenPicker = { showFullColorPicker = true; onToggleColorPopup(false) })
-                Spacer(Modifier.height(8.dp))
-            }
-
-            Surface(
-                modifier = Modifier
-                    .then(
-                        if (!isCollapsed && isHorizontal) Modifier.fillMaxWidth()
-                        else Modifier.wrapContentSize()
-                    )
-                    .offset { IntOffset(dragOffset.x.roundToInt(), dragOffset.y.roundToInt()) }
-                    .shadow(if (isCollapsed) 4.dp else 8.dp, CircleShape)
-                    .clip(CircleShape)
-                    .pointerInput(anchor) {
-                        detectDragGesturesAfterLongPress(
-                            onDragStart = { 
-                                dragOffset = Offset.Zero 
-                                predictedAnchor = anchor
-                            },
-                            onDrag = { change, dragAmount ->
-                                change.consume()
-                                dragOffset += dragAmount
-                                
-                                // Calculate current approximate position based on anchor and drag
-                                val currentBasePos = when(anchor) {
-                                    ToolbarAnchor.TOP -> Offset(screenWidth / 2, 0f)
-                                    ToolbarAnchor.BOTTOM -> Offset(screenWidth / 2, screenHeight)
-                                    ToolbarAnchor.LEFT -> Offset(0f, screenHeight / 2)
-                                    ToolbarAnchor.RIGHT -> Offset(screenWidth, screenHeight / 2)
-                                    ToolbarAnchor.TOP_LEFT -> Offset(0f, 0f)
-                                    ToolbarAnchor.TOP_RIGHT -> Offset(screenWidth, 0f)
-                                    ToolbarAnchor.BOTTOM_LEFT -> Offset(0f, screenHeight)
-                                    ToolbarAnchor.BOTTOM_RIGHT -> Offset(screenWidth, screenHeight)
-                                }
-                                
-                                val virtualPos = currentBasePos + dragOffset
-                                
-                                // Find the anchor point closest to the virtual position
-                                val anchorPoints = mapOf(
-                                    ToolbarAnchor.TOP to Offset(screenWidth / 2, 0f),
-                                    ToolbarAnchor.BOTTOM to Offset(screenWidth / 2, screenHeight),
-                                    ToolbarAnchor.LEFT to Offset(0f, screenHeight / 2),
-                                    ToolbarAnchor.RIGHT to Offset(screenWidth, screenHeight / 2),
-                                    ToolbarAnchor.TOP_LEFT to Offset(0f, 0f),
-                                    ToolbarAnchor.TOP_RIGHT to Offset(screenWidth, 0f),
-                                    ToolbarAnchor.BOTTOM_LEFT to Offset(0f, screenHeight),
-                                    ToolbarAnchor.BOTTOM_RIGHT to Offset(screenWidth, screenHeight)
-                                )
-                                
-                                predictedAnchor = anchorPoints.minByOrNull { (_, point) ->
-                                    (point - virtualPos).getDistance()
-                                }?.key ?: anchor
-                            },
-                            onDragEnd = {
-                                predictedAnchor?.let { onAnchorChange(it) }
-                                dragOffset = Offset.Zero
-                                predictedAnchor = null
-                            },
-                            onDragCancel = { 
-                                dragOffset = Offset.Zero
-                                predictedAnchor = null
-                            }
-                        )
-                    },
-                color = MaterialTheme.colorScheme.surfaceColorAtElevation(if (isCollapsed) 2.dp else 6.dp),
-                tonalElevation = if (isCollapsed) 2.dp else 6.dp
-            ) {
-                val padding = if (isCollapsed) 6.dp else 10.dp
-                if (isHorizontal) {
-                    Row(
-                        modifier = Modifier
-                            .then(
-                                if (!isCollapsed) Modifier.fillMaxWidth()
-                                else Modifier.wrapContentSize()
-                            )
-                            .clip(CircleShape)
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = if (isCollapsed) 6.dp else 10.dp, vertical = padding),
-                        horizontalArrangement = if (!isCollapsed) Arrangement.SpaceEvenly else Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        ToolbarContent(isHorizontal, isCollapsed, currentTool, onToolChange, selectedPenColor, showColorPopup, onToggleColorPopup, onToggleCollapse, undoEnabled, onUndo, redoEnabled, onRedo, canvasScale, onResetZoom)
-                    }
-                } else {
-                    Column(
-                        modifier = Modifier
-                            .heightIn(max = (screenHeight / LocalDensity.current.density).dp - 120.dp)
-                            .clip(CircleShape)
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = padding, vertical = padding),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        ToolbarContent(isHorizontal, isCollapsed, currentTool, onToolChange, selectedPenColor, showColorPopup, onToggleColorPopup, onToggleCollapse, undoEnabled, onUndo, redoEnabled, onRedo, canvasScale, onResetZoom)
-                    }
-                }
-            }
-        }
-    }
-    if (showFullColorPicker) { FullColorPickerDialog(initialColor = selectedPenColor, onColorChange = { onPenColorChange(it); showFullColorPicker = false }, onDismiss = { showFullColorPicker = false }) }
-}
-
-@Composable
-private fun ToolbarContent(
-    isHorizontal: Boolean, isCollapsed: Boolean, currentTool: DrawingTool, onToolChange: (DrawingTool) -> Unit,
-    selectedPenColor: Color, showColorPopup: Boolean, onToggleColorPopup: (Boolean) -> Unit, onToggleCollapse: (Boolean) -> Unit,
-    undoEnabled: Boolean, onUndo: () -> Unit, redoEnabled: Boolean, onRedo: () -> Unit,
-    canvasScale: Float, onResetZoom: () -> Unit
-) {
-    if (!isCollapsed) {
-        ToolbarItem(DrawingTool.PEN, rememberVectorPainter(Icons.Rounded.Edit), currentTool == DrawingTool.PEN) { onToolChange(DrawingTool.PEN) }
-        IconButton(onClick = { onToggleColorPopup(!showColorPopup) }, modifier = Modifier.size(34.dp).clip(CircleShape).background(if (showColorPopup) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)) {
-            Box(modifier = Modifier.size(20.dp).clip(CircleShape).background(selectedPenColor).border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f), CircleShape))
-        }
-        ToolbarItem(DrawingTool.ERASER, painterResource(R.drawable.ic_ink_eraser), currentTool == DrawingTool.ERASER) { onToolChange(DrawingTool.ERASER) }
-        ToolbarItem(DrawingTool.LASSO, rememberVectorPainter(Icons.Rounded.Gesture), currentTool == DrawingTool.LASSO) { onToolChange(DrawingTool.LASSO) }
-        ToolbarItem(DrawingTool.HAND, rememberVectorPainter(Icons.Rounded.PanTool), currentTool == DrawingTool.HAND) { onToolChange(DrawingTool.HAND) }
-        ToolbarSeparator(isHorizontal)
-    } else {
-        IconButton(onClick = { onToggleCollapse(false) }, modifier = Modifier.size(34.dp)) {
-            Icon(painter = when(currentTool) { DrawingTool.PEN -> rememberVectorPainter(Icons.Rounded.Edit); DrawingTool.ERASER -> painterResource(R.drawable.ic_ink_eraser); DrawingTool.LASSO -> rememberVectorPainter(Icons.Rounded.Gesture); else -> rememberVectorPainter(Icons.Rounded.PanTool) }, contentDescription = "Expand", modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-        }
-        ToolbarSeparator(isHorizontal)
-    }
-    IconButton(onClick = onUndo, enabled = undoEnabled, modifier = Modifier.size(34.dp)) { Icon(Icons.AutoMirrored.Rounded.Undo, null, modifier = Modifier.size(18.dp)) }
-    IconButton(onClick = onRedo, enabled = redoEnabled, modifier = Modifier.size(34.dp)) { Icon(Icons.AutoMirrored.Rounded.Redo, null, modifier = Modifier.size(18.dp)) }
-    ToolbarSeparator(isHorizontal)
-    if (isHorizontal) {
-        TextButton(onClick = onResetZoom, modifier = Modifier.size(width = 48.dp, height = 34.dp), contentPadding = PaddingValues(0.dp)) {
-            Text(text = "${(canvasScale * 100).roundToInt()}%", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = if (canvasScale != 1f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    } else {
-        IconButton(onClick = onResetZoom, modifier = Modifier.size(34.dp)) {
-            Icon(Icons.Rounded.ZoomIn, contentDescription = "Reset Zoom", modifier = Modifier.size(20.dp), tint = if (canvasScale != 1f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-    if (!isCollapsed) {
-        ToolbarSeparator(isHorizontal)
-        IconButton(onClick = { onToggleCollapse(true) }, modifier = Modifier.size(34.dp)) { Icon(Icons.Rounded.UnfoldLess, contentDescription = "Collapse", modifier = Modifier.size(18.dp)) }
-    }
-}
-
-@Composable
-private fun ToolbarSeparator(isHorizontal: Boolean) {
-    if (isHorizontal) VerticalDivider(modifier = Modifier.height(24.dp).width(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-    else HorizontalDivider(modifier = Modifier.width(24.dp).height(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-}
-
-@Composable
-fun ColorPopup(selectedColor: Color, onColorChange: (Color) -> Unit, onOpenPicker: () -> Unit) {
-    val presetColors = listOf(Color.Black, Color(0xFFF44336), Color(0xFF2196F3), Color(0xFF4CAF50), Color(0xFFFFEB3B), Color(0xFFFF9800), Color(0xFF9C27B0), Color(0xFF795548))
-    Surface(modifier = Modifier.width(240.dp).shadow(4.dp, RoundedCornerShape(16.dp)), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp)) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text("Colors", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { presetColors.take(4).forEach { color -> ColorCircle(color = color, isSelected = color == selectedColor, onClick = { onColorChange(color) }) } }
-            Spacer(Modifier.height(8.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { presetColors.drop(4).forEach { color -> ColorCircle(color = color, isSelected = color == selectedColor, onClick = { onColorChange(color) }) } }
-            Spacer(Modifier.height(12.dp))
-            OutlinedButton(onClick = onOpenPicker, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(0.dp)) { Icon(Icons.Rounded.Palette, null, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Custom Picker") }
-        }
-    }
-}
-
-@Composable
-fun ColorCircle(color: Color, isSelected: Boolean, onClick: () -> Unit) {
-    Box(modifier = Modifier.size(34.dp).clip(CircleShape).background(color).border(width = if (isSelected) 3.dp else 1.dp, color = if (isSelected) MaterialTheme.colorScheme.primary else Color.LightGray.copy(alpha = 0.5f), shape = CircleShape).clickable { onClick() })
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun ThicknessPopup(
-    thickness: Float, 
-    onThicknessChange: (Float) -> Unit, 
-    color: Color, 
-    presets: List<Float> = listOf(2f, 5f, 10f, 20f, 40f),
-    onPresetLongClick: (Int) -> Unit = {},
-    min: Float = 0.5f, 
-    max: Float = 50f
-) {
-    Surface(modifier = Modifier.width(300.dp).shadow(4.dp, RoundedCornerShape(16.dp)), shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp)) {
-        Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(160.dp, 60.dp)
-                        .background(Color.White, CircleShape)
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .height((thickness / 2.5f).coerceIn(1f, 44f).dp)
-                            .fillMaxWidth(0.7f)
-                            .background(color, CircleShape)
-                    )
-                }
-                Spacer(Modifier.weight(1f))
-                Text(
-                    text = "%.1f".format(thickness),
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.width(60.dp),
-                    textAlign = TextAlign.End
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                IconButton(onClick = { onThicknessChange((thickness - 0.1f).coerceIn(min, max)) }) {
-                    Icon(Icons.Rounded.Remove, contentDescription = "Decrease", tint = MaterialTheme.colorScheme.primary)
-                }
-                Slider(value = thickness, onValueChange = onThicknessChange, valueRange = min..max, modifier = Modifier.weight(1f))
-                IconButton(onClick = { onThicknessChange((thickness + 0.1f).coerceIn(min, max)) }) {
-                    Icon(Icons.Rounded.Add, contentDescription = "Increase", tint = MaterialTheme.colorScheme.primary)
-                }
-            }
-            Spacer(Modifier.height(12.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                presets.forEachIndexed { index, preset ->
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(if (kotlin.math.abs(thickness - preset) < 0.01f) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
-                                .combinedClickable(
-                                    onClick = { onThicknessChange(preset) },
-                                    onLongClick = { onPresetLongClick(index) }
-                                )
-                                .padding(6.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Box(modifier = Modifier.size((preset / 4f).coerceIn(2f, 24f).dp).background(color, CircleShape))
-                        }
-                        Text(
-                            text = if (preset % 1f == 0f) preset.toInt().toString() else "%.1f".format(preset),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun ToolbarItem(tool: DrawingTool, painter: Painter, isSelected: Boolean, onClick: () -> Unit) {
-    IconButton(
-        onClick = onClick,
-        modifier = Modifier.minimumInteractiveComponentSize().size(34.dp),
-        colors = if (isSelected) IconButtonDefaults.iconButtonColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-        ) else IconButtonDefaults.iconButtonColors()
-    ) {
-        Icon(painter, tool.name, modifier = Modifier.size(20.dp))
-    }
-}
-
-private fun drawTileVectorFallback(
-    canvas: android.graphics.Canvas,
-    tileRect: Rect,
-    spatialIndexManager: SpatialIndexManager,
-    strokeMap: Map<String, com.ozon.notes.Stroke>,
-    strokeToIndex: Map<String, Int>,
-    imageMap: Map<String, com.ozon.notes.DrawingImage>,
-    imageOrder: List<String>,
-    getBitmap: (String) -> Bitmap?,
-    excludedStrokeIds: Set<String>,
-    excludedImageIds: Set<String>,
-    renderPaint: android.graphics.Paint
-) {
-    val minGX = floor(tileRect.left / SPATIAL_GRID_SIZE).toInt()
-    val maxGX = floor(tileRect.right / SPATIAL_GRID_SIZE).toInt()
-    val minGY = floor(tileRect.top / SPATIAL_GRID_SIZE).toInt()
-    val maxGY = floor(tileRect.bottom / SPATIAL_GRID_SIZE).toInt()
-
-    val candidateIds = mutableSetOf<String>()
-    for (gx in minGX..maxGX) {
-        for (gy in minGY..maxGY) {
-            spatialIndexManager.spatialIndex[spatialIndexManager.gridKey(gx, gy)]?.let {
-                candidateIds.addAll(it)
-            }
-        }
-    }
-
-    canvas.save()
-    canvas.clipRect(tileRect.left, tileRect.top, tileRect.right, tileRect.bottom)
-
-    // 1. Draw Images
-    val imagePaint = android.graphics.Paint().apply {
-        isFilterBitmap = true
-        isAntiAlias = true
-        isDither = true
-    }
-
-    imageOrder.forEach { id ->
-        if (id in excludedImageIds) return@forEach
-        val img = imageMap[id] ?: return@forEach
-        val imgRect = Rect(img.offset.x, img.offset.y, img.offset.x + img.scale.x, img.offset.y + img.scale.y)
-        if (imgRect.overlaps(tileRect)) {
-            val nativeBmp = getBitmap(img.path)
-            if (nativeBmp != null && !nativeBmp.isRecycled) {
-                val dst = android.graphics.RectF(
-                    img.offset.x,
-                    img.offset.y,
-                    img.offset.x + img.scale.x,
-                    img.offset.y + img.scale.y
-                )
-                if (img.rotation != 0f) {
-                    canvas.save()
-                    canvas.rotate(img.rotation, dst.centerX(), dst.centerY())
-                    canvas.drawBitmap(nativeBmp, null, dst, imagePaint)
-                    canvas.restore()
-                } else {
-                    canvas.drawBitmap(nativeBmp, null, dst, imagePaint)
-                }
-            }
-        }
-    }
-
-    // 2. Draw Strokes
-    val ordered = candidateIds.mapNotNull { id ->
-        if (id in excludedStrokeIds) return@mapNotNull null
-        val stroke = strokeMap[id] ?: return@mapNotNull null
-        val bounds = spatialIndexManager.strokeBoundsMap[id] ?: spatialIndexManager.computeStrokeBounds(stroke)
-        if (bounds.overlaps(tileRect)) {
-            val index = strokeToIndex[id] ?: 0
-            Triple(id, stroke, index)
-        } else null
-    }.sortedBy { it.third }
-
-    val path = android.graphics.Path()
-    renderPaint.isAntiAlias = true
-    renderPaint.strokeCap = android.graphics.Paint.Cap.ROUND
-    renderPaint.strokeJoin = android.graphics.Paint.Join.ROUND
-    renderPaint.style = android.graphics.Paint.Style.STROKE
-
-    ordered.forEach { (_, stroke, _) ->
-        renderPaint.color = stroke.colorArgb
-        renderPaint.strokeWidth = stroke.width
-        val pts = stroke.points
-        if (pts.isNotEmpty()) {
-            path.reset()
-            path.moveTo(pts[0].x, pts[0].y)
-            if (pts.size == 1) {
-                path.lineTo(pts[0].x + 0.1f, pts[0].y)
-            } else {
-                for (i in 1 until pts.size) {
-                    path.lineTo(pts[i].x, pts[i].y)
-                }
-            }
-            canvas.drawPath(path, renderPaint)
-        }
-    }
-
-    canvas.restore()
-}
-
-private fun exportToPng(
-    stream: OutputStream, 
-    strokes: List<com.ozon.notes.Stroke>, 
-    images: List<com.ozon.notes.DrawingImage>, 
-    size: androidx.compose.ui.unit.IntSize,
-    canvasType: CanvasType,
-    pageLayout: PageLayout,
-    pdfInfo: PdfInfo?,
-    pageCount: Int
-) {
-    val padding = 40f
-    
-    // 1. Calculate total dimensions first
-    var totalWidth = 0
-    var totalHeight = 0
-    val pageHeights = mutableListOf<Int>()
-    val actualPageCount = when(canvasType) {
-        CanvasType.PDF -> pdfInfo?.pageCount ?: 0
-        CanvasType.PAGED -> pageCount
-        else -> 1
-    }
-
-    if (canvasType == CanvasType.PDF && pdfInfo != null) {
-        for (i in 0 until actualPageCount) {
-            val pageSize = pdfInfo.pageSizes.getOrNull(i) ?: PdfPageSize(800f, 1100f)
-            val w = (pageLayout.marginLeft + pageSize.width + pageLayout.marginRight).toInt()
-            val h = (pageLayout.marginTop + pageSize.height + pageLayout.marginBottom + pageLayout.spacing).toInt()
-            totalWidth = maxOf(totalWidth, w)
-            totalHeight += h
-            pageHeights.add(h)
-        }
-    } else if (canvasType == CanvasType.PAGED) {
-        totalWidth = pageLayout.width.toInt()
-        for (i in 0 until pageCount) {
-            val h = (pageLayout.height + pageLayout.spacing).toInt()
-            totalHeight += h
-            pageHeights.add(h)
-        }
-    } else {
-        val bounds = if (strokes.isNotEmpty() || images.isNotEmpty()) getBounds(strokes, images) else Rect(0f, 0f, size.width.toFloat().coerceAtLeast(1f), size.height.toFloat().coerceAtLeast(1f))
-        totalWidth = (bounds.width + padding * 2).toInt()
-        totalHeight = (bounds.height + padding * 2).toInt()
-        pageHeights.add(totalHeight)
-    }
-
-    if (totalWidth <= 0 || totalHeight <= 0) return
-
-    // 2. Create the final large bitmap
-    // Use a scale factor but cap total pixels to avoid OOM.
-    // ARGB_8888 = 4 bytes/pixel. Cap at ~128MB to leave room for the rest of the app.
-    val maxBytes = 128L * 1024 * 1024
-    val maxPixels = maxBytes / 4
-    val baseScale = if (totalHeight > 8000) 1.5f else 3.0f
-    val scaledPixels = (totalWidth * baseScale).toLong() * (totalHeight * baseScale).toLong()
-    val scale = if (scaledPixels > maxPixels) {
-        baseScale * Math.sqrt(maxPixels.toDouble() / scaledPixels).toFloat()
-    } else baseScale
-    val finalWidth = (totalWidth * scale).toInt().coerceIn(1, 4096)
-    val finalHeight = (totalHeight * scale).toInt().coerceIn(1, 4096)
-    
-    val combinedBitmap = Bitmap.createBitmap(finalWidth, finalHeight, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(combinedBitmap)
-    canvas.drawColor(android.graphics.Color.WHITE)
-    canvas.scale(finalWidth.toFloat() / totalWidth, finalHeight.toFloat() / totalHeight)
-
-    // 3. Draw content page by page
-    if (canvasType == CanvasType.PDF && pdfInfo != null) {
-        var pfd: ParcelFileDescriptor? = null
-        var renderer: PdfRenderer? = null
-        try {
-            var file = File(pdfInfo.localPath)
-            if (!file.exists()) {
-                val fName = pdfInfo.localPath.removePrefix("media/").split("/").last().split("\\").last()
-                file = File(file.parentFile ?: File(""), fName)
-            }
-            pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-            renderer = PdfRenderer(pfd)
-            var currentY = 0f
-            for (i in 0 until pageCount) {
-                val pageSize = pdfInfo.pageSizes.getOrNull(i) ?: PdfPageSize(800f, 1100f)
-                val fullWidth = pageLayout.marginLeft + pageSize.width + pageLayout.marginRight
-                val fullHeight = pageLayout.marginTop + pageSize.height + pageLayout.marginBottom
-                
-                // Draw PDF
-                val page = renderer.openPage(i)
-                try {
-                    val pdfBitmap = Bitmap.createBitmap(pageSize.width.toInt(), pageSize.height.toInt(), Bitmap.Config.ARGB_8888)
-                    try {
-                        page.render(pdfBitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                        canvas.drawBitmap(pdfBitmap, pageLayout.marginLeft, currentY + pageLayout.marginTop, null)
-                    } finally {
-                        pdfBitmap.recycle()
-                    }
-                } finally {
-                    page.close()
-                }
-                
-                // Draw Overlays
-                val pageRect = Rect(0f, currentY, fullWidth, currentY + fullHeight)
-                drawOverlays(canvas, strokes, images, pageRect, 0f) // translateY 0 because we draw in world coords
-                
-                currentY += fullHeight + pageLayout.spacing
-            }
-        } catch (e: Exception) { e.printStackTrace() }
-        finally {
-            renderer?.close()
-            pfd?.close()
-        }
-    } else if (canvasType == CanvasType.PAGED) {
-        var currentY = 0f
-        for (i in 0 until pageCount) {
-            val pageRect = Rect(0f, currentY, pageLayout.width, currentY + pageLayout.height)
-            drawOverlays(canvas, strokes, images, pageRect, 0f)
-            currentY += pageLayout.height + pageLayout.spacing
-        }
-    } else {
-        val bounds = if (strokes.isNotEmpty() || images.isNotEmpty()) getBounds(strokes, images) else Rect(0f, 0f, size.width.toFloat().coerceAtLeast(1f), size.height.toFloat().coerceAtLeast(1f))
-        canvas.translate(-bounds.left + padding, -bounds.top + padding)
-        drawOverlays(canvas, strokes, images, null, 0f)
-    }
-    
-    combinedBitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
-    combinedBitmap.recycle()
-}
-
-private fun drawOverlays(canvas: Canvas, strokes: List<com.ozon.notes.Stroke>, images: List<com.ozon.notes.DrawingImage>, clipRect: Rect?, translateY: Float) {
-    val paint = Paint().apply { isAntiAlias = true; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; style = Paint.Style.STROKE }
-    val path = android.graphics.Path()
-    canvas.save()
-    canvas.translate(0f, translateY)
-    
-    // 1. Draw Images
-    images.forEach { img ->
-        val imgRect = Rect(img.offset.x, img.offset.y, img.offset.x + img.scale.x, img.offset.y + img.scale.y)
-        if (clipRect == null || clipRect.overlaps(imgRect)) {
-            try {
-                var imgFile = File(img.path)
-                if (!imgFile.exists()) {
-                    val fName = img.path.removePrefix("media/").split("/").last().split("\\").last()
-                    imgFile = File(imgFile.parentFile ?: File(""), fName)
-                }
-                val bitmap = android.graphics.BitmapFactory.decodeFile(imgFile.absolutePath)
-                if (bitmap != null) {
-                    val dst = android.graphics.Rect(
-                        img.offset.x.toInt(), 
-                        img.offset.y.toInt(), 
-                        (img.offset.x + img.scale.x).toInt(), 
-                        (img.offset.y + img.scale.y).toInt()
-                    )
-                    canvas.drawBitmap(bitmap, null, dst, null)
-                    bitmap.recycle()
-                }
-            } catch (e: Exception) { e.printStackTrace() }
-        }
-    }
-    
-    // 2. Draw Strokes
-    strokes.forEach { stroke ->
-        val hw = stroke.width / 2f
-        val isVisible = clipRect == null || stroke.points.any { p -> 
-            p.x + hw >= clipRect.left && p.x - hw <= clipRect.right && 
-            p.y + hw >= clipRect.top && p.y - hw <= clipRect.bottom 
-        }
-        
-        if (isVisible) {
-            paint.color = stroke.colorArgb
-            paint.strokeWidth = stroke.width
-            path.reset()
-            stroke.points.forEachIndexed { index, point ->
-                if (index == 0) path.moveTo(point.x, point.y)
-                else path.lineTo(point.x, point.y)
-            }
-            canvas.drawPath(path, paint)
-        }
-    }
-    canvas.restore()
-}
-
-private fun exportToPdf(
-    stream: OutputStream, 
-    strokes: List<com.ozon.notes.Stroke>, 
-    images: List<com.ozon.notes.DrawingImage>, 
-    size: androidx.compose.ui.unit.IntSize, 
-    vector: Boolean,
-    canvasType: CanvasType,
-    pageLayout: PageLayout,
-    pdfInfo: PdfInfo?,
-    pageCount: Int
-) {
-    val pdfDocument = PdfDocument()
-
-    if (canvasType == CanvasType.PDF && pdfInfo != null) {
-        var pfd: ParcelFileDescriptor? = null
-        var renderer: PdfRenderer? = null
-        try {
-            var file = File(pdfInfo.localPath)
-            if (!file.exists()) {
-                val fName = pdfInfo.localPath.removePrefix("media/").split("/").last().split("\\").last()
-                file = File(file.parentFile ?: File(""), fName)
-            }
-            pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-            renderer = PdfRenderer(pfd)
-            var currentY = 0f
-            
-            for (i in 0 until (pdfInfo.pageCount)) {
-                val pageSize = pdfInfo.pageSizes.getOrNull(i) ?: PdfPageSize(800f, 1100f)
-                val pageWidth = pageSize.width
-                val pageHeight = pageSize.height
-                val fullWidth = pageLayout.marginLeft + pageWidth + pageLayout.marginRight
-                val fullHeight = pageLayout.marginTop + pageHeight + pageLayout.marginBottom
-                
-                val pageInfo = PdfDocument.PageInfo.Builder(fullWidth.toInt(), fullHeight.toInt(), i + 1).create()
-                val page = pdfDocument.startPage(pageInfo)
-                val canvas = page.canvas
-                canvas.drawColor(android.graphics.Color.WHITE)
-                
-                // 1. Draw PDF Background
-                val renderPage = renderer.openPage(i)
-                try {
-                    // Use higher quality for PDF background in export (2x if not vector, 1x for scale)
-                    val quality = if (vector) 1.5f else 2f
-                    val pdfBitmap = Bitmap.createBitmap((pageWidth * quality).toInt(), (pageHeight * quality).toInt(), Bitmap.Config.ARGB_8888)
-                    try {
-                        renderPage.render(pdfBitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                        val dst = android.graphics.Rect(
-                            pageLayout.marginLeft.toInt(), 
-                            pageLayout.marginTop.toInt(), 
-                            (pageLayout.marginLeft + pageWidth).toInt(), 
-                            (pageLayout.marginTop + pageHeight).toInt()
-                        )
-                        canvas.drawBitmap(pdfBitmap, null, dst, null)
-                    } finally {
-                        pdfBitmap.recycle()
-                    }
-                } finally {
-                    renderPage.close()
-                }
-                
-                // 2. Draw Overlays
-                val pageRect = Rect(0f, currentY, fullWidth, currentY + fullHeight)
-                drawOverlays(canvas, strokes, images, pageRect, -currentY)
-                
-                pdfDocument.finishPage(page)
-                currentY += fullHeight + pageLayout.spacing
-            }
-        } catch (e: Exception) { e.printStackTrace() }
-        finally {
-            renderer?.close()
-            pfd?.close()
-        }
-    } else if (canvasType == CanvasType.PAGED) {
-        val pageWidth = pageLayout.width
-        val pageHeight = pageLayout.height
-        var currentY = 0f
-        for (i in 0 until pageCount) {
-            val pageInfo = PdfDocument.PageInfo.Builder(pageWidth.toInt(), pageHeight.toInt(), i + 1).create()
-            val page = pdfDocument.startPage(pageInfo)
-            page.canvas.drawColor(android.graphics.Color.WHITE)
-            val pageRect = Rect(0f, currentY, pageWidth, currentY + pageHeight)
-            drawOverlays(page.canvas, strokes, images, pageRect, -currentY)
-            pdfDocument.finishPage(page)
-            currentY += pageHeight + pageLayout.spacing
-        }
-    } else {
-        // Infinite Canvas
-        val bounds = if (strokes.isNotEmpty() || images.isNotEmpty()) getBounds(strokes, images) else Rect(0f, 0f, size.width.toFloat().coerceAtLeast(1f), size.height.toFloat().coerceAtLeast(1f))
-        val padding = 40f
-        val exportWidth = (bounds.width + padding * 2).toInt().coerceAtLeast(1)
-        val exportHeight = (bounds.height + padding * 2).toInt().coerceAtLeast(1)
-        val pageInfo = PdfDocument.PageInfo.Builder(exportWidth, exportHeight, 1).create()
-        val page = pdfDocument.startPage(pageInfo)
-        page.canvas.drawColor(android.graphics.Color.WHITE)
-        page.canvas.translate(-bounds.left + padding, -bounds.top + padding)
-        drawOverlays(page.canvas, strokes, images, null, 0f)
-        pdfDocument.finishPage(page)
-    }
-
-    pdfDocument.writeTo(stream)
-    pdfDocument.close()
-}
-
-
-private fun distanceToSegmentSq(px: Float, py: Float, x1: Float, y1: Float, x2: Float, y2: Float): Float {
-    val dx = x2 - x1
-    val dy = y2 - y1
-    if (dx == 0f && dy == 0f) return (px - x1) * (px - x1) + (py - y1) * (py - y1)
-    val t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)
-    return if (t < 0) {
-        (px - x1) * (px - x1) + (py - y1) * (py - y1)
-    } else if (t > 1) {
-        (px - x2) * (px - x2) + (py - y2) * (py - y2)
-    } else {
-        val qx = x1 + t * dx
-        val qy = y1 + t * dy
-        (px - qx) * (px - qx) + (py - qy) * (py - qy)
-    }
-}
-
-@Composable
-private fun SelectionExportDialog(
-    strokes: List<com.ozon.notes.Stroke>,
-    images: List<com.ozon.notes.DrawingImage>,
-    onDismiss: () -> Unit,
-    onExportPng: () -> Unit,
-    onExportPdfBitmap: () -> Unit,
-    onExportPdfVector: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Export Selection") },
-        text = {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-        val bounds = remember(strokes, images) { getBounds(strokes, images) }
-                Box(
-                    modifier = Modifier
-                        .size(240.dp)
-                        .background(Color.White, RoundedCornerShape(12.dp))
-                        .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
-                        .clip(RoundedCornerShape(12.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-                        if (bounds.width > 0 && bounds.height > 0) {
-                            val padding = 20f
-                            val scale = minOf(size.width / (bounds.width + padding * 2), size.height / (bounds.height + padding * 2))
-                            
-                            withTransform({
-                                translate(size.width / 2f, size.height / 2f)
-                                scale(scale, scale, Offset.Zero)
-                                translate(-bounds.center.x, -bounds.center.y)
-                            }) {
-                                strokes.forEach { stroke ->
-                                    val path = Path().apply {
-                                        stroke.points.forEachIndexed { i, p ->
-                                            if (i == 0) moveTo(p.x, p.y) else lineTo(p.x, p.y)
-                                        }
-                                    }
-                                    drawPath(
-                                        path = path,
-                                        color = Color(stroke.colorArgb),
-                                        style = Stroke(
-                                            width = stroke.width,
-                                            cap = StrokeCap.Round,
-                                            join = StrokeJoin.Round
-                                        )
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(16.dp))
-                Text("Select format:", style = MaterialTheme.typography.titleMedium)
-            }
-        },
-        confirmButton = {
-            Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onExportPng, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
-                    Icon(Icons.Rounded.Image, null); Spacer(Modifier.width(8.dp)); Text("PNG Image")
-                }
-                Button(onClick = onExportPdfBitmap, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
-                    Icon(Icons.Rounded.PictureAsPdf, null); Spacer(Modifier.width(8.dp)); Text("PDF (Bitmap)")
-                }
-                Button(onClick = onExportPdfVector, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
-                    Icon(Icons.Rounded.PictureAsPdf, null); Spacer(Modifier.width(8.dp)); Text("PDF (Vector)")
-                }
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
-}
-
-@Composable
-private fun DrawingTitleDetailsPopup(
-    title: String,
-    onTitleChange: (String) -> Unit,
-    lastSavedTime: Long,
-    onClose: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    var titleState by remember {
-        mutableStateOf(
-            TextFieldValue(
-                text = title,
-                selection = TextRange(title.length)
-            )
-        )
-    }
-    val focusRequester = remember { FocusRequester() }
-    val keyboardController = LocalSoftwareKeyboardController.current
-
-    Surface(
-        modifier = modifier
-            .widthIn(max = 360.dp)
-            .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(top = 68.dp, start = 16.dp, end = 16.dp),
-        shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        tonalElevation = 8.dp,
-        shadowElevation = 8.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // Header row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.EditNote,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Text(
-                        text = "Note Details",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Rounded.Close, contentDescription = "Close")
-                }
-            }
-
-            // Title input
-            OutlinedTextField(
-                value = titleState,
-                onValueChange = { newValue ->
-                    titleState = newValue
-                    onTitleChange(newValue.text)
-                },
-                label = { Text("Note Title") },
-                placeholder = { Text("Drawing") },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(focusRequester),
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
-            )
-
-            // Last saved time display
-            val sdf = remember { SimpleDateFormat("MMM d, yyyy 'at' HH:mm", Locale.getDefault()) }
-            val formattedDate = remember(lastSavedTime) { sdf.format(Date(lastSavedTime)) }
-
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Schedule,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Column {
-                        Text(
-                            text = "Last Saved",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = formattedDate,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                }
-            }
-
-            // Done button
-            Button(
-                onClick = onClose,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            ) {
-                Text("Done", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-            }
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-        keyboardController?.show()
-    }
-}
-
