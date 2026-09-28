@@ -423,7 +423,7 @@ fun DrawingCanvas(
                     }
                 }
             ) {
-        // LAYER 1: Background, Guidelines, & Tiled LOD Committed Drawing Content
+        // LAYER 1: Background, Guidelines, Images, & GPU Vector Rendered Strokes
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -436,60 +436,42 @@ fun DrawingCanvas(
                 }
         ) {
             val _ver = controller.tileCacheVersion
-            val activeLod = TileRenderEngine.getLod(controller.canvasScale)
-            val visibleKeys = controller.tileEngine.getVisibleTileKeys(controller.currentViewport, activeLod)
+            val viewport = controller.currentViewport
             val pagePositions = controller.pagePositions
 
-            // 1. Render PDF Background
+            // 1. Render PDF Background (with fast index culling)
             if (controller.canvasType == CanvasType.PDF && controller.pdfInfo != null) {
-                var first = -1
                 for (i in pagePositions.indices) {
-                    if (pagePositions[i].bottom > controller.currentViewport.top) {
-                        first = i
-                        break
+                    val pageRect = pagePositions[i]
+                    if (pageRect.bottom <= viewport.top) continue
+                    if (pageRect.top >= viewport.bottom) break
+                    drawRect(color = Color.White, topLeft = pageRect.topLeft, size = pageRect.size)
+                    controller.pdfBitmapCache.bitmaps[i]?.let { bitmap ->
+                        drawImage(
+                            image = bitmap.asImageBitmap(),
+                            dstOffset = IntOffset(
+                                (pageRect.left + controller.pageLayout.marginLeft).toInt(),
+                                (pageRect.top + controller.pageLayout.marginTop).toInt()
+                            ),
+                            dstSize = IntSize(
+                                (pageRect.width - controller.pageLayout.marginLeft - controller.pageLayout.marginRight).toInt(),
+                                (pageRect.height - controller.pageLayout.marginTop - controller.pageLayout.marginBottom).toInt()
+                            ),
+                            filterQuality = FilterQuality.Medium
+                        )
                     }
-                }
-                if (first != -1) {
-                    for (i in first until pagePositions.size) {
-                        if (pagePositions[i].top > controller.currentViewport.bottom) break
-                        val pageRect = pagePositions[i]
-
-                        drawRect(color = Color.White, topLeft = pageRect.topLeft, size = pageRect.size)
-                        controller.pdfBitmapCache.bitmaps[i]?.let { bitmap ->
-                            drawImage(
-                                image = bitmap.asImageBitmap(),
-                                dstOffset = IntOffset(
-                                    (pageRect.left + controller.pageLayout.marginLeft).toInt(),
-                                    (pageRect.top + controller.pageLayout.marginTop).toInt()
-                                ),
-                                dstSize = IntSize(
-                                    (pageRect.width - controller.pageLayout.marginLeft - controller.pageLayout.marginRight).toInt(),
-                                    (pageRect.height - controller.pageLayout.marginTop - controller.pageLayout.marginBottom).toInt()
-                                ),
-                                filterQuality = FilterQuality.Medium
-                            )
-                        }
-                        drawRect(color = Color.LightGray, topLeft = pageRect.topLeft, size = pageRect.size, style = DrawStroke(width = 1f / controller.canvasScale))
-                    }
+                    drawRect(color = Color.LightGray, topLeft = pageRect.topLeft, size = pageRect.size, style = DrawStroke(width = 1f / controller.canvasScale))
                 }
             }
 
             // 2. Render Paged Background
             if (controller.canvasType == CanvasType.PAGED) {
-                var first = -1
                 for (i in pagePositions.indices) {
-                    if (pagePositions[i].bottom > controller.currentViewport.top) {
-                        first = i
-                        break
-                    }
-                }
-                if (first != -1) {
-                    for (i in first until pagePositions.size) {
-                        if (pagePositions[i].top > controller.currentViewport.bottom) break
-                        val pageRect = pagePositions[i]
-                        drawRect(color = Color.White, topLeft = pageRect.topLeft, size = pageRect.size)
-                        drawRect(color = Color.LightGray, topLeft = pageRect.topLeft, size = pageRect.size, style = DrawStroke(width = 1f / controller.canvasScale))
-                    }
+                    val pageRect = pagePositions[i]
+                    if (pageRect.bottom <= viewport.top) continue
+                    if (pageRect.top >= viewport.bottom) break
+                    drawRect(color = Color.White, topLeft = pageRect.topLeft, size = pageRect.size)
+                    drawRect(color = Color.LightGray, topLeft = pageRect.topLeft, size = pageRect.size, style = DrawStroke(width = 1f / controller.canvasScale))
                 }
             }
 
@@ -500,21 +482,21 @@ fun DrawingCanvas(
                 val strokeWidth = 1f / controller.canvasScale
 
                 if (controller.canvasType == CanvasType.INFINITE) {
-                    val startY = (controller.currentViewport.top / spacing).toInt() * spacing
-                    val endY = controller.currentViewport.bottom
+                    val startY = (viewport.top / spacing).toInt() * spacing
+                    val endY = viewport.bottom
                     var y = startY
                     while (y <= endY) {
                         drawLine(
                             color = guidelineColor,
-                            start = Offset(controller.currentViewport.left, y),
-                            end = Offset(controller.currentViewport.right, y),
+                            start = Offset(viewport.left, y),
+                            end = Offset(viewport.right, y),
                             strokeWidth = strokeWidth
                         )
                         y += spacing
                     }
                 } else {
                     pagePositions.forEach { pageRect ->
-                        if (controller.currentViewport.overlaps(pageRect)) {
+                        if (viewport.overlaps(pageRect)) {
                             var y = pageRect.top + spacing
                             while (y < pageRect.bottom) {
                                 drawLine(
@@ -530,52 +512,15 @@ fun DrawingCanvas(
                 }
             }
 
-            // 4. Multi-Resolution Tile-Based Drawing Content
+            // 4. Hardware-Accelerated Vector Display List Drawing (Images + Strokes)
             drawIntoCanvas { canvas ->
-                val native = canvas.nativeCanvas
-                visibleKeys.forEach { key ->
-                    val tileRect = TileRenderEngine.getTileRect(key)
-                    val cachedBitmap = controller.tileEngine.tileCache.get(key)
-                    val dstRectF = RectF(
-                        tileRect.left,
-                        tileRect.top,
-                        tileRect.right + 0.35f,
-                        tileRect.bottom + 0.35f
-                    )
-
-                    if (cachedBitmap != null && !cachedBitmap.isRecycled) {
-                        native.drawBitmap(cachedBitmap, null, dstRectF, tilePaint)
-                    } else {
-                        // 1. Instant Parent LOD fallback
-                        val parentFallback = controller.tileEngine.getParentTileFallback(key)
-                        if (parentFallback != null) {
-                            val (parentBmp, srcRect) = parentFallback
-                            native.drawBitmap(parentBmp, srcRect, dstRectF, tilePaint)
-                        } else {
-                            // 2. Instant Child LOD fallback
-                            val childFallbacks = controller.tileEngine.getChildTilesFallback(key)
-                            if (childFallbacks.isNotEmpty()) {
-                                childFallbacks.forEach { (childBmp, childRect) ->
-                                    val childDst = RectF(
-                                        childRect.left,
-                                        childRect.top,
-                                        childRect.right + 0.35f,
-                                        childRect.bottom + 0.35f
-                                    )
-                                    native.drawBitmap(childBmp, null, childDst, tilePaint)
-                                }
-                            } else if (!controller.tileEngine.tileCache.isEmpty(key)) {
-                                // 3. Vector fallback for uncached tiles on immediate frames
-                                drawTileVectorFallback(
-                                    canvas = native,
-                                    tileRect = tileRect,
-                                    controller = controller,
-                                    renderPaint = renderPaint
-                                )
-                            }
-                        }
-                    }
-                }
+                val picture = controller.displayListEngine.getOrRecord(
+                    controller = controller,
+                    version = controller.tileCacheVersion,
+                    excludedStrokeIds = controller.selectedStrokeIds,
+                    excludedImageIds = controller.selectedImageIds
+                )
+                canvas.nativeCanvas.drawPicture(picture)
             }
         }
 
@@ -716,86 +661,6 @@ fun DrawingCanvas(
             }
         }
     }
-}
-
-private fun drawTileVectorFallback(
-    canvas: android.graphics.Canvas,
-    tileRect: Rect,
-    controller: DrawingCanvasController,
-    renderPaint: Paint
-) {
-    val candidateIds = controller.spatialIndex.queryRect(tileRect)
-    canvas.save()
-    canvas.clipRect(tileRect.left, tileRect.top, tileRect.right, tileRect.bottom)
-
-    // 1. Draw Images
-    val imagePaint = Paint().apply {
-        isFilterBitmap = true
-        isAntiAlias = true
-        isDither = true
-    }
-
-    controller.imageOrder.forEach { id ->
-        if (id in controller.selectedImageIds) return@forEach
-        val img = controller.imageMap[id] ?: return@forEach
-        val imgRect = Rect(img.offset.x, img.offset.y, img.offset.x + img.scale.x, img.offset.y + img.scale.y)
-        if (imgRect.overlaps(tileRect)) {
-            val nativeBmp = controller.imageCache.get(img.path)
-            if (nativeBmp != null && !nativeBmp.isRecycled) {
-                val dst = RectF(
-                    img.offset.x,
-                    img.offset.y,
-                    img.offset.x + img.scale.x,
-                    img.offset.y + img.scale.y
-                )
-                if (img.rotation != 0f) {
-                    canvas.save()
-                    canvas.rotate(img.rotation, dst.centerX(), dst.centerY())
-                    canvas.drawBitmap(nativeBmp, null, dst, imagePaint)
-                    canvas.restore()
-                } else {
-                    canvas.drawBitmap(nativeBmp, null, dst, imagePaint)
-                }
-            }
-        }
-    }
-
-    // 2. Draw Strokes
-    val ordered = candidateIds.mapNotNull { id ->
-        if (id in controller.selectedStrokeIds) return@mapNotNull null
-        val stroke = controller.strokeMap[id] ?: return@mapNotNull null
-        val bounds = controller.spatialIndex.getBounds(id) ?: controller.spatialIndex.computeStrokeBounds(stroke)
-        if (bounds.overlaps(tileRect)) {
-            val index = controller.strokeToIndex[id] ?: 0
-            Triple(id, stroke, index)
-        } else null
-    }.sortedBy { it.third }
-
-    val path = android.graphics.Path()
-    renderPaint.isAntiAlias = true
-    renderPaint.strokeCap = Paint.Cap.ROUND
-    renderPaint.strokeJoin = Paint.Join.ROUND
-    renderPaint.style = Paint.Style.STROKE
-
-    ordered.forEach { (_, stroke, _) ->
-        renderPaint.color = stroke.colorArgb
-        renderPaint.strokeWidth = stroke.width
-        val pts = stroke.points
-        if (pts.isNotEmpty()) {
-            path.reset()
-            path.moveTo(pts[0].x, pts[0].y)
-            if (pts.size == 1) {
-                path.lineTo(pts[0].x + 0.1f, pts[0].y)
-            } else {
-                for (i in 1 until pts.size) {
-                    path.lineTo(pts[i].x, pts[i].y)
-                }
-            }
-            canvas.drawPath(path, renderPaint)
-        }
-    }
-
-    canvas.restore()
 }
 
 private fun calculateCentroid(pointers: List<PointerInputChange>): Offset {

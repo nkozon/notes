@@ -273,7 +273,7 @@ class TileRenderEngine(
         key: TileKey,
         spatialIndex: DrawingSpatialIndex,
         strokeMap: Map<String, Stroke>,
-        strokeToIndex: Map<String, Int>,
+        strokeOrder: List<String>,
         imageMap: Map<String, DrawingImage>,
         imageOrder: List<String>,
         getBitmap: (String) -> Bitmap?,
@@ -285,16 +285,21 @@ class TileRenderEngine(
 
         // Find candidate strokes from spatial index
         val candidateIds = spatialIndex.queryRect(tileRect)
+        if (candidateIds.isEmpty() && imageOrder.isEmpty()) {
+            tileCache.markEmpty(key)
+            return null
+        }
 
-        val visibleStrokes = candidateIds.mapNotNull { id ->
-            if (id in excludedStrokeIds) return@mapNotNull null
-            val stroke = strokeMap[id] ?: return@mapNotNull null
+        val visibleStrokes = mutableListOf<Stroke>()
+        for (id in strokeOrder) {
+            if (id in excludedStrokeIds) continue
+            if (id !in candidateIds) continue
+            val stroke = strokeMap[id] ?: continue
             val bounds = spatialIndex.getBounds(id) ?: spatialIndex.computeStrokeBounds(stroke)
             if (bounds.overlaps(tileRect)) {
-                val index = strokeToIndex[id] ?: 0
-                Triple(id, stroke, index)
-            } else null
-        }.sortedBy { it.third }
+                visibleStrokes.add(stroke)
+            }
+        }
 
         val visibleImages = imageOrder.mapNotNull { id ->
             if (id in excludedImageIds) return@mapNotNull null
@@ -339,7 +344,7 @@ class TileRenderEngine(
 
         // 2. Draw strokes with anti-aliasing
         val localPath = strokePath
-        visibleStrokes.forEach { (_, stroke, _) ->
+        visibleStrokes.forEach { stroke ->
             strokePaint.color = stroke.colorArgb
             strokePaint.strokeWidth = stroke.width
             val pts = stroke.points

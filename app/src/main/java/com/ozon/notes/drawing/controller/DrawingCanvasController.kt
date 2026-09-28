@@ -13,15 +13,17 @@ import com.ozon.notes.drawing.history.DrawingAction
 import com.ozon.notes.drawing.history.DrawingHistoryManager
 import com.ozon.notes.drawing.history.GeometricChange
 import com.ozon.notes.drawing.history.PropertyChange
+import com.ozon.notes.drawing.render.DrawingDisplayListEngine
 import com.ozon.notes.drawing.render.DrawingImageCache
 import com.ozon.notes.drawing.render.PdfBitmapCacheManager
+import com.ozon.notes.drawing.render.StrokePathCache
 import com.ozon.notes.drawing.render.TileRenderEngine
 import com.ozon.notes.drawing.spatial.DrawingSpatialIndex
 import java.util.UUID
 
 /**
  * Controller orchestrating all drawing operations, spatial indexing,
- * LOD tile rendering, history undo/redo, selection transformations, and page manipulation.
+ * GPU path caching, history undo/redo, selection transformations, and page manipulation.
  */
 class DrawingCanvasController(
     val context: Context,
@@ -30,7 +32,9 @@ class DrawingCanvasController(
     val tileEngine: TileRenderEngine = TileRenderEngine(),
     val historyManager: DrawingHistoryManager = DrawingHistoryManager(),
     val imageCache: DrawingImageCache = DrawingImageCache(context),
-    val pdfBitmapCache: PdfBitmapCacheManager = PdfBitmapCacheManager()
+    val pdfBitmapCache: PdfBitmapCacheManager = PdfBitmapCacheManager(),
+    val strokePathCache: StrokePathCache = StrokePathCache(),
+    val displayListEngine: DrawingDisplayListEngine = DrawingDisplayListEngine()
 ) {
     // --- Data Store ---
     val strokeMap = mutableStateMapOf<String, Stroke>()
@@ -40,8 +44,6 @@ class DrawingCanvasController(
 
     val currentStrokes: List<Stroke> get() = strokeOrder.mapNotNull { strokeMap[it] }
     val currentImages: List<DrawingImage> get() = imageOrder.mapNotNull { imageMap[it] }
-
-    val strokeToIndex: Map<String, Int> get() = strokeOrder.withIndex().associate { it.value to it.index }
 
     // --- Document Metadata ---
     var title by mutableStateOf("")
@@ -82,12 +84,14 @@ class DrawingCanvasController(
     var tileCacheVersion by mutableIntStateOf(0)
 
     val currentViewport: Rect
-        get() = Rect(
-            left = (-canvasOffset.x / canvasScale) - 400f,
-            top = (-canvasOffset.y / canvasScale) - 400f,
-            right = ((canvasSize.width - canvasOffset.x) / canvasScale) + 400f,
-            bottom = ((canvasSize.height - canvasOffset.y) / canvasScale) + 400f
-        )
+        get() {
+            val pad = 64f / canvasScale.coerceAtLeast(0.01f)
+            val l = -canvasOffset.x / canvasScale - pad
+            val t = -canvasOffset.y / canvasScale - pad
+            val r = (canvasSize.width - canvasOffset.x) / canvasScale + pad
+            val b = (canvasSize.height - canvasOffset.y) / canvasScale + pad
+            return Rect(l, t, r, b)
+        }
 
     val selectionBounds: Rect?
         get() {
@@ -140,9 +144,11 @@ class DrawingCanvasController(
         val initialStrokes = data?.strokes ?: emptyList()
         strokeMap.clear()
         strokeOrder.clear()
+        strokePathCache.clear()
         initialStrokes.forEach {
             strokeMap[it.id] = it
             strokeOrder.add(it.id)
+            strokePathCache.getOrCreate(it)
         }
         spatialIndex.reset(initialStrokes)
 
@@ -168,6 +174,7 @@ class DrawingCanvasController(
         }
 
         tileEngine.invalidateAll()
+        displayListEngine.invalidate()
         tileCacheVersion++
         isDirty = false
     }
@@ -175,6 +182,7 @@ class DrawingCanvasController(
     fun addStroke(stroke: Stroke) {
         strokeMap[stroke.id] = stroke
         strokeOrder.add(stroke.id)
+        strokePathCache.getOrCreate(stroke)
         spatialIndex.addStroke(stroke)
 
         val bounds = spatialIndex.computeStrokeBounds(stroke)
@@ -199,6 +207,7 @@ class DrawingCanvasController(
         strokesToErase.forEach { stroke ->
             strokeMap.remove(stroke.id)
             strokeOrder.remove(stroke.id)
+            strokePathCache.remove(stroke.id)
             spatialIndex.removeStroke(stroke.id)
         }
 
@@ -266,6 +275,7 @@ class DrawingCanvasController(
                     action.strokes.forEach {
                         strokeMap.remove(it.id)
                         strokeOrder.remove(it.id)
+                        strokePathCache.remove(it.id)
                         spatialIndex.removeStroke(it.id)
                     }
                     action.images.forEach {
@@ -276,6 +286,7 @@ class DrawingCanvasController(
                     action.strokes.forEach {
                         strokeMap[it.id] = it
                         if (it.id !in strokeOrder) strokeOrder.add(it.id)
+                        strokePathCache.getOrCreate(it)
                         spatialIndex.addStroke(it)
                     }
                     action.images.forEach {
@@ -289,6 +300,7 @@ class DrawingCanvasController(
                     action.strokes.forEach {
                         strokeMap[it.id] = it
                         if (it.id !in strokeOrder) strokeOrder.add(it.id)
+                        strokePathCache.getOrCreate(it)
                         spatialIndex.addStroke(it)
                     }
                     action.images.forEach {
@@ -299,6 +311,7 @@ class DrawingCanvasController(
                     action.strokes.forEach {
                         strokeMap.remove(it.id)
                         strokeOrder.remove(it.id)
+                        strokePathCache.remove(it.id)
                         spatialIndex.removeStroke(it.id)
                     }
                     action.images.forEach {
@@ -333,6 +346,7 @@ class DrawingCanvasController(
                         }
                         spatialIndex.updateStroke(s, newS)
                         strokeMap[id] = newS
+                        strokePathCache.update(newS)
                     }
                     action.imageIds.forEach { id ->
                         val img = imageMap[id] ?: return@forEach
@@ -359,6 +373,7 @@ class DrawingCanvasController(
                         strokeMap[id]?.let { old ->
                             spatialIndex.updateStroke(old, replacement)
                             strokeMap[id] = replacement
+                            strokePathCache.update(replacement)
                         }
                     }
                 }
@@ -376,21 +391,6 @@ class DrawingCanvasController(
         }
 
         tileEngine.invalidateAll()
-        val lod = TileRenderEngine.getLod(canvasScale)
-        val visibleKeys = tileEngine.getVisibleTileKeys(currentViewport, lod, buffer = 0)
-        visibleKeys.forEach { key ->
-            tileEngine.renderTileDirect(
-                key = key,
-                spatialIndex = spatialIndex,
-                strokeMap = strokeMap,
-                strokeToIndex = strokeToIndex,
-                imageMap = imageMap,
-                imageOrder = imageOrder,
-                getBitmap = { path -> imageCache.get(path) },
-                excludedStrokeIds = selectedStrokeIds,
-                excludedImageIds = selectedImageIds
-            )
-        }
         tileCacheVersion++
         isDirty = true
     }
@@ -442,6 +442,7 @@ class DrawingCanvasController(
         newStrokes.forEach {
             strokeMap[it.id] = it
             strokeOrder.add(it.id)
+            strokePathCache.getOrCreate(it)
             spatialIndex.addStroke(it)
         }
         newImages.forEach {
@@ -466,6 +467,7 @@ class DrawingCanvasController(
         removedS.forEach {
             strokeMap.remove(it.id)
             strokeOrder.remove(it.id)
+            strokePathCache.remove(it.id)
             spatialIndex.removeStroke(it.id)
         }
         removedI.forEach {
@@ -504,6 +506,7 @@ class DrawingCanvasController(
         pasted.forEach {
             strokeMap[it.id] = it
             strokeOrder.add(it.id)
+            strokePathCache.getOrCreate(it)
             spatialIndex.addStroke(it)
         }
         val pastedBounds = DrawingGeometry.getBounds(pasted, emptyList())
@@ -516,21 +519,6 @@ class DrawingCanvasController(
 
     fun invalidateAndRenderArea(area: Rect) {
         tileEngine.invalidateArea(area)
-        val lod = TileRenderEngine.getLod(canvasScale)
-        val affectedKeys = tileEngine.getVisibleTileKeys(area, lod, buffer = 1)
-        affectedKeys.forEach { key ->
-            tileEngine.renderTileDirect(
-                key = key,
-                spatialIndex = spatialIndex,
-                strokeMap = strokeMap,
-                strokeToIndex = strokeToIndex,
-                imageMap = imageMap,
-                imageOrder = imageOrder,
-                getBitmap = { path -> imageCache.get(path) },
-                excludedStrokeIds = selectedStrokeIds,
-                excludedImageIds = selectedImageIds
-            )
-        }
         tileCacheVersion++
     }
 

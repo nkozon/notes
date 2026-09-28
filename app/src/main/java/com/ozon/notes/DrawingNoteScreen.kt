@@ -60,14 +60,6 @@ fun getBounds(
     strokeBoundsMap: Map<String, Rect>? = null
 ): Rect = DrawingGeometry.getBounds(strokesList, imagesList, strokeBoundsMap)
 
-data class TileRenderSnapshot(
-    val lod: Int,
-    val keys: List<com.ozon.notes.drawing.render.TileKey>,
-    val sCount: Int,
-    val iCount: Int,
-    val selS: Set<String>,
-    val selI: Set<String>
-)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -275,61 +267,6 @@ fun DrawingNoteScreen(
             }
     }
 
-    // High-performance background LOD Tile Render loop
-    LaunchedEffect(Unit) {
-        snapshotFlow {
-            val lod = TileRenderEngine.getLod(controller.canvasScale)
-            val keys = controller.tileEngine.getVisibleTileKeys(controller.currentViewport, lod, buffer = 1)
-            TileRenderSnapshot(
-                lod = lod,
-                keys = keys,
-                sCount = controller.strokeOrder.size,
-                iCount = controller.imageOrder.size,
-                selS = controller.selectedStrokeIds,
-                selI = controller.selectedImageIds
-            )
-        }
-        .distinctUntilChanged()
-        .collectLatest { snapshot: TileRenderSnapshot ->
-            withContext(Dispatchers.Default) {
-                val vCenter = controller.currentViewport.center
-                val sortedKeys = snapshot.keys.sortedBy { key ->
-                    val rect = TileRenderEngine.getTileRect(key)
-                    val dx = rect.center.x - vCenter.x
-                    val dy = rect.center.y - vCenter.y
-                    dx * dx + dy * dy
-                }
-
-                var renderedCount = 0
-                for (key in sortedKeys) {
-                    if (controller.tileEngine.tileCache.get(key) == null && !controller.tileEngine.tileCache.isEmpty(key)) {
-                        controller.tileEngine.renderTileDirect(
-                            key = key,
-                            spatialIndex = controller.spatialIndex,
-                            strokeMap = controller.strokeMap,
-                            strokeToIndex = controller.strokeToIndex,
-                            imageMap = controller.imageMap,
-                            imageOrder = controller.imageOrder,
-                            getBitmap = { path -> controller.imageCache.get(path) },
-                            excludedStrokeIds = snapshot.selS,
-                            excludedImageIds = snapshot.selI
-                        )
-                        renderedCount++
-                        if (renderedCount % 3 == 0) {
-                            withContext(Dispatchers.Main) {
-                                controller.tileCacheVersion++
-                            }
-                        }
-                    }
-                }
-                if (renderedCount > 0 && renderedCount % 3 != 0) {
-                    withContext(Dispatchers.Main) {
-                        controller.tileCacheVersion++
-                    }
-                }
-            }
-        }
-    }
 
     fun saveDrawing() {
         val id = noteId ?: return

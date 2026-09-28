@@ -6,7 +6,7 @@ import com.ozon.notes.Stroke
 import com.ozon.notes.drawing.geometry.DrawingGeometry
 import kotlin.math.floor
 
-const val DEFAULT_SPATIAL_GRID_SIZE = 500f
+const val DEFAULT_SPATIAL_GRID_SIZE = 256f
 
 /**
  * High-performance 2D spatial partitioning index using dynamic hash grid.
@@ -81,16 +81,19 @@ class DrawingSpatialIndex(
      * Queries all candidate stroke IDs overlapping the specified bounding box.
      */
     fun queryRect(queryRect: Rect): Set<String> {
-        if (queryRect == Rect.Zero) return emptySet()
+        if (queryRect == Rect.Zero || cellMap.isEmpty()) return emptySet()
         val minGX = floor(queryRect.left / gridSize).toInt()
         val maxGX = floor(queryRect.right / gridSize).toInt()
         val minGY = floor(queryRect.top / gridSize).toInt()
         val maxGY = floor(queryRect.bottom / gridSize).toInt()
 
-        val candidates = mutableSetOf<String>()
+        val candidates = HashSet<String>()
         for (gx in minGX..maxGX) {
             for (gy in minGY..maxGY) {
-                cellMap[gridKey(gx, gy)]?.let { candidates.addAll(it) }
+                val list = cellMap[gridKey(gx, gy)]
+                if (list != null) {
+                    candidates.addAll(list)
+                }
             }
         }
         return candidates
