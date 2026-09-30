@@ -523,6 +523,22 @@ fun CollapsingTitleLayout(
                 }
             }
     ) {
+        val isScrolled by remember(scrollBehavior) {
+            derivedStateOf {
+                scrollBehavior.state.collapsedFraction > 0.01f || scrollBehavior.state.contentOffset < -1f
+            }
+        }
+        val backButtonContainerColor by animateColorAsState(
+            targetValue = if (isScrolled) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+            animationSpec = tween(durationMillis = 200),
+            label = "backButtonContainerColor"
+        )
+        val backButtonContentColor by animateColorAsState(
+            targetValue = if (isScrolled) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+            animationSpec = tween(durationMillis = 200),
+            label = "backButtonContentColor"
+        )
+
         // Back Button
         Box(
             modifier = Modifier
@@ -534,7 +550,9 @@ fun CollapsingTitleLayout(
             CircleIconButton(
                 onClick = onNavigateUp,
                 icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                contentDescription = "Back"
+                contentDescription = "Back",
+                containerColor = backButtonContainerColor,
+                contentColor = backButtonContentColor
             )
         }
         

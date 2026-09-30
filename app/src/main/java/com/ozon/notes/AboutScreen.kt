@@ -1,5 +1,6 @@
 package com.ozon.notes
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -42,6 +43,21 @@ fun AboutScreen(
         }
     }
 
+    val scrollState = rememberScrollState()
+    val isScrolled by remember {
+        derivedStateOf { scrollState.value > 0 }
+    }
+    val backButtonContainerColor by animateColorAsState(
+        targetValue = if (isScrolled) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+        animationSpec = tween(durationMillis = 200),
+        label = "backButtonContainerColor"
+    )
+    val backButtonContentColor by animateColorAsState(
+        targetValue = if (isScrolled) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+        animationSpec = tween(durationMillis = 200),
+        label = "backButtonContentColor"
+    )
+
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -57,7 +73,9 @@ fun AboutScreen(
                         CircleIconButton(
                             onClick = onNavigateUp,
                             icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = "Back",
+                            containerColor = backButtonContainerColor,
+                            contentColor = backButtonContentColor
                         )
                     }
                 }
@@ -66,7 +84,6 @@ fun AboutScreen(
     ) { padding ->
         val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        val scrollState = rememberScrollState()
         val topAlpha by remember {
             derivedStateOf {
                 (scrollState.value / 100f).coerceIn(0f, 1f)

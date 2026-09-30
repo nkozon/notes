@@ -260,4 +260,27 @@ class ExampleUnitTest {
         assertTrue(deserialized.entries.isEmpty())
         assertTrue(deserialized.tags.isEmpty())
     }
+
+    @Test
+    fun testSettingsBackButtonScrollDetection() {
+        fun isScrolled(collapsedFraction: Float, contentOffset: Float): Boolean {
+            return collapsedFraction > 0.01f || contentOffset < -1f
+        }
+
+        // At top: not scrolled
+        assertFalse(isScrolled(0f, 0f))
+        assertFalse(isScrolled(0.005f, 0f))
+        assertFalse(isScrolled(0f, -0.5f))
+
+        // Scrolled down
+        assertTrue(isScrolled(0.05f, -10f))
+        assertTrue(isScrolled(1.0f, -500f))
+
+        // Scrolling up in the middle of list (not at top)
+        assertTrue(isScrolled(1.0f, -400f))
+        assertTrue(isScrolled(0.5f, -40f))
+
+        // Back at top
+        assertFalse(isScrolled(0f, 0f))
+    }
 }
