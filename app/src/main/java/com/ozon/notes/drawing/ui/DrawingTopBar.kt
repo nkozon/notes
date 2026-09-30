@@ -1,12 +1,18 @@
 package com.ozon.notes.drawing.ui
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -100,7 +106,21 @@ fun DrawingTopBar(
                     )
                 }
 
-                if (isSplitScreen) {
+                AnimatedVisibility(
+                    visible = isSplitScreen,
+                    enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                            scaleIn(initialScale = 0.8f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                            expandHorizontally(
+                                expandFrom = Alignment.Start,
+                                animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                            ),
+                    exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                           scaleOut(targetScale = 0.8f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                           shrinkHorizontally(
+                               shrinkTowards = Alignment.Start,
+                               animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                           )
+                ) {
                     IconButton(
                         onClick = onToggleSidePanel,
                         modifier = Modifier.size(40.dp)
@@ -115,6 +135,13 @@ fun DrawingTopBar(
 
                 Box(
                     modifier = Modifier
+                        .animateContentSize(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            ),
+                            alignment = Alignment.CenterStart
+                        )
                         .padding(start = 4.dp, end = 12.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .clickable { showTitleDialog = true },
@@ -127,6 +154,7 @@ fun DrawingTopBar(
                             color = if (controller.title.isBlank()) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else MaterialTheme.colorScheme.primary
                         ),
                         maxLines = 1,
+                        softWrap = false,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                     )
@@ -149,31 +177,82 @@ fun DrawingTopBar(
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (controller.isDirty) {
-                    IconButton(
-                        onClick = onSave,
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Save,
-                            contentDescription = "Save Note",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                } else if (controller.showSavedCheckmark) {
-                    IconButton(
-                        onClick = {},
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Check,
-                            contentDescription = "Saved",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
+                AnimatedVisibility(
+                    visible = controller.isDirty || controller.showSavedCheckmark,
+                    enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                            scaleIn(initialScale = 0.8f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                            expandHorizontally(
+                                expandFrom = Alignment.End,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
+                            ),
+                    exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                           scaleOut(targetScale = 0.8f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                           shrinkHorizontally(
+                               shrinkTowards = Alignment.End,
+                               animationSpec = spring(
+                                   dampingRatio = Spring.DampingRatioNoBouncy,
+                                   stiffness = Spring.StiffnessMediumLow
+                               )
+                           )
+                ) {
+                    AnimatedContent(
+                        targetState = controller.isDirty,
+                        transitionSpec = {
+                            (fadeIn(animationSpec = tween(160)) + scaleIn(initialScale = 0.85f, animationSpec = tween(160)))
+                                .togetherWith(fadeOut(animationSpec = tween(120)) + scaleOut(targetScale = 0.85f, animationSpec = tween(120)))
+                        },
+                        label = "SaveCheckTransition"
+                    ) { isDirty ->
+                        if (isDirty) {
+                            IconButton(
+                                onClick = onSave,
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Save,
+                                    contentDescription = "Save Note",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        } else {
+                            IconButton(
+                                onClick = {},
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Check,
+                                    contentDescription = "Saved",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
                     }
                 }
 
-                if (controller.canvasType != CanvasType.INFINITE) {
+                AnimatedVisibility(
+                    visible = controller.canvasType != CanvasType.INFINITE,
+                    enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                            scaleIn(initialScale = 0.8f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                            expandHorizontally(
+                                expandFrom = Alignment.End,
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
+                            ),
+                    exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                           scaleOut(targetScale = 0.8f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                           shrinkHorizontally(
+                               shrinkTowards = Alignment.End,
+                               animationSpec = spring(
+                                   dampingRatio = Spring.DampingRatioNoBouncy,
+                                   stiffness = Spring.StiffnessMediumLow
+                               )
+                           )
+                ) {
                     Box(
                         modifier = Modifier
                             .size(40.dp)
