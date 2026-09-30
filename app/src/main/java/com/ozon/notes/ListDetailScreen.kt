@@ -3432,33 +3432,10 @@ private fun RenameListDialog(
 
                 if (list.type == ListType.RATING) {
                     Spacer(Modifier.height(4.dp))
-                    Text("Active Section Title", style = MaterialTheme.typography.labelMedium)
-                    OutlinedTextField(
-                        value = sectionName,
-                        onValueChange = { sectionName = it },
-                        placeholder = { Text("e.g. Currently Watching") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
+                    RatingListActiveSectionSelector(
+                        sectionName = sectionName,
+                        onSectionNameChange = { sectionName = it }
                     )
-                    val presetSuggestions = listOf(
-                        "Currently Watching",
-                        "Currently Reading",
-                        "Currently Playing",
-                        "Currently Listening"
-                    )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        presetSuggestions.forEach { preset ->
-                            FilterChip(
-                                selected = sectionName == preset,
-                                onClick = { sectionName = preset },
-                                label = { Text(preset) }
-                            )
-                        }
-                    }
                 }
             }
         },

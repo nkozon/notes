@@ -9,19 +9,17 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.List
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Brush
-import androidx.compose.material.icons.rounded.CheckBox
-import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Description
-import androidx.compose.material.icons.rounded.PushPin
-import androidx.compose.material.icons.rounded.Star
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material.icons.outlined.PushPin
-import androidx.compose.material.icons.rounded.Event
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -837,4 +835,174 @@ fun MainTab.getIcon(): ImageVector = when (this) {
     MainTab.CHECKLISTS -> Icons.Rounded.CheckBox
     MainTab.RATINGS -> Icons.Rounded.Star
     MainTab.UPCOMING -> Icons.Rounded.Event
+}
+
+@Composable
+fun RatingListActiveSectionSelector(
+    sectionName: String,
+    onSectionNameChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val presetSuggestions = remember {
+        listOf(
+            "Currently Watching",
+            "Currently Reading",
+            "Currently Playing",
+            "Currently Listening"
+        )
+    }
+    val isPreset = presetSuggestions.contains(sectionName)
+    var isCustom by remember(sectionName) { mutableStateOf(!isPreset && sectionName.isNotBlank()) }
+    var selectedPreset by remember(sectionName) {
+        mutableStateOf(if (isPreset) sectionName else presetSuggestions[0])
+    }
+    var customText by remember(sectionName) {
+        mutableStateOf(if (!isPreset) sectionName else "")
+    }
+    var dropdownExpanded by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Active Section Title", style = MaterialTheme.typography.labelMedium)
+
+        if (!isCustom) {
+            Box(modifier = Modifier.fillMaxWidth()) {
+                val leadingIcon = when (selectedPreset) {
+                    "Currently Watching" -> Icons.Rounded.Tv
+                    "Currently Reading" -> Icons.AutoMirrored.Rounded.MenuBook
+                    "Currently Playing" -> Icons.Rounded.SportsEsports
+                    "Currently Listening" -> Icons.Rounded.Headphones
+                    else -> Icons.Rounded.Bookmark
+                }
+                OutlinedTextField(
+                    value = selectedPreset,
+                    onValueChange = {},
+                    readOnly = true,
+                    singleLine = true,
+                    leadingIcon = {
+                        Icon(
+                            imageVector = leadingIcon,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    trailingIcon = {
+                        Icon(
+                            imageVector = if (dropdownExpanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                            contentDescription = "Select Preset",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { dropdownExpanded = true }
+                )
+                DropdownMenu(
+                    expanded = dropdownExpanded,
+                    onDismissRequest = { dropdownExpanded = false },
+                    shape = RoundedCornerShape(16.dp),
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                ) {
+                    presetSuggestions.forEach { preset ->
+                        val isSelected = selectedPreset == preset
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = preset,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            },
+                            leadingIcon = {
+                                val icon = when (preset) {
+                                    "Currently Watching" -> Icons.Rounded.Tv
+                                    "Currently Reading" -> Icons.AutoMirrored.Rounded.MenuBook
+                                    "Currently Playing" -> Icons.Rounded.SportsEsports
+                                    "Currently Listening" -> Icons.Rounded.Headphones
+                                    else -> Icons.Rounded.Bookmark
+                                }
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = null,
+                                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            },
+                            trailingIcon = if (isSelected) {
+                                {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Check,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            } else null,
+                            onClick = {
+                                selectedPreset = preset
+                                onSectionNameChange(preset)
+                                dropdownExpanded = false
+                            }
+                        )
+                    }
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text("Custom...") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Rounded.Edit,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        },
+                        onClick = {
+                            dropdownExpanded = false
+                            isCustom = true
+                            onSectionNameChange(customText.ifBlank { selectedPreset })
+                        }
+                    )
+                }
+            }
+        } else {
+            OutlinedTextField(
+                value = customText,
+                onValueChange = {
+                    customText = it
+                    onSectionNameChange(it)
+                },
+                placeholder = { Text(selectedPreset) },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
+            )
+            LaunchedEffect(Unit) {
+                focusRequester.requestFocus()
+            }
+
+            OutlinedButton(
+                onClick = {
+                    isCustom = false
+                    onSectionNameChange(selectedPreset)
+                },
+                shape = RoundedCornerShape(10.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                modifier = Modifier.align(Alignment.Start)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.List,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text("Presets")
+            }
+        }
+    }
 }
