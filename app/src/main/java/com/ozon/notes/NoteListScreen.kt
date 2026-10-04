@@ -21,9 +21,14 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.lerp
 import kotlin.math.roundToInt
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -155,6 +160,16 @@ fun NoteListScreen(
 
     val lastSelectedTab by settingsViewModel.lastSelectedTabState.collectAsStateWithLifecycle()
     val selectedTab = lastSelectedTab
+    val currentSortOrder = if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) noteSortOrder else listsSortOrder
+    val availableSortOrders = remember {
+        listOf(
+            ListSortOrder.ALPHABETICAL, 
+            ListSortOrder.REVERSE_ALPHABETICAL,
+            ListSortOrder.NEWEST, 
+            ListSortOrder.OLDEST
+        )
+    }
+
 
     LaunchedEffect(showNotesTab, showListsTab, lastSelectedTab) {
         if (!showNotesTab && showListsTab && (lastSelectedTab == MainTab.TEXT || lastSelectedTab == MainTab.DRAWINGS)) {
@@ -222,12 +237,14 @@ fun NoteListScreen(
     var showDrawingTypeDialog by remember { mutableStateOf(false) }
     var isSearchActive by remember { mutableStateOf(false) }
     var isCreateMenuOpen by rememberSaveable { mutableStateOf(false) }
+    var isScrollingDown by rememberSaveable { mutableStateOf(false) }
 
     BackHandler(enabled = isCreateMenuOpen || isSearchActive) {
         if (isCreateMenuOpen) {
             isCreateMenuOpen = false
         } else if (isSearchActive) {
             isSearchActive = false
+            isScrollingDown = false
             notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
             focusManager.clearFocus()
             keyboardController?.hide()
@@ -235,6 +252,36 @@ fun NoteListScreen(
     }
 
     val gridState = androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState()
+
+    val isAtTop by remember {
+        derivedStateOf {
+            gridState.firstVisibleItemIndex == 0 && gridState.firstVisibleItemScrollOffset <= 10
+        }
+    }
+
+    LaunchedEffect(isAtTop) {
+        if (isAtTop) {
+            isScrollingDown = false
+        }
+    }
+
+    LaunchedEffect(selectedTab) {
+        isScrollingDown = false
+    }
+
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                val delta = available.y
+                if (delta < -8f) {
+                    isScrollingDown = true
+                } else if (delta > 8f) {
+                    isScrollingDown = false
+                }
+                return Offset.Zero
+            }
+        }
+    }
 
     val topAlpha by remember {
         derivedStateOf {
@@ -292,8 +339,16 @@ fun NoteListScreen(
     @Suppress("UnusedMaterial3ScaffoldPaddingParameter")
     Scaffold(
         containerColor = Color.Transparent,
+        modifier = Modifier.nestedScroll(nestedScrollConnection),
         floatingActionButton = {
             val haptics = LocalHapticFeedback.current
+            val isBottomBarCollapsed = isScrollingDown && !isAtTop && !isSearchActive && !isCreateMenuOpen
+
+            val collapseProgress by animateFloatAsState(
+                targetValue = if (isBottomBarCollapsed) 1f else 0f,
+                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
+                label = "bottomBarCollapseProgress"
+            )
             val fabRotation by animateFloatAsState(
                 targetValue = if (isCreateMenuOpen) 135f else 0f,
                 animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
@@ -363,135 +418,193 @@ fun NoteListScreen(
                     }
                 }
 
-                Row(
+                BoxWithConstraints(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    contentAlignment = Alignment.Center
                 ) {
-                    Surface(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(56.dp),
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        tonalElevation = 3.dp,
-                        shadowElevation = 3.dp
+                    val fullSearchWidth = (maxWidth - 56.dp - 12.dp).coerceAtLeast(56.dp)
+                    val currentSearchWidth = lerp(fullSearchWidth, 56.dp, collapseProgress)
+                    val rowWidth = currentSearchWidth + 12.dp + 56.dp
+                    val contentAlpha = (1f - collapseProgress * 2.5f).coerceIn(0f, 1f)
+                    val searchEndPadding = lerp(4.dp, 16.dp, collapseProgress)
+
+                    Row(
+                        modifier = Modifier.width(rowWidth),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        if (isSearchActive) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(horizontal = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                CircleIconButton(
-                                    onClick = { 
-                                        isSearchActive = false
-                                        notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
-                                        focusManager.clearFocus()
-                                        keyboardController?.hide()
-                                    },
-                                    icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                                    contentDescription = "Close Search",
-                                    containerColor = Color.Transparent
-                                )
-                                TextField(
-                                    value = searchQuery,
-                                    onValueChange = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
-                                    placeholder = { 
-                                        Text(if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) "Search notes..." else "Search lists...") 
-                                    },
+                        Surface(
+                            modifier = Modifier
+                                .width(currentSearchWidth)
+                                .height(56.dp),
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            tonalElevation = 3.dp,
+                            shadowElevation = 3.dp
+                        ) {
+                            if (isSearchActive && collapseProgress < 0.3f) {
+                                Row(
                                     modifier = Modifier
-                                        .weight(1f)
-                                        .focusRequester(dummyFocusRequester),
-                                    textStyle = LocalTextStyle.current.copy(textAlign = TextAlign.Start),
-                                    colors = TextFieldDefaults.colors(
-                                        focusedContainerColor = Color.Transparent,
-                                        unfocusedContainerColor = Color.Transparent,
-                                        focusedIndicatorColor = Color.Transparent,
-                                        unfocusedIndicatorColor = Color.Transparent
-                                    ),
-                                    singleLine = true,
-                                    trailingIcon = {
-                                        if (searchQuery.isNotEmpty()) {
-                                            IconButton(onClick = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }) {
-                                                Icon(Icons.Rounded.Clear, contentDescription = "Clear")
+                                        .fillMaxSize()
+                                        .padding(horizontal = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    CircleIconButton(
+                                        onClick = { 
+                                            isSearchActive = false
+                                            isScrollingDown = false
+                                            notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
+                                            focusManager.clearFocus()
+                                            keyboardController?.hide()
+                                        },
+                                        icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                                        contentDescription = "Close Search",
+                                        containerColor = Color.Transparent
+                                    )
+                                    TextField(
+                                        value = searchQuery,
+                                        onValueChange = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
+                                        placeholder = { 
+                                            Text(if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) "Search notes..." else "Search lists...") 
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .focusRequester(dummyFocusRequester),
+                                        textStyle = LocalTextStyle.current.copy(textAlign = TextAlign.Start),
+                                        colors = TextFieldDefaults.colors(
+                                            focusedContainerColor = Color.Transparent,
+                                            unfocusedContainerColor = Color.Transparent,
+                                            focusedIndicatorColor = Color.Transparent,
+                                            unfocusedIndicatorColor = Color.Transparent
+                                        ),
+                                        singleLine = true,
+                                        trailingIcon = {
+                                            if (searchQuery.isNotEmpty()) {
+                                                IconButton(onClick = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }) {
+                                                    Icon(Icons.Rounded.Clear, contentDescription = "Clear")
+                                                }
                                             }
                                         }
+                                    )
+                                    SortDropdown(
+                                        selectedOrder = currentSortOrder,
+                                        onOrderSelected = { order ->
+                                            if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) {
+                                                notesViewModel.onEvent(NoteEvent.UpdateNoteSortOrder(order))
+                                            } else {
+                                                notesViewModel.onEvent(NoteEvent.UpdateListsSortOrder(order))
+                                            }
+                                        },
+                                        availableOrders = availableSortOrders,
+                                        iconOnly = true
+                                    )
+                                    LaunchedEffect(Unit) {
+                                        dummyFocusRequester.requestFocus()
                                     }
-                                )
-                                LaunchedEffect(Unit) {
-                                    dummyFocusRequester.requestFocus()
                                 }
-                            }
-                        } else {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .clip(CircleShape)
-                                    .clickable { 
-                                        if (isCreateMenuOpen) isCreateMenuOpen = false
-                                        isSearchActive = true 
+                            } else if (!isSearchActive) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(CircleShape)
+                                        .clickable { 
+                                            if (isCreateMenuOpen) isCreateMenuOpen = false
+                                            isSearchActive = true 
+                                        }
+                                        .padding(start = 16.dp, end = searchEndPadding),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Search,
+                                        contentDescription = "Search",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    if (collapseProgress < 0.6f) {
+                                        Row(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .graphicsLayer { alpha = contentAlpha },
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Text(
+                                                text = if (searchQuery.isNotEmpty()) searchQuery else if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) "Search notes..." else "Search lists...",
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = if (searchQuery.isNotEmpty()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.weight(1f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            if (searchQuery.isNotEmpty()) {
+                                                IconButton(
+                                                    onClick = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Rounded.Clear,
+                                                        contentDescription = "Clear",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                            SortDropdown(
+                                                selectedOrder = currentSortOrder,
+                                                onOrderSelected = { order ->
+                                                    if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) {
+                                                        notesViewModel.onEvent(NoteEvent.UpdateNoteSortOrder(order))
+                                                    } else {
+                                                        notesViewModel.onEvent(NoteEvent.UpdateListsSortOrder(order))
+                                                    }
+                                                },
+                                                availableOrders = availableSortOrders,
+                                                iconOnly = true
+                                            )
+                                        }
                                     }
-                                    .padding(horizontal = 16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Search,
-                                    contentDescription = "Search",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Text(
-                                    text = if (searchQuery.isNotEmpty()) searchQuery else if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) "Search notes..." else "Search lists...",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = if (searchQuery.isNotEmpty()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.weight(1f),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                if (searchQuery.isNotEmpty()) {
-                                    IconButton(
-                                        onClick = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Clear,
-                                            contentDescription = "Clear",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Search,
+                                        contentDescription = "Search",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
                             }
                         }
-                    }
 
-                    FloatingActionButton(
-                        onClick = {
-                            if (isSearchActive) {
-                                isSearchActive = false
-                                focusManager.clearFocus()
-                                keyboardController?.hide()
-                            }
-                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                            isCreateMenuOpen = !isCreateMenuOpen
-                        },
-                        shape = CircleShape,
-                        containerColor = fabContainerColor,
-                        contentColor = fabContentColor,
-                        elevation = FloatingActionButtonDefaults.elevation(
-                            defaultElevation = if (isCreateMenuOpen) 6.dp else 4.dp,
-                            pressedElevation = 8.dp
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Add,
-                            contentDescription = if (isCreateMenuOpen) "Close create menu" else "Create new item",
-                            modifier = Modifier
-                                .size(28.dp)
-                                .graphicsLayer {
-                                    rotationZ = fabRotation
+                        FloatingActionButton(
+                            onClick = {
+                                if (isSearchActive) {
+                                    isSearchActive = false
+                                    isScrollingDown = false
+                                    focusManager.clearFocus()
+                                    keyboardController?.hide()
                                 }
-                        )
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                isCreateMenuOpen = !isCreateMenuOpen
+                            },
+                            shape = CircleShape,
+                            modifier = Modifier.size(56.dp),
+                            containerColor = fabContainerColor,
+                            contentColor = fabContentColor,
+                            elevation = FloatingActionButtonDefaults.elevation(
+                                defaultElevation = if (isCreateMenuOpen) 6.dp else 4.dp,
+                                pressedElevation = 8.dp
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Add,
+                                contentDescription = if (isCreateMenuOpen) "Close create menu" else "Create new item",
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .graphicsLayer {
+                                        rotationZ = fabRotation
+                                    }
+                            )
+                        }
                     }
                 }
             }
@@ -577,24 +690,6 @@ fun NoteListScreen(
                                         }
                                     }
                                 }
-
-                                val currentSortOrder = if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) noteSortOrder else listsSortOrder
-                                SortDropdown(
-                                    selectedOrder = currentSortOrder,
-                                    onOrderSelected = { order ->
-                                        if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) {
-                                            notesViewModel.onEvent(NoteEvent.UpdateNoteSortOrder(order))
-                                        } else {
-                                            notesViewModel.onEvent(NoteEvent.UpdateListsSortOrder(order))
-                                        }
-                                    },
-                                    availableOrders = listOf(
-                                        ListSortOrder.ALPHABETICAL, 
-                                        ListSortOrder.REVERSE_ALPHABETICAL,
-                                        ListSortOrder.NEWEST, 
-                                        ListSortOrder.OLDEST
-                                    )
-                                )
                                 CircleIconButton(
                                     onClick = onSettingsClick,
                                     icon = Icons.Rounded.Settings,

@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.automirrored.rounded.List
 import androidx.compose.material.icons.automirrored.rounded.MenuBook
+import androidx.compose.material.icons.automirrored.rounded.Sort
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -48,10 +49,17 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.util.lerp
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.ui.layout.layout
 import kotlin.math.roundToInt
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.text.style.TextAlign
 
 @Composable
 fun CircleIconButton(
@@ -93,37 +101,51 @@ fun SortDropdown(
     onOrderSelected: (ListSortOrder) -> Unit,
     availableOrders: List<ListSortOrder> = listOf(ListSortOrder.ALPHABETICAL, ListSortOrder.REVERSE_ALPHABETICAL),
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    iconOnly: Boolean = false
 ) {
     var expanded by remember { mutableStateOf(false) }
 
     Box(modifier = modifier) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .height(34.dp)
-                .clip(CircleShape)
-                .border(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                    shape = CircleShape
+        if (iconOnly) {
+            IconButton(
+                onClick = { expanded = true },
+                enabled = enabled
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.Sort,
+                    contentDescription = "Sort: ${selectedOrder.toShortLabel()}",
+                    tint = MaterialTheme.colorScheme.onSurface
                 )
-                .clickable(enabled = enabled) { expanded = true }
-                .padding(horizontal = 12.dp)
-        ) {
-            Text(
-                text = selectedOrder.toShortLabel(),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.Medium
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Icon(
-                imageVector = Icons.Rounded.KeyboardArrowDown,
-                contentDescription = "Sort",
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            }
+        } else {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .height(34.dp)
+                    .clip(CircleShape)
+                    .border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                        shape = CircleShape
+                    )
+                    .clickable(enabled = enabled) { expanded = true }
+                    .padding(horizontal = 12.dp)
+            ) {
+                Text(
+                    text = selectedOrder.toShortLabel(),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Icon(
+                    imageVector = Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = "Sort",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
 
         DropdownMenu(
@@ -481,6 +503,168 @@ fun ListCard(
             colors = ListItemDefaults.colors(containerColor = Color.Transparent)
         )
     }
+}
+
+class ScrollAwareHeaderState(
+    val isAtTop: State<Boolean>,
+    val headerAlpha: State<Float>,
+    val nestedScrollConnection: NestedScrollConnection
+)
+
+@Composable
+fun rememberScrollAwareHeaderState(scrollState: ScrollState): ScrollAwareHeaderState {
+    val isAtTop = remember {
+        derivedStateOf { scrollState.value <= 10 }
+    }
+    var isHeaderVisible by remember { mutableStateOf(true) }
+
+    LaunchedEffect(isAtTop.value) {
+        if (isAtTop.value) {
+            isHeaderVisible = true
+        }
+    }
+
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                val delta = available.y
+                if (delta < -8f) {
+                    isHeaderVisible = false
+                } else if (delta > 8f) {
+                    isHeaderVisible = true
+                }
+                return Offset.Zero
+            }
+        }
+    }
+
+    val showHeader = isAtTop.value || isHeaderVisible
+
+    val headerAlpha = animateFloatAsState(
+        targetValue = if (showHeader) 1f else 0f,
+        animationSpec = tween(durationMillis = 200),
+        label = "headerAlpha"
+    )
+
+    return remember(isAtTop, headerAlpha, nestedScrollConnection) {
+        ScrollAwareHeaderState(isAtTop, headerAlpha, nestedScrollConnection)
+    }
+}
+
+@Composable
+fun rememberScrollAwareHeaderState(lazyListState: LazyListState): ScrollAwareHeaderState {
+    val isAtTop = remember {
+        derivedStateOf {
+            lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset <= 10
+        }
+    }
+    var isHeaderVisible by remember { mutableStateOf(true) }
+
+    LaunchedEffect(isAtTop.value) {
+        if (isAtTop.value) {
+            isHeaderVisible = true
+        }
+    }
+
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                val delta = available.y
+                if (delta < -8f) {
+                    isHeaderVisible = false
+                } else if (delta > 8f) {
+                    isHeaderVisible = true
+                }
+                return Offset.Zero
+            }
+        }
+    }
+
+    val showHeader = isAtTop.value || isHeaderVisible
+
+    val headerAlpha = animateFloatAsState(
+        targetValue = if (showHeader) 1f else 0f,
+        animationSpec = tween(durationMillis = 200),
+        label = "headerAlpha"
+    )
+
+    return remember(isAtTop, headerAlpha, nestedScrollConnection) {
+        ScrollAwareHeaderState(isAtTop, headerAlpha, nestedScrollConnection)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsTopAppBar(
+    title: String,
+    onNavigateUp: () -> Unit,
+    headerState: ScrollAwareHeaderState,
+    actions: @Composable RowScope.() -> Unit = {}
+) {
+    val isAtTop by headerState.isAtTop
+    val headerAlpha by headerState.headerAlpha
+
+    val backButtonContainerAlpha by animateFloatAsState(
+        targetValue = if (isAtTop) 0f else 1f,
+        animationSpec = tween(durationMillis = 200),
+        label = "backButtonContainerAlpha"
+    )
+
+    val backButtonContentColor by animateColorAsState(
+        targetValue = if (isAtTop) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer,
+        animationSpec = tween(durationMillis = 200),
+        label = "backButtonContentColor"
+    )
+
+    val showTitlePill = !isAtTop && headerAlpha > 0.01f
+
+    val titlePillAlpha by animateFloatAsState(
+        targetValue = if (showTitlePill) 1f else 0f,
+        animationSpec = tween(durationMillis = 200),
+        label = "titlePillAlpha"
+    )
+
+    val titleContentColor by animateColorAsState(
+        targetValue = if (showTitlePill) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+        animationSpec = tween(durationMillis = 200),
+        label = "titleContentColor"
+    )
+
+    TopAppBar(
+        title = {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = titlePillAlpha),
+                modifier = Modifier.graphicsLayer(alpha = headerAlpha)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = titleContentColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Start,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                )
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = Color.Transparent,
+            scrolledContainerColor = Color.Transparent
+        ),
+        navigationIcon = {
+            Box(modifier = Modifier.padding(start = 16.dp)) {
+                CircleIconButton(
+                    onClick = onNavigateUp,
+                    icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                    contentDescription = "Back",
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = backButtonContainerAlpha),
+                    contentColor = backButtonContentColor
+                )
+            }
+        },
+        actions = actions
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

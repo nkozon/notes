@@ -49,7 +49,8 @@ fun BackupRestoreScreen(
     val hasPendingChanges by viewModel.hasPendingChanges.collectAsStateWithLifecycle()
     val estimatedBackupSize by viewModel.estimatedBackupSize.collectAsStateWithLifecycle()
 
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scrollState = rememberScrollState()
+    val headerState = rememberScrollAwareHeaderState(scrollState)
     var activeOperationMessage by remember { mutableStateOf<String?>(null) }
 
     val backupUri = remember(backupUriString) {
@@ -107,17 +108,16 @@ fun BackupRestoreScreen(
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier = Modifier.nestedScroll(headerState.nestedScrollConnection),
         topBar = {
-            CollapsingTitleLayout(
+            SettingsTopAppBar(
                 title = "Full Backup & Restore",
                 onNavigateUp = onNavigateUp,
-                scrollBehavior = scrollBehavior
+                headerState = headerState
             )
         }
     ) { padding ->
         val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        val scrollState = rememberScrollState()
         val topAlpha by remember {
             derivedStateOf {
                 (scrollState.value / 100f).coerceIn(0f, 1f)
@@ -142,7 +142,7 @@ fun BackupRestoreScreen(
                     .fillMaxSize()
                     .verticalScroll(scrollState)
                     .padding(horizontal = 16.dp)
-                    .padding(top = padding.calculateTopPadding(), bottom = bottomPadding + 16.dp),
+                    .padding(top = padding.calculateTopPadding() + 8.dp, bottom = bottomPadding + 16.dp),
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
                 // Estimated Data Size Card

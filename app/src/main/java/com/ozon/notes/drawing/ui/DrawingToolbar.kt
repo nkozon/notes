@@ -35,10 +35,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.ozon.notes.DrawingTool
 import com.ozon.notes.R
 import com.ozon.notes.ToolbarAnchor
 import kotlin.math.roundToInt
+
+private val HorizontalToolbarWidth = 340.dp
+private val ToolbarHeight = 46.dp
 
 @Composable
 fun DrawingToolbar(
@@ -73,6 +77,7 @@ fun DrawingToolbar(
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val screenWidth = constraints.maxWidth.toFloat()
         val screenHeight = constraints.maxHeight.toFloat()
+        val toolbarWidth = minOf(HorizontalToolbarWidth, maxWidth - 24.dp)
 
         val alignment = when (anchor) {
             ToolbarAnchor.TOP -> Alignment.TopCenter
@@ -114,25 +119,19 @@ fun DrawingToolbar(
                 modifier = Modifier
                     .align(getAlignment(pred))
                     .then(
-                        if (!isCollapsed && pIsHorizontal) Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                        else Modifier.padding(horizontal = 16.dp)
-                    )
-                    .then(
-                        if (pTop) Modifier.statusBarsPadding().padding(top = 60.dp)
-                        else if (pBottom) Modifier.navigationBarsPadding().padding(bottom = 12.dp)
-                        else Modifier.padding(vertical = 12.dp)
+                        if (pTop) Modifier.statusBarsPadding().padding(top = 60.dp, start = 12.dp, end = 12.dp)
+                        else if (pBottom) Modifier.navigationBarsPadding().padding(bottom = 12.dp, start = 12.dp, end = 12.dp)
+                        else Modifier.padding(12.dp)
                     )
             ) {
                 Surface(
-                    modifier = Modifier
-                        .then(
-                            if (isCollapsed) Modifier.size(48.dp, 48.dp)
-                            else if (pIsHorizontal) Modifier.fillMaxWidth().height(54.dp)
-                            else Modifier.size(54.dp, 240.dp)
-                        ),
+                    modifier = Modifier.size(
+                        width = if (isCollapsed) (if (pIsHorizontal) 144.dp else ToolbarHeight) else if (pIsHorizontal) toolbarWidth else ToolbarHeight,
+                        height = if (isCollapsed) (if (pIsHorizontal) ToolbarHeight else 144.dp) else if (pIsHorizontal) ToolbarHeight else 220.dp
+                    ),
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                    border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                    border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
                 ) {}
             }
         }
@@ -140,16 +139,13 @@ fun DrawingToolbar(
         Column(
             modifier = Modifier
                 .align(alignment)
+                .wrapContentSize()
                 .then(
-                    if (!isCollapsed && isHorizontal) Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                    else Modifier.padding(horizontal = 16.dp)
-                )
-                .then(
-                    if (isTop) Modifier.statusBarsPadding().padding(top = 60.dp)
-                    else if (isBottom) Modifier.navigationBarsPadding().padding(bottom = 12.dp)
-                    else Modifier.padding(vertical = 12.dp)
+                    if (isTop) Modifier.statusBarsPadding().padding(top = 60.dp, start = 12.dp, end = 12.dp)
+                    else if (isBottom) Modifier.navigationBarsPadding().padding(bottom = 12.dp, start = 12.dp, end = 12.dp)
+                    else Modifier.padding(12.dp)
                 ),
-            horizontalAlignment = if (!isCollapsed && isHorizontal) Alignment.CenterHorizontally else when (anchor) {
+            horizontalAlignment = when (anchor) {
                 ToolbarAnchor.TOP_LEFT, ToolbarAnchor.BOTTOM_LEFT, ToolbarAnchor.LEFT -> Alignment.Start
                 ToolbarAnchor.TOP_RIGHT, ToolbarAnchor.BOTTOM_RIGHT, ToolbarAnchor.RIGHT -> Alignment.End
                 else -> Alignment.CenterHorizontally
@@ -169,7 +165,7 @@ fun DrawingToolbar(
                     min = 0.5f,
                     max = 50f
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(6.dp))
             }
             if (!isCollapsed && showColorPopup) {
                 ColorPopup(
@@ -183,17 +179,17 @@ fun DrawingToolbar(
                         onToggleColorPopup(false)
                     }
                 )
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(6.dp))
             }
 
             Surface(
                 modifier = Modifier
                     .then(
-                        if (!isCollapsed && isHorizontal) Modifier.fillMaxWidth()
+                        if (!isCollapsed && isHorizontal) Modifier.width(toolbarWidth)
                         else Modifier.wrapContentSize()
                     )
                     .offset { IntOffset(dragOffset.x.roundToInt(), dragOffset.y.roundToInt()) }
-                    .shadow(if (isCollapsed) 4.dp else 8.dp, CircleShape)
+                    .shadow(if (isCollapsed) 3.dp else 6.dp, CircleShape)
                     .clip(CircleShape)
                     .pointerInput(anchor) {
                         detectDragGesturesAfterLongPress(
@@ -244,39 +240,41 @@ fun DrawingToolbar(
                             }
                         )
                     },
-                color = MaterialTheme.colorScheme.surfaceColorAtElevation(if (isCollapsed) 2.dp else 6.dp),
-                tonalElevation = if (isCollapsed) 2.dp else 6.dp
+                color = MaterialTheme.colorScheme.surfaceColorAtElevation(if (isCollapsed) 2.dp else 4.dp),
+                tonalElevation = if (isCollapsed) 2.dp else 4.dp
             ) {
-                val padding = if (isCollapsed) 6.dp else 10.dp
+                val toolbarPadding = 8.dp
                 if (isHorizontal) {
                     Row(
                         modifier = Modifier
                             .then(
-                                if (!isCollapsed) Modifier.fillMaxWidth()
+                                if (!isCollapsed) Modifier.width(toolbarWidth)
                                 else Modifier.wrapContentSize()
                             )
                             .clip(CircleShape)
                             .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = if (isCollapsed) 6.dp else 10.dp, vertical = padding),
-                        horizontalArrangement = if (!isCollapsed) Arrangement.SpaceEvenly else Arrangement.spacedBy(8.dp),
+                            .padding(toolbarPadding),
+                        horizontalArrangement = if (!isCollapsed) Arrangement.SpaceBetween else Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        ToolbarContent(
-                            isHorizontal = isHorizontal,
-                            isCollapsed = isCollapsed,
-                            currentTool = currentTool,
-                            onToolChange = onToolChange,
-                            selectedPenColor = selectedPenColor,
-                            showColorPopup = showColorPopup,
-                            onToggleColorPopup = onToggleColorPopup,
-                            onToggleCollapse = onToggleCollapse,
-                            undoEnabled = undoEnabled,
-                            onUndo = onUndo,
-                            redoEnabled = redoEnabled,
-                            onRedo = onRedo,
-                            canvasScale = canvasScale,
-                            onResetZoom = onResetZoom
-                        )
+                        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+                            ToolbarContent(
+                                isHorizontal = isHorizontal,
+                                isCollapsed = isCollapsed,
+                                currentTool = currentTool,
+                                onToolChange = onToolChange,
+                                selectedPenColor = selectedPenColor,
+                                showColorPopup = showColorPopup,
+                                onToggleColorPopup = onToggleColorPopup,
+                                onToggleCollapse = onToggleCollapse,
+                                undoEnabled = undoEnabled,
+                                onUndo = onUndo,
+                                redoEnabled = redoEnabled,
+                                onRedo = onRedo,
+                                canvasScale = canvasScale,
+                                onResetZoom = onResetZoom
+                            )
+                        }
                     }
                 } else {
                     Column(
@@ -284,26 +282,28 @@ fun DrawingToolbar(
                             .heightIn(max = (screenHeight / LocalDensity.current.density).dp - 120.dp)
                             .clip(CircleShape)
                             .verticalScroll(rememberScrollState())
-                            .padding(horizontal = padding, vertical = padding),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                            .padding(toolbarPadding),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        ToolbarContent(
-                            isHorizontal = isHorizontal,
-                            isCollapsed = isCollapsed,
-                            currentTool = currentTool,
-                            onToolChange = onToolChange,
-                            selectedPenColor = selectedPenColor,
-                            showColorPopup = showColorPopup,
-                            onToggleColorPopup = onToggleColorPopup,
-                            onToggleCollapse = onToggleCollapse,
-                            undoEnabled = undoEnabled,
-                            onUndo = onUndo,
-                            redoEnabled = redoEnabled,
-                            onRedo = onRedo,
-                            canvasScale = canvasScale,
-                            onResetZoom = onResetZoom
-                        )
+                        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+                            ToolbarContent(
+                                isHorizontal = isHorizontal,
+                                isCollapsed = isCollapsed,
+                                currentTool = currentTool,
+                                onToolChange = onToolChange,
+                                selectedPenColor = selectedPenColor,
+                                showColorPopup = showColorPopup,
+                                onToggleColorPopup = onToggleColorPopup,
+                                onToggleCollapse = onToggleCollapse,
+                                undoEnabled = undoEnabled,
+                                onUndo = onUndo,
+                                redoEnabled = redoEnabled,
+                                onRedo = onRedo,
+                                canvasScale = canvasScale,
+                                onResetZoom = onResetZoom
+                            )
+                        }
                     }
                 }
             }
@@ -343,13 +343,13 @@ private fun ToolbarContent(
         IconButton(
             onClick = { onToggleColorPopup(!showColorPopup) },
             modifier = Modifier
-                .size(34.dp)
+                .size(30.dp)
                 .clip(CircleShape)
                 .background(if (showColorPopup) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
         ) {
             Box(
                 modifier = Modifier
-                    .size(20.dp)
+                    .size(16.dp)
                     .clip(CircleShape)
                     .background(selectedPenColor)
                     .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f), CircleShape)
@@ -360,7 +360,7 @@ private fun ToolbarContent(
         ToolbarItem(DrawingTool.HAND, rememberVectorPainter(Icons.Rounded.PanTool), currentTool == DrawingTool.HAND) { onToolChange(DrawingTool.HAND) }
         ToolbarSeparator(isHorizontal)
     } else {
-        IconButton(onClick = { onToggleCollapse(false) }, modifier = Modifier.size(34.dp)) {
+        IconButton(onClick = { onToggleCollapse(false) }, modifier = Modifier.size(30.dp)) {
             Icon(
                 painter = when (currentTool) {
                     DrawingTool.PEN -> rememberVectorPainter(Icons.Rounded.Edit)
@@ -369,63 +369,67 @@ private fun ToolbarContent(
                     else -> rememberVectorPainter(Icons.Rounded.PanTool)
                 },
                 contentDescription = "Expand",
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(18.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
         }
         ToolbarSeparator(isHorizontal)
     }
-    IconButton(onClick = onUndo, enabled = undoEnabled, modifier = Modifier.size(34.dp)) {
-        Icon(Icons.AutoMirrored.Rounded.Undo, contentDescription = "Undo", modifier = Modifier.size(18.dp))
+    IconButton(onClick = onUndo, enabled = undoEnabled, modifier = Modifier.size(30.dp)) {
+        Icon(Icons.AutoMirrored.Rounded.Undo, contentDescription = "Undo", modifier = Modifier.size(16.dp))
     }
-    IconButton(onClick = onRedo, enabled = redoEnabled, modifier = Modifier.size(34.dp)) {
-        Icon(Icons.AutoMirrored.Rounded.Redo, contentDescription = "Redo", modifier = Modifier.size(18.dp))
+    IconButton(onClick = onRedo, enabled = redoEnabled, modifier = Modifier.size(30.dp)) {
+        Icon(Icons.AutoMirrored.Rounded.Redo, contentDescription = "Redo", modifier = Modifier.size(16.dp))
     }
     ToolbarSeparator(isHorizontal)
     if (isHorizontal) {
-        TextButton(onClick = onResetZoom, modifier = Modifier.size(width = 48.dp, height = 34.dp), contentPadding = PaddingValues(0.dp)) {
+        TextButton(
+            onClick = onResetZoom,
+            modifier = Modifier.size(width = 38.dp, height = 30.dp),
+            contentPadding = PaddingValues(0.dp)
+        ) {
             Text(
                 text = "${(canvasScale * 100).roundToInt()}%",
-                style = MaterialTheme.typography.labelSmall,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                 fontWeight = FontWeight.Bold,
                 color = if (canvasScale != 1f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     } else {
-        IconButton(onClick = onResetZoom, modifier = Modifier.size(34.dp)) {
+        IconButton(onClick = onResetZoom, modifier = Modifier.size(30.dp)) {
             Icon(
                 Icons.Rounded.ZoomIn,
                 contentDescription = "Reset Zoom",
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(18.dp),
                 tint = if (canvasScale != 1f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
     if (!isCollapsed) {
         ToolbarSeparator(isHorizontal)
-        IconButton(onClick = { onToggleCollapse(true) }, modifier = Modifier.size(34.dp)) {
-            Icon(Icons.Rounded.UnfoldLess, contentDescription = "Collapse", modifier = Modifier.size(18.dp))
+        IconButton(onClick = { onToggleCollapse(true) }, modifier = Modifier.size(30.dp)) {
+            Icon(Icons.Rounded.UnfoldLess, contentDescription = "Collapse", modifier = Modifier.size(16.dp))
         }
     }
 }
 
 @Composable
 private fun ToolbarSeparator(isHorizontal: Boolean) {
-    if (isHorizontal) VerticalDivider(modifier = Modifier.height(24.dp).width(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-    else HorizontalDivider(modifier = Modifier.width(24.dp).height(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    if (isHorizontal) VerticalDivider(modifier = Modifier.height(18.dp).width(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    else HorizontalDivider(modifier = Modifier.width(18.dp).height(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 }
 
 @Composable
 fun ToolbarItem(tool: DrawingTool, painter: Painter, isSelected: Boolean, onClick: () -> Unit) {
     IconButton(
         onClick = onClick,
-        modifier = Modifier.minimumInteractiveComponentSize().size(34.dp),
+        modifier = Modifier.size(30.dp),
         colors = if (isSelected) IconButtonDefaults.iconButtonColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer
         ) else IconButtonDefaults.iconButtonColors()
     ) {
-        Icon(painter, tool.name, modifier = Modifier.size(20.dp))
+        Icon(painter, tool.name, modifier = Modifier.size(18.dp))
     }
 }
 

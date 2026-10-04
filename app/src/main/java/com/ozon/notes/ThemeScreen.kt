@@ -50,7 +50,8 @@ fun ThemeScreen(
 
     var fontDropdownExpanded by remember { mutableStateOf(false) }
 
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scrollState = rememberScrollState()
+    val headerState = rememberScrollAwareHeaderState(scrollState)
 
     val presetColors = listOf(
         Color(0xFF6750A4), // Purple
@@ -66,17 +67,16 @@ fun ThemeScreen(
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier = Modifier.nestedScroll(headerState.nestedScrollConnection),
         topBar = {
-            CollapsingTitleLayout(
+            SettingsTopAppBar(
                 title = "Theme & Display",
                 onNavigateUp = onNavigateUp,
-                scrollBehavior = scrollBehavior
+                headerState = headerState
             )
         }
     ) { padding ->
         val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        val scrollState = rememberScrollState()
         val topAlpha by remember {
             derivedStateOf {
                 (scrollState.value / 100f).coerceIn(0f, 1f)
@@ -101,7 +101,7 @@ fun ThemeScreen(
                     .fillMaxSize()
                     .verticalScroll(scrollState)
                     .padding(horizontal = 16.dp)
-                    .padding(top = padding.calculateTopPadding(), bottom = bottomPadding + 16.dp)
+                    .padding(top = padding.calculateTopPadding() + 8.dp, bottom = bottomPadding + 16.dp)
                     .animateContentSize(animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing)),
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {

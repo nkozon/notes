@@ -41,22 +41,22 @@ fun MoviePostersScreen(
         viewModel.updatePosterCacheSize()
     }
 
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scrollState = rememberScrollState()
+    val headerState = rememberScrollAwareHeaderState(scrollState)
 
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier = Modifier.nestedScroll(headerState.nestedScrollConnection),
         topBar = {
-            CollapsingTitleLayout(
+            SettingsTopAppBar(
                 title = "Movie Posters",
                 onNavigateUp = onNavigateUp,
-                scrollBehavior = scrollBehavior
+                headerState = headerState
             )
         }
     ) { padding ->
         val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        val scrollState = rememberScrollState()
         val topAlpha by remember {
             derivedStateOf {
                 (scrollState.value / 100f).coerceIn(0f, 1f)
@@ -82,7 +82,7 @@ fun MoviePostersScreen(
                     .verticalScroll(scrollState)
                     .padding(horizontal = 16.dp)
                     .padding(
-                        top = padding.calculateTopPadding(),
+                        top = padding.calculateTopPadding() + 8.dp,
                         bottom = bottomPadding + 16.dp
                     )
                     .animateContentSize(

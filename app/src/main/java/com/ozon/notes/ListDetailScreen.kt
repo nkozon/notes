@@ -102,6 +102,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import com.ozon.notes.ui.theme.GoogleSansFlexRounded
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -337,6 +338,23 @@ fun ListDetailScreen(
         label = "bottomFadeAlpha"
     )
 
+    val isBottomBarCollapsed = !isHeaderVisible && !isAtTop && !isSearchActive && !isInlineAdding
+
+    val bottomBarCollapseProgress by animateFloatAsState(
+        targetValue = if (isBottomBarCollapsed) 1f else 0f,
+        animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
+        label = "bottomBarCollapseProgress"
+    )
+
+    val availableSortOrders = remember(currentList?.type) {
+        ListSortOrder.entries.filter { order ->
+            val isNotNewOld = order != ListSortOrder.NEWEST && order != ListSortOrder.OLDEST
+            if (currentList?.type == ListType.CHECKLIST || currentList?.type == ListType.UPCOMING) {
+                isNotNewOld && order != ListSortOrder.RATING_LOW_TO_HIGH && order != ListSortOrder.RATING_HIGH_TO_LOW
+            } else isNotNewOld
+        }
+    }
+
     LaunchedEffect(listId) {
         checklistViewModel.onEvent(NoteEvent.SetCurrentList(listId))
         checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
@@ -358,7 +376,7 @@ fun ListDetailScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         floatingActionButtonPosition = androidx.compose.material3.FabPosition.Center,
         topBar = {
-            TopAppBar(
+            CenterAlignedTopAppBar(
                 title = { 
                     Surface(
                         shape = CircleShape,
@@ -376,7 +394,7 @@ fun ListDetailScreen(
                             color = titleContentColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            textAlign = TextAlign.Start,
+                            textAlign = TextAlign.Center,
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
                         )
                     }
@@ -396,152 +414,177 @@ fun ListDetailScreen(
                         )
                     }
                 },
-                actions = {
-                    Row(
-                        modifier = Modifier
-                            .padding(end = 16.dp)
-                            .graphicsLayer(alpha = headerAlpha),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        SortDropdown(
-                            selectedOrder = sortOrder,
-                            onOrderSelected = { checklistViewModel.onEvent(NoteEvent.UpdateListSortOrder(it)) },
-                            availableOrders = ListSortOrder.entries.filter { order ->
-                                val isNotNewOld = order != ListSortOrder.NEWEST && order != ListSortOrder.OLDEST
-                                if (currentList.type == ListType.CHECKLIST || currentList.type == ListType.UPCOMING) {
-                                    isNotNewOld && order != ListSortOrder.RATING_LOW_TO_HIGH && order != ListSortOrder.RATING_HIGH_TO_LOW
-                                } else isNotNewOld
-                            },
-                            enabled = headerAlpha > 0.5f
-                        )
-                    }
-                }
+                actions = { }
             )
         },
         floatingActionButton = {
-            Row(
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
                     .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
                     .padding(bottom = 6.dp)
                     .zIndex(3f),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                contentAlignment = Alignment.Center
             ) {
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(56.dp),
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    tonalElevation = 3.dp,
-                    shadowElevation = 3.dp
+                val fullSearchWidth = (maxWidth - 56.dp - 12.dp).coerceAtLeast(56.dp)
+                val currentSearchWidth = lerp(fullSearchWidth, 56.dp, bottomBarCollapseProgress)
+                val rowWidth = currentSearchWidth + 12.dp + 56.dp
+                val contentAlpha = (1f - bottomBarCollapseProgress * 2.5f).coerceIn(0f, 1f)
+                val searchEndPadding = lerp(4.dp, 16.dp, bottomBarCollapseProgress)
+
+                Row(
+                    modifier = Modifier.width(rowWidth),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    if (isSearchActive) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            CircleIconButton(
-                                onClick = { 
-                                    isSearchActive = false
-                                    checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
-                                    focusManager.clearFocus()
-                                    keyboardController?.hide()
-                                },
-                                icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                                contentDescription = "Close Search",
-                                containerColor = Color.Transparent
-                            )
-                            TextField(
-                                value = searchQuery,
-                                onValueChange = { checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
-                                placeholder = { Text("Search entries...") },
+                    Surface(
+                        modifier = Modifier
+                            .width(currentSearchWidth)
+                            .height(56.dp),
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        tonalElevation = 3.dp,
+                        shadowElevation = 3.dp
+                    ) {
+                        if (isSearchActive && bottomBarCollapseProgress < 0.3f) {
+                            Row(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .focusRequester(dummyFocusRequester),
-                                colors = TextFieldDefaults.colors(
-                                    focusedContainerColor = Color.Transparent,
-                                    unfocusedContainerColor = Color.Transparent,
-                                    focusedIndicatorColor = Color.Transparent,
-                                    unfocusedIndicatorColor = Color.Transparent
-                                ),
-                                singleLine = true,
-                                trailingIcon = {
-                                    if (searchQuery.isNotEmpty()) {
-                                        IconButton(onClick = { checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }) {
-                                            Icon(Icons.Rounded.Clear, contentDescription = "Clear")
+                                    .fillMaxSize()
+                                    .padding(horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircleIconButton(
+                                    onClick = { 
+                                        isSearchActive = false
+                                        checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
+                                        focusManager.clearFocus()
+                                        keyboardController?.hide()
+                                    },
+                                    icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                                    contentDescription = "Close Search",
+                                    containerColor = Color.Transparent
+                                )
+                                TextField(
+                                    value = searchQuery,
+                                    onValueChange = { checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
+                                    placeholder = { Text("Search entries...") },
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .focusRequester(dummyFocusRequester),
+                                    colors = TextFieldDefaults.colors(
+                                        focusedContainerColor = Color.Transparent,
+                                        unfocusedContainerColor = Color.Transparent,
+                                        focusedIndicatorColor = Color.Transparent,
+                                        unfocusedIndicatorColor = Color.Transparent
+                                    ),
+                                    singleLine = true,
+                                    trailingIcon = {
+                                        if (searchQuery.isNotEmpty()) {
+                                            IconButton(onClick = { checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }) {
+                                                Icon(Icons.Rounded.Clear, contentDescription = "Clear")
+                                            }
                                         }
                                     }
+                                )
+                                SortDropdown(
+                                    selectedOrder = sortOrder,
+                                    onOrderSelected = { checklistViewModel.onEvent(NoteEvent.UpdateListSortOrder(it)) },
+                                    availableOrders = availableSortOrders,
+                                    iconOnly = true
+                                )
+                                TagFilterDropdown(
+                                    selectedTagIds = selectedFilterTagIds,
+                                    allTags = allTags,
+                                    filterMode = tagFilterMode,
+                                    onTagToggle = { checklistViewModel.onEvent(NoteEvent.ToggleFilterTag(it)) },
+                                    onModeToggle = { checklistViewModel.onEvent(NoteEvent.UpdateTagFilterMode(it)) },
+                                    onClearAll = { checklistViewModel.onEvent(NoteEvent.ClearFilterTags) },
+                                    onReorderTags = { checklistViewModel.onEvent(NoteEvent.ReorderTags(listId, it)) },
+                                    onDeleteTag = { checklistViewModel.onEvent(NoteEvent.DeleteTag(it)) }
+                                )
+                                LaunchedEffect(Unit) {
+                                    dummyFocusRequester.requestFocus()
                                 }
-                            )
-                            TagFilterDropdown(
-                                selectedTagIds = selectedFilterTagIds,
-                                allTags = allTags,
-                                filterMode = tagFilterMode,
-                                onTagToggle = { checklistViewModel.onEvent(NoteEvent.ToggleFilterTag(it)) },
-                                onModeToggle = { checklistViewModel.onEvent(NoteEvent.UpdateTagFilterMode(it)) },
-                                onClearAll = { checklistViewModel.onEvent(NoteEvent.ClearFilterTags) },
-                                onReorderTags = { checklistViewModel.onEvent(NoteEvent.ReorderTags(listId, it)) },
-                                onDeleteTag = { checklistViewModel.onEvent(NoteEvent.DeleteTag(it)) }
-                            )
-                            LaunchedEffect(Unit) {
-                                dummyFocusRequester.requestFocus()
+                            }
+                        } else if (!isSearchActive) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape)
+                                    .clickable { isSearchActive = true }
+                                    .padding(start = 16.dp, end = searchEndPadding),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Search,
+                                    contentDescription = "Search",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (bottomBarCollapseProgress < 0.6f) {
+                                    Row(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .graphicsLayer { alpha = contentAlpha },
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Text(
+                                            text = if (searchQuery.isNotEmpty()) searchQuery else "Search",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = if (searchQuery.isNotEmpty()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.weight(1f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        SortDropdown(
+                                            selectedOrder = sortOrder,
+                                            onOrderSelected = { checklistViewModel.onEvent(NoteEvent.UpdateListSortOrder(it)) },
+                                            availableOrders = availableSortOrders,
+                                            iconOnly = true
+                                        )
+                                        TagFilterDropdown(
+                                            selectedTagIds = selectedFilterTagIds,
+                                            allTags = allTags,
+                                            filterMode = tagFilterMode,
+                                            onTagToggle = { checklistViewModel.onEvent(NoteEvent.ToggleFilterTag(it)) },
+                                            onModeToggle = { checklistViewModel.onEvent(NoteEvent.UpdateTagFilterMode(it)) },
+                                            onClearAll = { checklistViewModel.onEvent(NoteEvent.ClearFilterTags) },
+                                            onReorderTags = { checklistViewModel.onEvent(NoteEvent.ReorderTags(listId, it)) },
+                                            onDeleteTag = { checklistViewModel.onEvent(NoteEvent.DeleteTag(it)) }
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Search,
+                                    contentDescription = "Search",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
-                    } else {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(CircleShape)
-                                .clickable { isSearchActive = true }
-                                .padding(start = 16.dp, end = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Search,
-                                contentDescription = "Search",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(
-                                text = if (searchQuery.isNotEmpty()) searchQuery else "Search",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = if (searchQuery.isNotEmpty()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            TagFilterDropdown(
-                                selectedTagIds = selectedFilterTagIds,
-                                allTags = allTags,
-                                filterMode = tagFilterMode,
-                                onTagToggle = { checklistViewModel.onEvent(NoteEvent.ToggleFilterTag(it)) },
-                                onModeToggle = { checklistViewModel.onEvent(NoteEvent.UpdateTagFilterMode(it)) },
-                                onClearAll = { checklistViewModel.onEvent(NoteEvent.ClearFilterTags) },
-                                onReorderTags = { checklistViewModel.onEvent(NoteEvent.ReorderTags(listId, it)) },
-                                onDeleteTag = { checklistViewModel.onEvent(NoteEvent.DeleteTag(it)) }
-                            )
-                        }
                     }
-                }
 
-                FloatingActionButton(
-                    onClick = { 
-                        if (currentList.type == ListType.CHECKLIST) {
-                            isInlineAdding = true
-                        } else {
-                            showAddEntryDialog = true
-                        }
-                    },
-                    shape = CircleShape,
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                ) {
-                    Icon(Icons.Rounded.Add, contentDescription = "Add Entry")
+                    FloatingActionButton(
+                        onClick = { 
+                            if (currentList.type == ListType.CHECKLIST) {
+                                isInlineAdding = true
+                            } else {
+                                showAddEntryDialog = true
+                            }
+                        },
+                        shape = CircleShape,
+                        modifier = Modifier.size(56.dp),
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ) {
+                        Icon(Icons.Rounded.Add, contentDescription = "Add Entry")
+                    }
                 }
             }
         }

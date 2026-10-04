@@ -25,14 +25,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.zIndex
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.lerp
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.ui.unit.sp
@@ -67,7 +72,8 @@ fun SettingsScreen(
     var showClearDataDialog by remember { mutableStateOf(false) }
     var showUpdateDialog by remember { mutableStateOf<UpdateState.UpdateAvailable?>(null) }
 
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scrollState = rememberScrollState()
+    val headerState = rememberScrollAwareHeaderState(scrollState)
 
     LaunchedEffect(updateState) {
         if (updateState is UpdateState.UpdateAvailable) {
@@ -78,17 +84,16 @@ fun SettingsScreen(
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier = Modifier.nestedScroll(headerState.nestedScrollConnection),
         topBar = {
-            CollapsingTitleLayout(
+            SettingsTopAppBar(
                 title = "Settings",
                 onNavigateUp = onNavigateUp,
-                scrollBehavior = scrollBehavior
+                headerState = headerState
             )
         }
     ) { padding ->
         val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        val scrollState = rememberScrollState()
         val topAlpha by remember {
             derivedStateOf {
                 (scrollState.value / 100f).coerceIn(0f, 1f)
@@ -113,7 +118,7 @@ fun SettingsScreen(
                     .fillMaxSize()
                     .verticalScroll(scrollState)
                     .padding(horizontal = 16.dp)
-                    .padding(top = padding.calculateTopPadding(), bottom = bottomPadding + 16.dp)
+                    .padding(top = padding.calculateTopPadding() + 8.dp, bottom = bottomPadding + 16.dp)
                     .animateContentSize(animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing)),
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {

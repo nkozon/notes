@@ -46,7 +46,8 @@ fun GranularBackupScreen(
     val notes by notesViewModel.notesState.collectAsStateWithLifecycle()
     val lists by notesViewModel.listsState.collectAsStateWithLifecycle()
     
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val lazyListState = rememberLazyListState()
+    val headerState = rememberScrollAwareHeaderState(lazyListState)
 
     var pendingExportNoteId by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingExportListId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -103,17 +104,16 @@ fun GranularBackupScreen(
     Scaffold(
         containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier = Modifier.nestedScroll(headerState.nestedScrollConnection),
         topBar = {
-            CollapsingTitleLayout(
+            SettingsTopAppBar(
                 title = "Granular Backup",
                 onNavigateUp = onNavigateUp,
-                scrollBehavior = scrollBehavior
+                headerState = headerState
             )
         }
     ) { padding ->
         val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        val lazyListState = rememberLazyListState()
         val topAlpha by remember {
             derivedStateOf {
                 if (lazyListState.firstVisibleItemIndex > 0) 1f
@@ -139,7 +139,7 @@ fun GranularBackupScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
                     start = 16.dp, 
-                    top = padding.calculateTopPadding(), 
+                    top = padding.calculateTopPadding() + 8.dp, 
                     end = 16.dp, 
                     bottom = bottomPadding + 16.dp
                 )
