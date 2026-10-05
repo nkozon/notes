@@ -62,7 +62,7 @@ sealed interface NoteEvent {
     data class UpdateLastDrawingThickness(val thickness: Float) : NoteEvent
     data class UpdateDrawingThicknessPresets(val presets: List<Float>) : NoteEvent
     data class UpdateToolbarAnchor(val anchor: ToolbarAnchor) : NoteEvent
-    data class UpdateSmoothingStrength(val strength: SmoothingStrength) : NoteEvent
+    data class UpdateSmoothingStrength(val strength: Float) : NoteEvent
     data object TriggerAutoBackup : NoteEvent
     data object CheckForUpdate : NoteEvent
     data class InstallUpdate(val url: String, val version: String) : NoteEvent

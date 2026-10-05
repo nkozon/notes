@@ -16,6 +16,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,26 +74,37 @@ fun DrawingSettingsScreen(
                 SettingsSection(title = "Canvas & Stroke") {
                     SettingsItemContainer(index = 0, total = 2) {
                         Column(modifier = Modifier.padding(16.dp)) {
-                            Text("Smoothing Strength", style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                "Applies curve smoothing to drawn strokes",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(Modifier.height(12.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                SmoothingStrength.entries.forEach { strength ->
-                                    SettingsToggleItem(
-                                        label = strength.name.lowercase().replaceFirstChar { it.uppercase() },
-                                        selected = smoothingStrength == strength,
-                                        onClick = { viewModel.onEvent(NoteEvent.UpdateSmoothingStrength(strength)) },
-                                        modifier = Modifier.weight(1f)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Smoothing Strength", style = MaterialTheme.typography.titleMedium)
+                                    Text(
+                                        "Applies curve smoothing to drawn strokes",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
+                                val level = (smoothingStrength * 10).roundToInt()
+                                Text(
+                                    text = if (level == 0) "Off" else "Level $level",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
                             }
+                            Spacer(Modifier.height(12.dp))
+                            Slider(
+                                value = smoothingStrength,
+                                onValueChange = {
+                                    val stepped = (it * 10).roundToInt() / 10f
+                                    viewModel.onEvent(NoteEvent.UpdateSmoothingStrength(stepped))
+                                },
+                                valueRange = 0f..1f,
+                                steps = 9,
+                                modifier = Modifier.fillMaxWidth()
+                            )
                         }
                     }
 

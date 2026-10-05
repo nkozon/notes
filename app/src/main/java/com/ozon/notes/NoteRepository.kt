@@ -160,8 +160,8 @@ interface NoteRepository {
     suspend fun setDrawingThicknessPresets(presets: List<Float>)
     fun getToolbarAnchor(): Flow<ToolbarAnchor>
     suspend fun setToolbarAnchor(anchor: ToolbarAnchor)
-    fun getSmoothingStrength(): Flow<SmoothingStrength>
-    suspend fun setSmoothingStrength(strength: SmoothingStrength)
+    fun getSmoothingStrength(): Flow<Float>
+    suspend fun setSmoothingStrength(strength: Float)
 }
 
 //class InMemoryNoteRepository : NoteRepository {

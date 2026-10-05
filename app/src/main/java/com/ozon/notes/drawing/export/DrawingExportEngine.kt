@@ -315,9 +315,22 @@ object DrawingExportEngine {
                 paint.color = stroke.colorArgb
                 paint.strokeWidth = stroke.width
                 path.reset()
-                stroke.points.forEachIndexed { index, point ->
-                    if (index == 0) path.moveTo(point.x, point.y)
-                    else path.lineTo(point.x, point.y)
+                val pts = stroke.points
+                if (pts.isNotEmpty()) {
+                    path.moveTo(pts[0].x, pts[0].y)
+                    val size = pts.size
+                    if (size == 1) {
+                        path.lineTo(pts[0].x + 0.1f, pts[0].y)
+                    } else if (size == 2) {
+                        path.lineTo(pts[1].x, pts[1].y)
+                    } else {
+                        for (i in 1 until size - 1) {
+                            val midX = (pts[i].x + pts[i + 1].x) / 2f
+                            val midY = (pts[i].y + pts[i + 1].y) / 2f
+                            path.quadTo(pts[i].x, pts[i].y, midX, midY)
+                        }
+                        path.lineTo(pts[size - 1].x, pts[size - 1].y)
+                    }
                 }
                 canvas.drawPath(path, paint)
             }

@@ -1323,13 +1323,26 @@ class RoomNoteRepository(
     }
 
     private val _smoothingStrength = MutableStateFlow(
-        prefs.getString("smoothing_strength", null)?.let {
-            try { SmoothingStrength.valueOf(it) } catch (e: Exception) { null }
-        } ?: SmoothingStrength.MODERATE
+        try {
+            val savedFloat = prefs.getFloat("smoothing_strength_float", -1f)
+            if (savedFloat >= 0f) {
+                savedFloat
+            } else {
+                when (prefs.getString("smoothing_strength", null)) {
+                    "NONE" -> 0.0f
+                    "LIGHT" -> 0.3f
+                    "MODERATE" -> 0.5f
+                    "HEAVY" -> 0.8f
+                    else -> 0.5f
+                }
+            }
+        } catch (e: Exception) {
+            0.5f
+        }
     )
-    override fun getSmoothingStrength(): Flow<SmoothingStrength> = _smoothingStrength
-    override suspend fun setSmoothingStrength(strength: SmoothingStrength) {
-        prefs.edit().putString("smoothing_strength", strength.name).apply()
+    override fun getSmoothingStrength(): Flow<Float> = _smoothingStrength
+    override suspend fun setSmoothingStrength(strength: Float) {
+        prefs.edit().putFloat("smoothing_strength_float", strength).apply()
         _smoothingStrength.value = strength
     }
 }

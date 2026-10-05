@@ -272,4 +272,35 @@ object DrawingGeometry {
         result.add(points[lastIdx])
         return result
     }
+
+    /**
+     * Applies iterative weighted Laplacian smoothing to smooth out high-frequency noise,
+     * hand tremors, and digitizer stepping artifacts along a stroke polyline.
+     * Endpoints are preserved to maintain stroke connectivity and intent.
+     */
+    fun smoothPoints(points: List<DrawingPoint>, strength: Float): List<DrawingPoint> {
+        if (points.size <= 2 || strength <= 0f) return points
+        val iterations = (strength * 4).toInt().coerceIn(1, 4)
+        val weight = (strength * 0.5f).coerceIn(0.1f, 0.48f)
+        var current = points
+
+        repeat(iterations) {
+            val next = ArrayList<DrawingPoint>(current.size)
+            next.add(current[0])
+            val lastIdx = current.size - 1
+            for (i in 1 until lastIdx) {
+                val prev = current[i - 1]
+                val curr = current[i]
+                val succ = current[i + 1]
+                val avgX = (prev.x + succ.x) * 0.5f
+                val avgY = (prev.y + succ.y) * 0.5f
+                val sx = curr.x * (1f - weight) + avgX * weight
+                val sy = curr.y * (1f - weight) + avgY * weight
+                next.add(DrawingPoint(sx, sy))
+            }
+            next.add(current[lastIdx])
+            current = next
+        }
+        return current
+    }
 }

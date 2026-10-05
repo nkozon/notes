@@ -34,7 +34,7 @@ import kotlin.math.roundToInt
 @Composable
 fun DrawingCanvas(
     controller: DrawingCanvasController,
-    smoothingStrength: SmoothingStrength,
+    smoothingStrength: Float = 0.5f,
     forceStylusOnly: Boolean,
     showGuidelines: Boolean,
     modifier: Modifier = Modifier
@@ -121,12 +121,7 @@ fun DrawingCanvas(
 
                         var smoothedX = worldStartPos.x
                         var smoothedY = worldStartPos.y
-                        val alpha = when (smoothingStrength) {
-                            SmoothingStrength.NONE -> 1.0f
-                            SmoothingStrength.LIGHT -> 0.7f
-                            SmoothingStrength.MODERATE -> 0.45f
-                            SmoothingStrength.HEAVY -> 0.25f
-                        }
+                        val alpha = if (smoothingStrength <= 0f) 1.0f else (1.0f - smoothingStrength * 0.94f).coerceIn(0.06f, 1.0f)
 
                         val touchSlop = viewConfiguration.touchSlop
                         val effectiveSlop = if (dragMode == DragMode.DRAW || dragMode == DragMode.LASSO || isStylus) 0.1f else touchSlop
@@ -200,7 +195,19 @@ fun DrawingCanvas(
                             if (change.changedToUp()) {
                                 if (hasMovedPastSlop && currentPathPoints.size > 1 && dragMode == DragMode.DRAW) {
                                     if (currentWorkingTool != DrawingTool.ERASER) {
-                                        val points = DrawingGeometry.simplifyPointsRadial(currentPathPoints.toList(), 0.5f / controller.canvasScale)
+                                        if (currentWorkingTool == DrawingTool.PEN && smoothingStrength > 0f) {
+                                            val upWorldPos = (change.position - controller.canvasOffset) / controller.canvasScale
+                                            val endPt = DrawingPoint(upWorldPos.x, upWorldPos.y)
+                                            if (DrawingGeometry.distanceSq(currentPathPoints.last().x, currentPathPoints.last().y, endPt.x, endPt.y) > 0.25f) {
+                                                currentPathPoints.add(endPt)
+                                            }
+                                        }
+                                        val smoothed = if (currentWorkingTool == DrawingTool.PEN && smoothingStrength > 0f) {
+                                            DrawingGeometry.smoothPoints(currentPathPoints.toList(), smoothingStrength)
+                                        } else {
+                                            currentPathPoints.toList()
+                                        }
+                                        val points = DrawingGeometry.simplifyPointsRadial(smoothed, 0.5f / controller.canvasScale)
                                         val newStroke = Stroke(
                                             points = points,
                                             colorArgb = controller.selectedPenColor.toArgb(),
@@ -240,7 +247,12 @@ fun DrawingCanvas(
                             if (newTool != currentWorkingTool && dragMode == DragMode.DRAW && hasMovedPastSlop) {
                                 if (currentPathPoints.size > 1) {
                                     if (currentWorkingTool != DrawingTool.ERASER) {
-                                        val points = DrawingGeometry.simplifyPointsRadial(currentPathPoints.toList(), 0.5f / controller.canvasScale)
+                                        val smoothed = if (currentWorkingTool == DrawingTool.PEN && smoothingStrength > 0f) {
+                                            DrawingGeometry.smoothPoints(currentPathPoints.toList(), smoothingStrength)
+                                        } else {
+                                            currentPathPoints.toList()
+                                        }
+                                        val points = DrawingGeometry.simplifyPointsRadial(smoothed, 0.5f / controller.canvasScale)
                                         val newStroke = Stroke(
                                             points = points,
                                             colorArgb = controller.selectedPenColor.toArgb(),
@@ -535,9 +547,23 @@ fun DrawingCanvas(
                 // 1. Live Active Stroke
                 if (currentPathPoints.isNotEmpty()) {
                     activeStrokePath.rewind()
-                    currentPathPoints.forEachIndexed { i, p ->
-                        if (i == 0) activeStrokePath.moveTo(p.x, p.y)
-                        else activeStrokePath.lineTo(p.x, p.y)
+                    val pts = currentPathPoints
+                    if (pts.size == 1) {
+                        activeStrokePath.moveTo(pts[0].x, pts[0].y)
+                        activeStrokePath.lineTo(pts[0].x + 0.1f, pts[0].y)
+                    } else if (pts.size == 2 || drawingTool == DrawingTool.LASSO) {
+                        pts.forEachIndexed { i, p ->
+                            if (i == 0) activeStrokePath.moveTo(p.x, p.y)
+                            else activeStrokePath.lineTo(p.x, p.y)
+                        }
+                    } else {
+                        activeStrokePath.moveTo(pts[0].x, pts[0].y)
+                        for (i in 1 until pts.size - 1) {
+                            val midX = (pts[i].x + pts[i + 1].x) / 2f
+                            val midY = (pts[i].y + pts[i + 1].y) / 2f
+                            activeStrokePath.quadraticTo(pts[i].x, pts[i].y, midX, midY)
+                        }
+                        activeStrokePath.lineTo(pts.last().x, pts.last().y)
                     }
                     if (drawingTool == DrawingTool.LASSO) {
                         drawPath(

@@ -148,8 +148,8 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
     val lastDrawingThickness: StateFlow<Float> = repository.getLastDrawingThickness()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 5.0f)
 
-    val smoothingStrength: StateFlow<SmoothingStrength> = repository.getSmoothingStrength()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SmoothingStrength.MODERATE)
+    val smoothingStrength: StateFlow<Float> = repository.getSmoothingStrength()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.5f)
 
     private val _updateState = MutableStateFlow<UpdateState>(UpdateState.Idle)
     val updateState = _updateState.asStateFlow()
