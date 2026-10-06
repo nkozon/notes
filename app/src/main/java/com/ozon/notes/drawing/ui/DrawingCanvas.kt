@@ -63,12 +63,130 @@ fun DrawingCanvas(
         }
     }
 
+    val lastStylusTouchTime = remember { LongArray(1) }
+
     fun isStylusButtonPressed(event: PointerEvent): Boolean {
-        return event.buttons.isSecondaryPressed || event.buttons.isTertiaryPressed
+        if (event.buttons.isSecondaryPressed || event.buttons.isTertiaryPressed) return true
+
+        val native = event.motionEvent
+        if (native != null) {
+            val bs = native.buttonState
+            if ((bs and MotionEvent.BUTTON_STYLUS_PRIMARY != 0) ||
+                (bs and MotionEvent.BUTTON_STYLUS_SECONDARY != 0) ||
+                (bs and MotionEvent.BUTTON_SECONDARY != 0) ||
+                (bs and MotionEvent.BUTTON_TERTIARY != 0)) {
+                return true
+            }
+
+            val am = native.actionMasked
+            if (am == 211 || am == 212 || am == 213 || am == 214) return true
+        }
+
+        return false
+    }
+
+    fun isStylusEvent(change: PointerInputChange, event: PointerEvent): Boolean {
+        if (change.type == PointerType.Stylus || change.type == PointerType.Eraser) return true
+        val native = event.motionEvent
+        if (native != null) {
+            val am = native.actionMasked
+            if (am in 211..214) return true
+            for (i in 0 until native.pointerCount) {
+                val tt = native.getToolType(i)
+                if (tt == MotionEvent.TOOL_TYPE_STYLUS || tt == MotionEvent.TOOL_TYPE_ERASER) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    fun isEraserToolType(change: PointerInputChange, event: PointerEvent): Boolean {
+        if (change.type == PointerType.Eraser) return true
+        val native = event.motionEvent
+        if (native != null) {
+            for (i in 0 until native.pointerCount) {
+                if (native.getToolType(i) == MotionEvent.TOOL_TYPE_ERASER) {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     fun distanceToSegmentSq(px: Float, py: Float, x1: Float, y1: Float, x2: Float, y2: Float): Float {
         return DrawingGeometry.distanceToSegmentSq(px, py, x1, y1, x2, y2)
+    }
+
+    fun performErase(pointsToErase: List<DrawingPoint>) {
+        if (pointsToErase.isEmpty()) return
+        val eraserRadius = controller.eraserThickness / 2f
+        var minX = Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxX = -Float.MAX_VALUE
+        var maxY = -Float.MAX_VALUE
+        pointsToErase.forEach { p ->
+            if (p.x < minX) minX = p.x
+            if (p.x > maxX) maxX = p.x
+            if (p.y < minY) minY = p.y
+            if (p.y > maxY) maxY = p.y
+        }
+        val eraseRect = Rect(minX - eraserRadius, minY - eraserRadius, maxX + eraserRadius, maxY + eraserRadius)
+        val candidateIds = controller.spatialIndex.queryRect(eraseRect)
+
+        val toErase = candidateIds.mapNotNull { controller.spatialIndex.getStroke(it) }.filter { stroke ->
+            if (stroke.tool == DrawingTool.ERASER) false
+            else {
+                val bounds = controller.spatialIndex.getBounds(stroke.id)
+                if (bounds != null && !bounds.overlaps(eraseRect)) false
+                else {
+                    val thresholdSq = (eraserRadius + stroke.width / 2f).let { it * it }
+                    var hit = false
+                    for (i in 0 until stroke.points.size - 1) {
+                        val p1 = stroke.points[i]
+                        val p2 = stroke.points[i + 1]
+                        for (ep in pointsToErase) {
+                            if (distanceToSegmentSq(ep.x, ep.y, p1.x, p1.y, p2.x, p2.y) < thresholdSq) {
+                                hit = true
+                                break
+                            }
+                        }
+                        if (hit) break
+                    }
+                    if (!hit && stroke.points.size == 1) {
+                        val p = stroke.points[0]
+                        for (ep in pointsToErase) {
+                            val dx = p.x - ep.x
+                            val dy = p.y - ep.y
+                            if (dx * dx + dy * dy < thresholdSq) {
+                                hit = true
+                                break
+                            }
+                        }
+                    }
+                    hit
+                }
+            }
+        }
+
+        if (toErase.isNotEmpty()) {
+            gestureRemovedStrokes.addAll(toErase)
+            val eraseBounds = DrawingGeometry.getBounds(toErase, emptyList(), controller.spatialIndex.strokeBoundsMap)
+            val totalEraseArea = Rect(
+                minOf(eraseBounds.left, eraseRect.left) - 25f,
+                minOf(eraseBounds.top, eraseRect.top) - 25f,
+                maxOf(eraseBounds.right, eraseRect.right) + 25f,
+                maxOf(eraseBounds.bottom, eraseRect.bottom) + 25f
+            )
+            toErase.forEach { stroke ->
+                controller.strokeMap.remove(stroke.id)
+                controller.strokeOrder.remove(stroke.id)
+                controller.strokePathCache.remove(stroke.id)
+                controller.spatialIndex.removeStroke(stroke.id)
+            }
+            controller.invalidateAndRenderArea(totalEraseArea)
+            controller.isDirty = true
+        }
     }
 
     Box(
@@ -77,124 +195,146 @@ fun DrawingCanvas(
             .pointerInput(controller.currentTool, forceStylusOnly, smoothingStrength) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
-                        val isStylus = down.type == PointerType.Stylus || down.type == PointerType.Eraser
-                        val isEraserType = down.type == PointerType.Eraser
-                        val initialEvent = currentEvent
-                        val buttonPressed = isStylusButtonPressed(initialEvent)
+                    val initialEvent = currentEvent
+                    val isStylus = isStylusEvent(down, initialEvent)
+                    val isEraserType = isEraserToolType(down, initialEvent)
 
-                        var currentWorkingTool = when {
-                            isStylus && (isEraserType || buttonPressed) -> DrawingTool.ERASER
-                            else -> controller.currentTool
-                        }
-                        controller.activeDrawingTool = currentWorkingTool
-
-                        val startPos = down.position
-                        val worldStartPos = (startPos - controller.canvasOffset) / controller.canvasScale
-                        val bStart = controller.selectionBounds
-
-                        val selectedStrokesAtStart = controller.selectedStrokeIds
-                        val selectedImagesAtStart = controller.selectedImageIds
-
-                        val dragMode = when {
-                            forceStylusOnly && !isStylus -> DragMode.PAN
-                            currentWorkingTool == DrawingTool.HAND -> DragMode.PAN
-                            currentWorkingTool == DrawingTool.LASSO && bStart != null -> {
-                                val h = 40f / controller.canvasScale
-                                when {
-                                    worldStartPos.x in (bStart.left - h)..(bStart.left + h) && worldStartPos.y in (bStart.top - h)..(bStart.top + h) -> DragMode.RESIZE_TL
-                                    worldStartPos.x in (bStart.right - h)..(bStart.right + h) && worldStartPos.y in (bStart.top - h)..(bStart.top + h) -> DragMode.RESIZE_TR
-                                    worldStartPos.x in (bStart.left - h)..(bStart.left + h) && worldStartPos.y in (bStart.bottom - h)..(bStart.bottom + h) -> DragMode.RESIZE_BL
-                                    worldStartPos.x in (bStart.right - h)..(bStart.right + h) && worldStartPos.y in (bStart.bottom - h)..(bStart.bottom + h) -> DragMode.RESIZE_BR
-                                    bStart.contains(worldStartPos) -> DragMode.MOVE
-                                    else -> DragMode.LASSO
-                                }
-                            }
-                            currentWorkingTool == DrawingTool.LASSO -> DragMode.LASSO
-                            else -> DragMode.DRAW
-                        }
-
-                        if (dragMode == DragMode.LASSO || dragMode == DragMode.DRAW) {
-                            controller.clearSelection()
-                            currentPathPoints.clear()
-                            currentPathPoints.add(DrawingPoint(worldStartPos.x, worldStartPos.y))
-                        }
-
-                        var smoothedX = worldStartPos.x
-                        var smoothedY = worldStartPos.y
-                        val alpha = if (smoothingStrength <= 0f) 1.0f else (1.0f - smoothingStrength * 0.94f).coerceIn(0.06f, 1.0f)
-
-                        val touchSlop = viewConfiguration.touchSlop
-                        val effectiveSlop = if (dragMode == DragMode.DRAW || dragMode == DragMode.LASSO || isStylus) 0.1f else touchSlop
-                        var hasMovedPastSlop = false
-                        var lastPosition = startPos
-
-                        gestureRemovedStrokes.clear()
-                        gestureRemovedImages.clear()
-
+                    val currentTime = System.currentTimeMillis()
+                    if (isStylus) {
+                        lastStylusTouchTime[0] = currentTime
+                    } else if (currentTime - lastStylusTouchTime[0] < 500) {
+                        down.consume()
                         while (true) {
-                            val event = awaitPointerEvent()
-                            val pressedPointers = event.changes.filter { it.pressed }
+                            val upEvent = awaitPointerEvent()
+                            upEvent.changes.forEach { it.consume() }
+                            if (upEvent.changes.none { it.pressed }) break
+                        }
+                        return@awaitEachGesture
+                    }
 
-                            // Multi-touch Pinch to Zoom & Pan Gesture
-                            if (pressedPointers.size >= 2) {
-                                if (dragMode == DragMode.MOVE || dragMode.name.startsWith("RESIZE")) {
-                                    controller.activeTransformation = null
-                                }
-                                currentPathPoints.clear()
-                                gestureRemovedStrokes.clear()
-                                gestureRemovedImages.clear()
+                    val buttonPressed = isStylusButtonPressed(initialEvent)
+                    var currentWorkingTool = when {
+                        isStylus && (isEraserType || buttonPressed) -> DrawingTool.ERASER
+                        else -> controller.currentTool
+                    }
+                    controller.activeDrawingTool = currentWorkingTool
 
-                                var prevCentroid = calculateCentroid(pressedPointers)
-                                var prevSpan = calculateSpan(pressedPointers, prevCentroid)
+                    val startPos = down.position
+                    val worldStartPos = (startPos - controller.canvasOffset) / controller.canvasScale
+                    val bStart = controller.selectionBounds
 
-                                while (true) {
-                                    val multiEvent = awaitPointerEvent()
-                                    val currentPressed = multiEvent.changes.filter { it.pressed }
-                                    if (currentPressed.size < 2) {
-                                        multiEvent.changes.forEach { it.consume() }
-                                        break
-                                    }
+                    val selectedStrokesAtStart = controller.selectedStrokeIds
+                    val selectedImagesAtStart = controller.selectedImageIds
 
-                                    val currentCentroid = calculateCentroid(currentPressed)
-                                    val currentSpan = calculateSpan(currentPressed, currentCentroid)
+                    var dragMode = when {
+                        forceStylusOnly && !isStylus -> DragMode.PAN
+                        currentWorkingTool == DrawingTool.HAND -> DragMode.PAN
+                        currentWorkingTool == DrawingTool.LASSO && bStart != null -> {
+                            val h = 40f / controller.canvasScale
+                            when {
+                                worldStartPos.x in (bStart.left - h)..(bStart.left + h) && worldStartPos.y in (bStart.top - h)..(bStart.top + h) -> DragMode.RESIZE_TL
+                                worldStartPos.x in (bStart.right - h)..(bStart.right + h) && worldStartPos.y in (bStart.top - h)..(bStart.top + h) -> DragMode.RESIZE_TR
+                                worldStartPos.x in (bStart.left - h)..(bStart.left + h) && worldStartPos.y in (bStart.bottom - h)..(bStart.bottom + h) -> DragMode.RESIZE_BL
+                                worldStartPos.x in (bStart.right - h)..(bStart.right + h) && worldStartPos.y in (bStart.bottom - h)..(bStart.bottom + h) -> DragMode.RESIZE_BR
+                                bStart.contains(worldStartPos) -> DragMode.MOVE
+                                else -> DragMode.LASSO
+                            }
+                        }
+                        currentWorkingTool == DrawingTool.LASSO -> DragMode.LASSO
+                        else -> DragMode.DRAW
+                    }
 
-                                    val zoomFactor = if (prevSpan > 0f && currentSpan > 0f) {
-                                        currentSpan / prevSpan
-                                    } else 1f
+                    gestureRemovedStrokes.clear()
+                    gestureRemovedImages.clear()
+                    currentPathPoints.clear()
 
-                                    val panDelta = currentCentroid - prevCentroid
+                    val startPt = DrawingPoint(worldStartPos.x, worldStartPos.y)
+                    if (dragMode == DragMode.LASSO || dragMode == DragMode.DRAW) {
+                        controller.clearSelection()
+                        currentPathPoints.add(startPt)
+                        if (dragMode == DragMode.DRAW && currentWorkingTool == DrawingTool.ERASER) {
+                            performErase(listOf(startPt))
+                        }
+                    }
 
-                                    val oldScale = controller.canvasScale
-                                    val newScale = (oldScale * zoomFactor).coerceIn(0.1f, 10f)
-                                    val scaleRatio = newScale / oldScale
+                    var smoothedX = worldStartPos.x
+                    var smoothedY = worldStartPos.y
+                    val alpha = if (smoothingStrength <= 0f) 1.0f else (1.0f - smoothingStrength * 0.94f).coerceIn(0.06f, 1.0f)
 
-                                    val oldOffset = controller.canvasOffset
-                                    val newOffset = currentCentroid - (currentCentroid - oldOffset) * scaleRatio + panDelta
+                    val touchSlop = viewConfiguration.touchSlop
+                    val effectiveSlop = if (dragMode == DragMode.DRAW || dragMode == DragMode.LASSO || isStylus) 0.1f else touchSlop
+                    var hasMovedPastSlop = false
+                    var lastPosition = startPos
 
-                                    controller.canvasScale = newScale
-                                    controller.canvasOffset = newOffset
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val pressedPointers = event.changes.filter { it.pressed }
 
-                                    prevCentroid = currentCentroid
-                                    prevSpan = currentSpan
+                        if (isStylus) {
+                            lastStylusTouchTime[0] = System.currentTimeMillis()
+                        }
 
+                        // Multi-touch Pinch to Zoom & Pan Gesture
+                        if (pressedPointers.size >= 2) {
+                            if (dragMode == DragMode.MOVE || dragMode.name.startsWith("RESIZE")) {
+                                controller.activeTransformation = null
+                            }
+                            currentPathPoints.clear()
+                            gestureRemovedStrokes.clear()
+                            gestureRemovedImages.clear()
+
+                            var prevCentroid = calculateCentroid(pressedPointers)
+                            var prevSpan = calculateSpan(pressedPointers, prevCentroid)
+
+                            while (true) {
+                                val multiEvent = awaitPointerEvent()
+                                val currentPressed = multiEvent.changes.filter { it.pressed }
+                                if (currentPressed.size < 2) {
                                     multiEvent.changes.forEach { it.consume() }
+                                    break
                                 }
 
-                                // Consume until all touches are fully released to prevent accidental single-touch draw on lift
-                                while (true) {
-                                    val upEvent = awaitPointerEvent()
-                                    upEvent.changes.forEach { it.consume() }
-                                    if (upEvent.changes.none { it.pressed }) {
-                                        break
-                                    }
-                                }
-                                break
+                                val currentCentroid = calculateCentroid(currentPressed)
+                                val currentSpan = calculateSpan(currentPressed, currentCentroid)
+
+                                val zoomFactor = if (prevSpan > 0f && currentSpan > 0f) {
+                                    currentSpan / prevSpan
+                                } else 1f
+
+                                val panDelta = currentCentroid - prevCentroid
+
+                                val oldScale = controller.canvasScale
+                                val newScale = (oldScale * zoomFactor).coerceIn(0.1f, 10f)
+                                val scaleRatio = newScale / oldScale
+
+                                val oldOffset = controller.canvasOffset
+                                val newOffset = currentCentroid - (currentCentroid - oldOffset) * scaleRatio + panDelta
+
+                                controller.canvasScale = newScale
+                                controller.canvasOffset = newOffset
+
+                                prevCentroid = currentCentroid
+                                prevSpan = currentSpan
+
+                                multiEvent.changes.forEach { it.consume() }
                             }
 
-                            val change = event.changes.find { it.id == down.id } ?: break
-                            if (change.changedToUp()) {
-                                if (hasMovedPastSlop && currentPathPoints.size > 1 && dragMode == DragMode.DRAW) {
-                                    if (currentWorkingTool != DrawingTool.ERASER) {
+                            // Consume until all touches are fully released to prevent accidental single-touch draw on lift
+                            while (true) {
+                                val upEvent = awaitPointerEvent()
+                                upEvent.changes.forEach { it.consume() }
+                                if (upEvent.changes.none { it.pressed }) {
+                                    break
+                                }
+                            }
+                            break
+                        }
+
+                        val change = event.changes.find { it.id == down.id } ?: break
+                        if (change.changedToUp()) {
+                            if (dragMode == DragMode.DRAW) {
+                                if (currentWorkingTool != DrawingTool.ERASER) {
+                                    if (hasMovedPastSlop && currentPathPoints.size > 1) {
                                         if (currentWorkingTool == DrawingTool.PEN && smoothingStrength > 0f) {
                                             val upWorldPos = (change.position - controller.canvasOffset) / controller.canvasScale
                                             val endPt = DrawingPoint(upWorldPos.x, upWorldPos.y)
@@ -216,43 +356,51 @@ fun DrawingCanvas(
                                         )
                                         controller.addStroke(newStroke)
                                     }
-                                    currentPathPoints.clear()
                                 }
-                                if (gestureRemovedStrokes.isNotEmpty() || gestureRemovedImages.isNotEmpty()) {
-                                    controller.historyManager.pushAction(
-                                        DrawingAction.Remove(
-                                            strokes = gestureRemovedStrokes.toList(),
-                                            images = gestureRemovedImages.toList()
-                                        )
-                                    )
-                                }
-                                if (dragMode == DragMode.MOVE || dragMode.name.startsWith("RESIZE")) {
-                                    controller.activeTransformation?.let { xform ->
-                                        val action = DrawingAction.Transform(
-                                            strokeIds = selectedStrokesAtStart,
-                                            imageIds = selectedImagesAtStart,
-                                            geometricChange = xform
-                                        )
-                                        controller.applyAction(action, isUndo = false)
-                                        controller.historyManager.pushAction(action)
-                                        controller.activeTransformation = null
-                                    }
-                                    currentPathPoints.clear()
-                                }
-                                break
+                                currentPathPoints.clear()
                             }
+                            if (gestureRemovedStrokes.isNotEmpty() || gestureRemovedImages.isNotEmpty()) {
+                                controller.historyManager.pushAction(
+                                    DrawingAction.Remove(
+                                        strokes = gestureRemovedStrokes.toList(),
+                                        images = gestureRemovedImages.toList()
+                                    )
+                                )
+                                gestureRemovedStrokes.clear()
+                                gestureRemovedImages.clear()
+                            }
+                            if (dragMode == DragMode.MOVE || dragMode.name.startsWith("RESIZE")) {
+                                controller.activeTransformation?.let { xform ->
+                                    val action = DrawingAction.Transform(
+                                        strokeIds = selectedStrokesAtStart,
+                                        imageIds = selectedImagesAtStart,
+                                        geometricChange = xform
+                                    )
+                                    controller.applyAction(action, isUndo = false)
+                                    controller.historyManager.pushAction(action)
+                                    controller.activeTransformation = null
+                                }
+                                currentPathPoints.clear()
+                            }
+                            break
+                        }
 
-                            val newTool = if (isStylus && (isEraserType || isStylusButtonPressed(event))) DrawingTool.ERASER else controller.currentTool
+                        val newTool = when {
+                            isStylus && (isEraserType || isStylusButtonPressed(event)) -> DrawingTool.ERASER
+                            else -> controller.currentTool
+                        }
 
-                            if (newTool != currentWorkingTool && dragMode == DragMode.DRAW && hasMovedPastSlop) {
-                                if (currentPathPoints.size > 1) {
-                                    if (currentWorkingTool != DrawingTool.ERASER) {
-                                        val smoothed = if (currentWorkingTool == DrawingTool.PEN && smoothingStrength > 0f) {
-                                            DrawingGeometry.smoothPoints(currentPathPoints.toList(), smoothingStrength)
-                                        } else {
-                                            currentPathPoints.toList()
-                                        }
-                                        val points = DrawingGeometry.simplifyPointsRadial(smoothed, 0.5f / controller.canvasScale)
+                        if (newTool != currentWorkingTool) {
+                            if (currentWorkingTool != DrawingTool.ERASER && newTool == DrawingTool.ERASER) {
+                                // Transition from drawing (e.g. PEN) to ERASER
+                                if (dragMode == DragMode.DRAW && currentPathPoints.size > 1 && hasMovedPastSlop) {
+                                    val smoothed = if (currentWorkingTool == DrawingTool.PEN && smoothingStrength > 0f) {
+                                        DrawingGeometry.smoothPoints(currentPathPoints.toList(), smoothingStrength)
+                                    } else {
+                                        currentPathPoints.toList()
+                                    }
+                                    val points = DrawingGeometry.simplifyPointsRadial(smoothed, 0.5f / controller.canvasScale)
+                                    if (points.isNotEmpty()) {
                                         val newStroke = Stroke(
                                             points = points,
                                             colorArgb = controller.selectedPenColor.toArgb(),
@@ -261,70 +409,83 @@ fun DrawingCanvas(
                                         )
                                         controller.addStroke(newStroke)
                                     }
-                                    val lastPt = currentPathPoints.last()
-                                    currentPathPoints.clear()
-                                    currentPathPoints.add(lastPt)
-                                    smoothedX = lastPt.x
-                                    smoothedY = lastPt.y
                                 }
-                                currentWorkingTool = newTool
-                                controller.activeDrawingTool = newTool
+                                currentPathPoints.clear()
+                                val curWorldPos = (change.position - controller.canvasOffset) / controller.canvasScale
+                                val pt = DrawingPoint(curWorldPos.x, curWorldPos.y)
+                                currentPathPoints.add(pt)
+                                smoothedX = pt.x
+                                smoothedY = pt.y
+                                dragMode = DragMode.DRAW
+                                performErase(listOf(pt))
+                            } else if (currentWorkingTool == DrawingTool.ERASER && newTool != DrawingTool.ERASER) {
+                                // Transition from ERASER back to original tool
+                                if (gestureRemovedStrokes.isNotEmpty() || gestureRemovedImages.isNotEmpty()) {
+                                    controller.historyManager.pushAction(
+                                        DrawingAction.Remove(
+                                            strokes = gestureRemovedStrokes.toList(),
+                                            images = gestureRemovedImages.toList()
+                                        )
+                                    )
+                                    gestureRemovedStrokes.clear()
+                                    gestureRemovedImages.clear()
+                                }
+                                currentPathPoints.clear()
+                                val curWorldPos = (change.position - controller.canvasOffset) / controller.canvasScale
+                                val pt = DrawingPoint(curWorldPos.x, curWorldPos.y)
+                                currentPathPoints.add(pt)
+                                smoothedX = pt.x
+                                smoothedY = pt.y
+                                dragMode = when {
+                                    forceStylusOnly && !isStylus -> DragMode.PAN
+                                    newTool == DrawingTool.HAND -> DragMode.PAN
+                                    newTool == DrawingTool.LASSO -> DragMode.LASSO
+                                    else -> DragMode.DRAW
+                                }
                             }
+                            currentWorkingTool = newTool
+                            controller.activeDrawingTool = newTool
+                        }
 
-                            val currentPos = change.position
-                            val dist = (currentPos - startPos).getDistance()
-                            if (!hasMovedPastSlop && dist >= effectiveSlop) hasMovedPastSlop = true
+                        val currentPos = change.position
+                        val dist = (currentPos - startPos).getDistance()
+                        if (!hasMovedPastSlop && dist >= effectiveSlop) hasMovedPastSlop = true
 
-                            if (hasMovedPastSlop) {
-                                val dragDelta = currentPos - lastPosition
-                                val worldPos = (currentPos - controller.canvasOffset) / controller.canvasScale
-                                when (dragMode) {
-                                    DragMode.PAN -> controller.canvasOffset += dragDelta
-                                    DragMode.MOVE -> {
-                                        val totalMove = (currentPos - startPos) / controller.canvasScale
-                                        controller.activeTransformation = GeometricChange(offset = DrawingPoint(totalMove.x, totalMove.y))
-                                    }
-                                    DragMode.RESIZE_TL, DragMode.RESIZE_TR, DragMode.RESIZE_BL, DragMode.RESIZE_BR -> {
-                                        if (bStart != null) {
-                                            val pivot = when (dragMode) {
-                                                DragMode.RESIZE_TL -> Offset(bStart.right, bStart.bottom)
-                                                DragMode.RESIZE_TR -> Offset(bStart.left, bStart.bottom)
-                                                DragMode.RESIZE_BL -> Offset(bStart.right, bStart.top)
-                                                DragMode.RESIZE_BR -> Offset(bStart.left, bStart.top)
-                                                DragMode.NONE, DragMode.DRAW, DragMode.LASSO, DragMode.MOVE, DragMode.PAN -> Offset.Zero
-                                            }
-                                            val oldW = (bStart.right - bStart.left).coerceAtLeast(1f)
-                                            val oldH = (bStart.bottom - bStart.top).coerceAtLeast(1f)
-                                            val newW = abs(worldPos.x - pivot.x).coerceAtLeast(1f)
-                                            val newH = abs(worldPos.y - pivot.y).coerceAtLeast(1f)
-                                            val sX = newW / oldW
-                                            val sY = newH / oldH
-                                            controller.activeTransformation = GeometricChange(
-                                                scale = DrawingPoint(sX, sY),
-                                                pivot = DrawingPoint(pivot.x, pivot.y)
-                                            )
+                        if (hasMovedPastSlop) {
+                            val dragDelta = currentPos - lastPosition
+                            val worldPos = (currentPos - controller.canvasOffset) / controller.canvasScale
+                            when (dragMode) {
+                                DragMode.PAN -> controller.canvasOffset += dragDelta
+                                DragMode.MOVE -> {
+                                    val totalMove = (currentPos - startPos) / controller.canvasScale
+                                    controller.activeTransformation = GeometricChange(offset = DrawingPoint(totalMove.x, totalMove.y))
+                                }
+                                DragMode.RESIZE_TL, DragMode.RESIZE_TR, DragMode.RESIZE_BL, DragMode.RESIZE_BR -> {
+                                    if (bStart != null) {
+                                        val pivot = when (dragMode) {
+                                            DragMode.RESIZE_TL -> Offset(bStart.right, bStart.bottom)
+                                            DragMode.RESIZE_TR -> Offset(bStart.left, bStart.bottom)
+                                            DragMode.RESIZE_BL -> Offset(bStart.right, bStart.top)
+                                            DragMode.RESIZE_BR -> Offset(bStart.left, bStart.top)
+                                            DragMode.NONE, DragMode.DRAW, DragMode.LASSO, DragMode.MOVE, DragMode.PAN -> Offset.Zero
                                         }
+                                        val oldW = (bStart.right - bStart.left).coerceAtLeast(1f)
+                                        val oldH = (bStart.bottom - bStart.top).coerceAtLeast(1f)
+                                        val newW = abs(worldPos.x - pivot.x).coerceAtLeast(1f)
+                                        val newH = abs(worldPos.y - pivot.y).coerceAtLeast(1f)
+                                        val sX = newW / oldW
+                                        val sY = newH / oldH
+                                        controller.activeTransformation = GeometricChange(
+                                            scale = DrawingPoint(sX, sY),
+                                            pivot = DrawingPoint(pivot.x, pivot.y)
+                                        )
                                     }
-                                    DragMode.LASSO, DragMode.DRAW -> {
-                                        val addedPoints = mutableListOf<DrawingPoint>()
-                                        change.historical.forEach { h ->
-                                            val rawX = (h.position.x - controller.canvasOffset.x) / controller.canvasScale
-                                            val rawY = (h.position.y - controller.canvasOffset.y) / controller.canvasScale
-
-                                            if (currentWorkingTool == DrawingTool.PEN && alpha < 1.0f) {
-                                                smoothedX = alpha * rawX + (1 - alpha) * smoothedX
-                                                smoothedY = alpha * rawY + (1 - alpha) * smoothedY
-                                            } else {
-                                                smoothedX = rawX
-                                                smoothedY = rawY
-                                            }
-
-                                            val pt = DrawingPoint(smoothedX, smoothedY)
-                                            addedPoints.add(pt)
-                                            currentPathPoints.add(pt)
-                                        }
-                                        val rawX = worldPos.x
-                                        val rawY = worldPos.y
+                                }
+                                DragMode.LASSO, DragMode.DRAW -> {
+                                    val addedPoints = mutableListOf<DrawingPoint>()
+                                    change.historical.forEach { h ->
+                                        val rawX = (h.position.x - controller.canvasOffset.x) / controller.canvasScale
+                                        val rawY = (h.position.y - controller.canvasOffset.y) / controller.canvasScale
 
                                         if (currentWorkingTool == DrawingTool.PEN && alpha < 1.0f) {
                                             smoothedX = alpha * rawX + (1 - alpha) * smoothedX
@@ -334,104 +495,55 @@ fun DrawingCanvas(
                                             smoothedY = rawY
                                         }
 
-                                        val currentPt = DrawingPoint(smoothedX, smoothedY)
-                                        addedPoints.add(currentPt)
-                                        currentPathPoints.add(currentPt)
-
-                                        if (dragMode == DragMode.DRAW && currentWorkingTool == DrawingTool.ERASER) {
-                                            val eraserRadius = controller.eraserThickness / 2f
-                                            var minX = Float.MAX_VALUE
-                                            var minY = Float.MAX_VALUE
-                                            var maxX = -Float.MAX_VALUE
-                                            var maxY = -Float.MAX_VALUE
-                                            addedPoints.forEach { p ->
-                                                if (p.x < minX) minX = p.x
-                                                if (p.x > maxX) maxX = p.x
-                                                if (p.y < minY) minY = p.y
-                                                if (p.y > maxY) maxY = p.y
-                                            }
-                                            val eraseRect = Rect(minX - eraserRadius, minY - eraserRadius, maxX + eraserRadius, maxY + eraserRadius)
-                                            val candidateIds = controller.spatialIndex.queryRect(eraseRect)
-
-                                            val toErase = candidateIds.mapNotNull { controller.spatialIndex.getStroke(it) }.filter { stroke ->
-                                                if (stroke.tool == DrawingTool.ERASER) false
-                                                else {
-                                                    val bounds = controller.spatialIndex.getBounds(stroke.id)
-                                                    if (bounds != null && !bounds.overlaps(eraseRect)) false
-                                                    else {
-                                                        val thresholdSq = (eraserRadius + stroke.width / 2f).let { it * it }
-                                                        var hit = false
-                                                        for (i in 0 until stroke.points.size - 1) {
-                                                            val p1 = stroke.points[i]
-                                                            val p2 = stroke.points[i + 1]
-                                                            for (ep in addedPoints) {
-                                                                if (distanceToSegmentSq(ep.x, ep.y, p1.x, p1.y, p2.x, p2.y) < thresholdSq) {
-                                                                    hit = true
-                                                                    break
-                                                                }
-                                                            }
-                                                            if (hit) break
-                                                        }
-                                                        if (!hit && stroke.points.size == 1) {
-                                                            val p = stroke.points[0]
-                                                            for (ep in addedPoints) {
-                                                                val dx = p.x - ep.x
-                                                                val dy = p.y - ep.y
-                                                                if (dx * dx + dy * dy < thresholdSq) {
-                                                                    hit = true
-                                                                    break
-                                                                }
-                                                            }
-                                                        }
-                                                        hit
-                                                    }
-                                                }
-                                            }
-
-                                            if (toErase.isNotEmpty()) {
-                                                gestureRemovedStrokes.addAll(toErase)
-                                                val eraseBounds = DrawingGeometry.getBounds(toErase, emptyList(), controller.spatialIndex.strokeBoundsMap)
-                                                val totalEraseArea = Rect(
-                                                    minOf(eraseBounds.left, eraseRect.left) - 25f,
-                                                    minOf(eraseBounds.top, eraseRect.top) - 25f,
-                                                    maxOf(eraseBounds.right, eraseRect.right) + 25f,
-                                                    maxOf(eraseBounds.bottom, eraseRect.bottom) + 25f
-                                                )
-                                                toErase.forEach { stroke ->
-                                                    controller.strokeMap.remove(stroke.id)
-                                                    controller.strokeOrder.remove(stroke.id)
-                                                    controller.spatialIndex.removeStroke(stroke.id)
-                                                }
-                                                controller.invalidateAndRenderArea(totalEraseArea)
-                                                controller.isDirty = true
-                                            }
-                                        }
+                                        val pt = DrawingPoint(smoothedX, smoothedY)
+                                        addedPoints.add(pt)
+                                        currentPathPoints.add(pt)
                                     }
-                                    else -> {}
+                                    val rawX = worldPos.x
+                                    val rawY = worldPos.y
+
+                                    if (currentWorkingTool == DrawingTool.PEN && alpha < 1.0f) {
+                                        smoothedX = alpha * rawX + (1 - alpha) * smoothedX
+                                        smoothedY = alpha * rawY + (1 - alpha) * smoothedY
+                                    } else {
+                                        smoothedX = rawX
+                                        smoothedY = rawY
+                                    }
+
+                                    val currentPt = DrawingPoint(smoothedX, smoothedY)
+                                    addedPoints.add(currentPt)
+                                    currentPathPoints.add(currentPt)
+
+                                    if (dragMode == DragMode.DRAW && currentWorkingTool == DrawingTool.ERASER) {
+                                        performErase(addedPoints)
+                                    }
                                 }
-                                change.consume()
+                                else -> {}
                             }
-                            lastPosition = currentPos
+                            change.consume()
                         }
+                        lastPosition = currentPos
+                    }
 
-                        if (!hasMovedPastSlop) {
-                            if (bStart == null || !bStart.contains(worldStartPos)) {
-                                controller.clearSelection()
-                                if (controller.currentTool == DrawingTool.LASSO) {
-                                    val tappedImage = controller.imageMap.values.findLast { img ->
-                                        val rect = Rect(img.offset.x, img.offset.y, img.offset.x + img.scale.x, img.offset.y + img.scale.y)
-                                        rect.contains(worldStartPos)
-                                    }
-                                    if (tappedImage != null) controller.selectedImageIds = setOf(tappedImage.id)
+                    if (!hasMovedPastSlop) {
+                        if (bStart == null || !bStart.contains(worldStartPos)) {
+                            controller.clearSelection()
+                            if (controller.currentTool == DrawingTool.LASSO) {
+                                val tappedImage = controller.imageMap.values.findLast { img ->
+                                    val rect = Rect(img.offset.x, img.offset.y, img.offset.x + img.scale.x, img.offset.y + img.scale.y)
+                                    rect.contains(worldStartPos)
                                 }
-                            }
-                        } else {
-                            if (dragMode == DragMode.LASSO && currentPathPoints.size > 2) {
-                                controller.selectWithLasso(currentPathPoints.toList())
-                                currentPathPoints.clear()
+                                if (tappedImage != null) controller.selectedImageIds = setOf(tappedImage.id)
                             }
                         }
-                        controller.activeDrawingTool = null
+                    } else {
+                        if (dragMode == DragMode.LASSO && currentPathPoints.size > 2) {
+                            controller.selectWithLasso(currentPathPoints.toList())
+                            currentPathPoints.clear()
+                        }
+                    }
+                    currentPathPoints.clear()
+                    controller.activeDrawingTool = null
                     }
                 }
             ) {
