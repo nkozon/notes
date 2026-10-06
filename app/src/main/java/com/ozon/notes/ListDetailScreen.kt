@@ -1,7 +1,16 @@
 package com.ozon.notes
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import kotlin.math.absoluteValue
 import androidx.compose.animation.*
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -1711,7 +1720,7 @@ fun ListDetailScreen(
                                     ) {
                                         if (currentList.type == ListType.RATING) {
                                             Row(verticalAlignment = Alignment.Bottom) {
-                                                val ratingText = if (entry.rating % 1f == 0f) entry.rating.toInt().toString() else entry.rating.toString()
+                                                val ratingText = formatRating(entry.rating)
                                                 Text(
                                                     text = ratingText,
                                                     style = MaterialTheme.typography.displayMedium,
@@ -1969,7 +1978,7 @@ fun ListDetailScreen(
                                 ) {
                                     if (currentList.type == ListType.RATING) {
                                         Row(verticalAlignment = Alignment.Bottom) {
-                                            val ratingText = if (entry.rating % 1f == 0f) entry.rating.toInt().toString() else entry.rating.toString()
+                                            val ratingText = formatRating(entry.rating)
                                             Text(
                                                 text = ratingText,
                                                 style = MaterialTheme.typography.displayMedium,
@@ -2369,7 +2378,7 @@ private fun CurrentlyWatchingItem(
                                 modifier = Modifier.weight(1f, fill = false)
                             )
                             if (effectiveRating > 0f) {
-                                val ratingText = if (effectiveRating % 1f == 0f) effectiveRating.toInt().toString() else effectiveRating.toString()
+                                val ratingText = formatRating(effectiveRating)
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
                                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
@@ -2732,7 +2741,7 @@ fun ListEntryItem(
                         horizontalArrangement = Arrangement.End
                     ) {
                         if (listType == ListType.RATING) {
-                            val ratingText = if (entry.rating % 1f == 0f) entry.rating.toInt().toString() else entry.rating.toString()
+                            val ratingText = formatRating(entry.rating)
                             Text(
                                 text = ratingText,
                                 style = if (isSubentry) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
@@ -2820,6 +2829,182 @@ fun DescriptionDialog(
     )
 }
 
+@Composable
+fun ScoreWheelPicker(
+    score: Float,
+    onScoreChange: (Float) -> Unit,
+    onScoreClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val coroutineScope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val itemHeight = 44.dp
+    val itemHeightPx = with(density) { itemHeight.toPx() }
+
+    val initialIndex = (score * 10).roundToInt().coerceIn(0, 100).toFloat()
+    val scrollOffset = remember { Animatable(initialIndex) }
+    var lastHapticIndex by remember { mutableIntStateOf((score * 10).roundToInt().coerceIn(0, 100)) }
+
+    LaunchedEffect(score) {
+        val targetIndex = (score * 10).roundToInt().coerceIn(0, 100).toFloat()
+        if ((scrollOffset.value - targetIndex).absoluteValue > 0.05f && !scrollOffset.isRunning) {
+            scrollOffset.animateTo(
+                targetValue = targetIndex,
+                animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+            )
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(152.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .border(
+                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+                RoundedCornerShape(20.dp)
+            )
+            .draggable(
+                orientation = Orientation.Vertical,
+                state = rememberDraggableState { delta ->
+                    coroutineScope.launch {
+                        val deltaIndex = -delta / itemHeightPx
+                        val newValue = (scrollOffset.value + deltaIndex).coerceIn(-0.3f, 100.3f)
+                        scrollOffset.snapTo(newValue)
+
+                        val currentIntIndex = newValue.roundToInt().coerceIn(0, 100)
+                        if (currentIntIndex != lastHapticIndex) {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            lastHapticIndex = currentIntIndex
+                            onScoreChange(currentIntIndex / 10f)
+                        }
+                    }
+                },
+                onDragStopped = { velocity ->
+                    coroutineScope.launch {
+                        val velocityInIndices = -velocity / itemHeightPx
+                        val target = (scrollOffset.value + velocityInIndices * 0.12f)
+                            .roundToInt()
+                            .coerceIn(0, 100)
+                            .toFloat()
+
+                        scrollOffset.animateTo(
+                            targetValue = target,
+                            initialVelocity = velocityInIndices,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioLowBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        )
+                        onScoreChange(target / 10f)
+                    }
+                }
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        // Center click area (no background or border)
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .height(itemHeight)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onScoreClick
+                )
+        )
+
+        // Wheel drum items
+        val currentScroll = scrollOffset.value
+        val baseIndex = currentScroll.roundToInt()
+        val minIndex = (baseIndex - 3).coerceAtLeast(0)
+        val maxIndex = (baseIndex + 3).coerceAtMost(100)
+
+        for (i in minIndex..maxIndex) {
+            val offsetFromCenter = i - currentScroll
+            val absOffset = offsetFromCenter.absoluteValue
+            val scale = (1f - 0.18f * absOffset).coerceIn(0.6f, 1f)
+            val alpha = (1f - 0.48f * absOffset).coerceIn(0.12f, 1f)
+            val rotationX = (offsetFromCenter * 18f).coerceIn(-55f, 55f)
+            val itemScore = i / 10f
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .graphicsLayer {
+                        translationY = offsetFromCenter * itemHeightPx
+                        scaleX = scale
+                        scaleY = scale
+                        this.alpha = alpha
+                        this.rotationX = rotationX
+                        cameraDistance = 8 * density.density
+                    }
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        if (absOffset < 0.5f) {
+                            onScoreClick()
+                        } else {
+                            coroutineScope.launch {
+                                scrollOffset.animateTo(
+                                    targetValue = i.toFloat(),
+                                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+                                )
+                                onScoreChange(i / 10f)
+                            }
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = formatRating(itemScore),
+                    style = if (absOffset < 0.5f) {
+                        MaterialTheme.typography.headlineLarge
+                    } else {
+                        MaterialTheme.typography.titleLarge
+                    },
+                    fontWeight = if (absOffset < 0.5f) FontWeight.Bold else FontWeight.Medium,
+                    color = if (absOffset < 0.5f) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    }
+                )
+            }
+        }
+
+        val surfaceColor = MaterialTheme.colorScheme.surfaceContainerLow
+        val topGradient = remember(surfaceColor) {
+            Brush.verticalGradient(listOf(surfaceColor, Color.Transparent))
+        }
+        val bottomGradient = remember(surfaceColor) {
+            Brush.verticalGradient(listOf(Color.Transparent, surfaceColor))
+        }
+
+        // Top fade gradient
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(36.dp)
+                .background(topGradient)
+        )
+
+        // Bottom fade gradient
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(36.dp)
+                .background(bottomGradient)
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EntryDialog(
@@ -2882,14 +3067,110 @@ fun EntryDialog(
     val keyboardController = LocalSoftwareKeyboardController.current
     val scope = rememberCoroutineScope()
 
-    AlertDialog(
+    var showWheelPicker by remember { mutableStateOf(false) }
+    var isEditingRating by remember { mutableStateOf(false) }
+    var editingRatingValue by remember {
+        val initialDisplay = (rating * 10).roundToInt() / 10f
+        val initialStr = formatRating(initialDisplay)
+        mutableStateOf(
+            TextFieldValue(
+                text = initialStr,
+                selection = TextRange(0, initialStr.length)
+            )
+        )
+    }
+    val ratingFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(isEditingRating) {
+        if (isEditingRating) {
+            delay(50)
+            ratingFocusRequester.requestFocus()
+            keyboardController?.show()
+        }
+    }
+
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text(titlePrefix ?: if (entry == null) "Add Entry" else "Edit Entry") },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Text(
+                            text = titlePrefix ?: if (entry == null) "Add Entry" else "Edit Entry",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onDismiss) {
+                            Icon(
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = "Close"
+                            )
+                        }
+                    },
+                    actions = {
+                        Button(
+                            onClick = {
+                                if (title.text.isNotBlank()) {
+                                    val finalRating = if (isEditingRating) {
+                                        editingRatingValue.text.toFloatOrNull()?.let {
+                                            ((it * 10).roundToInt() / 10f).coerceIn(0f, 10f)
+                                        } ?: ((rating * 10).roundToInt() / 10f)
+                                    } else {
+                                        ((rating * 10).roundToInt() / 10f)
+                                    }
+                                    onConfirm(
+                                        title.text,
+                                        finalRating,
+                                        selectedTagIds.toList(),
+                                        linkedEntryId,
+                                        dueDate,
+                                        remindMe,
+                                        isCurrentlyWatching,
+                                        currentProgressText.toIntOrNull(),
+                                        totalProgressText.toIntOrNull(),
+                                        progressUnit.takeIf { isCurrentlyWatching && it.isNotBlank() }
+                                    )
+                                }
+                            },
+                            enabled = title.text.isNotBlank(),
+                            shape = CircleShape,
+                            modifier = Modifier.padding(end = 8.dp)
+                        ) {
+                            Text(
+                                text = if (entry == null) "Add" else "Save",
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                )
+            },
+            containerColor = MaterialTheme.colorScheme.surface
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding),
+                contentAlignment = Alignment.TopCenter
             ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(max = 640.dp)
+                        .imePadding()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
@@ -3063,16 +3344,252 @@ fun EntryDialog(
                         }
                     }
 
-                    Column {
-                        val displayRating = ((rating * 2).roundToInt() / 2.0).toFloat()
-                        val ratingText = if (displayRating % 1f == 0f) displayRating.toInt().toString() else displayRating.toString()
-                        Text("Rating: $ratingText")
-                        Slider(
-                            value = rating,
-                            onValueChange = { rating = it },
-                            valueRange = 0f..10f,
-                            steps = 19 // 0, 0.5, ..., 10
-                        )
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Rating",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            AnimatedVisibility(
+                                visible = showWheelPicker,
+                                enter = fadeIn(animationSpec = tween(150)) + scaleIn(initialScale = 0.85f, animationSpec = tween(150)),
+                                exit = fadeOut(animationSpec = tween(100)) + scaleOut(targetScale = 0.85f, animationSpec = tween(100))
+                            ) {
+                                Surface(
+                                    onClick = {
+                                        if (isEditingRating) {
+                                            val f = editingRatingValue.text.toFloatOrNull()
+                                            if (f != null) {
+                                                rating = ((f * 10).roundToInt() / 10f).coerceIn(0f, 10f)
+                                            }
+                                            isEditingRating = false
+                                            keyboardController?.hide()
+                                        }
+                                        showWheelPicker = false
+                                    },
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary
+                                ) {
+                                    Text(
+                                        text = "Done",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        AnimatedContent(
+                            targetState = showWheelPicker,
+                            transitionSpec = {
+                                fadeIn(animationSpec = tween(150, delayMillis = 40))
+                                    .togetherWith(fadeOut(animationSpec = tween(90)))
+                                    .using(
+                                        SizeTransform(clip = true) { _, _ ->
+                                            tween(200, easing = FastOutSlowInEasing)
+                                        }
+                                    )
+                            },
+                            label = "WheelPickerAnimation",
+                            modifier = Modifier.fillMaxWidth()
+                        ) { isWheelOpen ->
+                            if (!isWheelOpen) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .clickable {
+                                                keyboardController?.hide()
+                                                focusManager.clearFocus()
+                                                showWheelPicker = true
+                                            }
+                                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(
+                                            text = formatRating(rating),
+                                            style = MaterialTheme.typography.displaySmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+
+                                        Spacer(modifier = Modifier.width(8.dp))
+
+                                        Text(
+                                            text = "/ 10",
+                                            style = MaterialTheme.typography.headlineMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                        )
+                                    }
+
+                                    Text(
+                                        text = "Tap score to change",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                    )
+                                }
+                            } else {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+
+                                    if (isEditingRating) {
+                                        val commitRating: () -> Unit = {
+                                            val f = editingRatingValue.text.toFloatOrNull()
+                                            if (f != null) {
+                                                rating = ((f * 10).roundToInt() / 10f).coerceIn(0f, 10f)
+                                            }
+                                            isEditingRating = false
+                                            keyboardController?.hide()
+                                        }
+
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Surface(
+                                                modifier = Modifier
+                                                    .width(160.dp)
+                                                    .height(152.dp),
+                                                shape = RoundedCornerShape(20.dp),
+                                                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                                            ) {
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .padding(12.dp),
+                                                    verticalArrangement = Arrangement.Center,
+                                                    horizontalAlignment = Alignment.CenterHorizontally
+                                                ) {
+                                                    OutlinedTextField(
+                                                        value = editingRatingValue,
+                                                        onValueChange = { newValue ->
+                                                            val sanitized = newValue.text.replace(',', '.')
+                                                            if (sanitized.isEmpty() || Regex("""^(10(\.0?)?|[0-9](\.[0-9]?)?|\.[0-9]?)$""").matches(sanitized)) {
+                                                                editingRatingValue = newValue.copy(text = sanitized)
+                                                                sanitized.toFloatOrNull()?.let { f ->
+                                                                    rating = ((f * 10).roundToInt() / 10f).coerceIn(0f, 10f)
+                                                                }
+                                                            }
+                                                        },
+                                                        singleLine = true,
+                                                        keyboardOptions = KeyboardOptions(
+                                                            keyboardType = KeyboardType.Decimal,
+                                                            imeAction = ImeAction.Done
+                                                        ),
+                                                        keyboardActions = KeyboardActions(
+                                                            onDone = { commitRating() }
+                                                        ),
+                                                        textStyle = MaterialTheme.typography.headlineMedium.copy(
+                                                            textAlign = TextAlign.Center,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.primary
+                                                        ),
+                                                        shape = RoundedCornerShape(16.dp),
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .focusRequester(ratingFocusRequester)
+                                                    )
+
+                                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                                    Row(
+                                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        TextButton(
+                                                            onClick = {
+                                                                isEditingRating = false
+                                                                keyboardController?.hide()
+                                                            }
+                                                        ) {
+                                                            Text("Cancel", style = MaterialTheme.typography.labelMedium)
+                                                        }
+
+                                                        FilledTonalIconButton(
+                                                            onClick = commitRating,
+                                                            modifier = Modifier.size(36.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Rounded.Check,
+                                                                contentDescription = "Confirm rating",
+                                                                modifier = Modifier.size(20.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.width(12.dp))
+
+                                            Text(
+                                                text = "/ 10",
+                                                style = MaterialTheme.typography.headlineMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                            )
+                                        }
+                                    } else {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            ScoreWheelPicker(
+                                                score = rating,
+                                                onScoreChange = { rating = it },
+                                                onScoreClick = {
+                                                    val currentStr = formatRating(rating)
+                                                    editingRatingValue = TextFieldValue(
+                                                        text = currentStr,
+                                                        selection = TextRange(0, currentStr.length)
+                                                    )
+                                                    isEditingRating = true
+                                                },
+                                                modifier = Modifier.width(160.dp)
+                                            )
+
+                                            Spacer(modifier = Modifier.width(12.dp))
+
+                                            Text(
+                                                text = "/ 10",
+                                                style = MaterialTheme.typography.headlineMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                            )
+                                        }
+
+                                        Text(
+                                            text = "Scroll up/down to adjust • Tap score to type",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     // Linked Entry Selection
@@ -3302,31 +3819,9 @@ fun EntryDialog(
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (title.text.isNotBlank()) {
-                        onConfirm(
-                            title.text, 
-                            ((rating * 2).roundToInt() / 2.0).toFloat(), 
-                            selectedTagIds.toList(),
-                            linkedEntryId,
-                            dueDate,
-                            remindMe,
-                            isCurrentlyWatching,
-                            currentProgressText.toIntOrNull(),
-                            totalProgressText.toIntOrNull(),
-                            progressUnit.takeIf { isCurrentlyWatching && it.isNotBlank() }
-                        )
-                    }
-                }
-            ) { Text(if (entry == null) "Add" else "Save") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
         }
-    )
+    }
+}
 
     if (showDatePicker) {
         val datePickerState = rememberDatePickerState(
@@ -4048,7 +4543,7 @@ private fun PreviewSubEntryItem(
                     }
                 }
                 
-                val ratingText = if (entry.rating % 1f == 0f) entry.rating.toInt().toString() else entry.rating.toString()
+                val ratingText = formatRating(entry.rating)
                 Text(
                     text = ratingText,
                     style = MaterialTheme.typography.titleMedium,

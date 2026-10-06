@@ -507,8 +507,8 @@ fun RatingIndicatorsSetting(
                         }
                         if (highEnabled) {
                             Column(modifier = Modifier.padding(start = 48.dp)) {
-                                val threshold = (highThreshold * 2).roundToInt() / 2.0
-                                val thresholdText = if (threshold % 1.0 == 0.0) threshold.toInt().toString() else threshold.toString()
+                                val threshold = (highThreshold * 10).roundToInt() / 10f
+                                val thresholdText = formatRating(threshold)
                                 Text(
                                     "Score >= $thresholdText",
                                     style = MaterialTheme.typography.labelSmall,
@@ -516,9 +516,9 @@ fun RatingIndicatorsSetting(
                                 )
                                 Slider(
                                     value = highThreshold,
-                                    onValueChange = onHighThresholdChange,
+                                    onValueChange = { onHighThresholdChange((it * 10).roundToInt() / 10f) },
                                     valueRange = 5f..10f,
-                                    steps = 9 // 5, 5.5, ..., 10
+                                    steps = 49 // 5, 5.1, ..., 10
                                 )
                             }
                         }
@@ -538,8 +538,8 @@ fun RatingIndicatorsSetting(
                         }
                         if (lowEnabled) {
                             Column(modifier = Modifier.padding(start = 48.dp)) {
-                                val threshold = (lowThreshold * 2).roundToInt() / 2.0
-                                val thresholdText = if (threshold % 1.0 == 0.0) threshold.toInt().toString() else threshold.toString()
+                                val threshold = (lowThreshold * 10).roundToInt() / 10f
+                                val thresholdText = formatRating(threshold)
                                 Text(
                                     "Score <= $thresholdText",
                                     style = MaterialTheme.typography.labelSmall,
@@ -547,9 +547,9 @@ fun RatingIndicatorsSetting(
                                 )
                                 Slider(
                                     value = lowThreshold,
-                                    onValueChange = onLowThresholdChange,
+                                    onValueChange = { onLowThresholdChange((it * 10).roundToInt() / 10f) },
                                     valueRange = 0f..5f,
-                                    steps = 9 // 0, 0.5, ..., 5
+                                    steps = 49 // 0, 0.1, ..., 5
                                 )
                             }
                         }

@@ -3,6 +3,7 @@ package com.ozon.notes
 import kotlinx.serialization.Serializable
 import java.util.UUID
 import java.util.Locale
+import kotlin.math.roundToInt
 
 @Serializable
 enum class CanvasType {
@@ -332,5 +333,14 @@ sealed interface DropboxSyncStatus {
     data class Syncing(val message: String) : DropboxSyncStatus
     data class Success(val message: String) : DropboxSyncStatus
     data class Error(val message: String) : DropboxSyncStatus
+}
+
+fun formatRating(rating: Float): String {
+    val rounded = (rating * 10).roundToInt()
+    return if (rounded % 10 == 0) {
+        (rounded / 10).toString()
+    } else {
+        String.format(Locale.US, "%.1f", rounded / 10f)
+    }
 }
 

@@ -283,4 +283,28 @@ class ExampleUnitTest {
         // Back at top
         assertFalse(isScrolled(0f, 0f))
     }
+
+    @Test
+    fun testFormatRatingGranularScoring() {
+        // Whole numbers should not have decimal places
+        assertEquals("0", formatRating(0f))
+        assertEquals("5", formatRating(5.0f))
+        assertEquals("9", formatRating(9.0f))
+        assertEquals("10", formatRating(10.0f))
+
+        // Single decimal digit ratings
+        assertEquals("9.1", formatRating(9.1f))
+        assertEquals("9.2", formatRating(9.2f))
+        assertEquals("9.3", formatRating(9.3f))
+        assertEquals("9.5", formatRating(9.5f))
+        assertEquals("9.9", formatRating(9.9f))
+        assertEquals("0.1", formatRating(0.1f))
+        assertEquals("4.7", formatRating(4.7f))
+
+        // Floating point artifacts should round cleanly without adding extra decimals
+        assertEquals("9.1", formatRating(9.1000004f))
+        assertEquals("9.2", formatRating(9.1999998f))
+        assertEquals("9", formatRating(9.000001f))
+        assertEquals("10", formatRating(9.999999f))
+    }
 }
