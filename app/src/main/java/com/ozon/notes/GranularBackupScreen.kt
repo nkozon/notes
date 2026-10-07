@@ -101,43 +101,49 @@ fun GranularBackupScreen(
         }
     }
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        modifier = Modifier.nestedScroll(headerState.nestedScrollConnection),
-        topBar = {
-            SettingsTopAppBar(
-                title = "Granular Backup",
-                onNavigateUp = onNavigateUp,
-                headerState = headerState
+    val hazeState = dev.chrisbanes.haze.rememberHazeState()
+    val advancedUi = LocalAdvancedUiEnabled.current
+
+    CompositionLocalProvider(LocalHazeState provides hazeState) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            modifier = Modifier.nestedScroll(headerState.nestedScrollConnection),
+            topBar = {
+                SettingsTopAppBar(
+                    title = "Granular Backup",
+                    onNavigateUp = onNavigateUp,
+                    headerState = headerState
+                )
+            }
+        ) { padding ->
+            val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            val topAlpha by remember {
+                derivedStateOf {
+                    if (lazyListState.firstVisibleItemIndex > 0) 1f
+                    else (lazyListState.firstVisibleItemScrollOffset / 100f).coerceIn(0f, 1f)
+                }
+            }
+
+            val isAtEnd by remember {
+                derivedStateOf {
+                    !lazyListState.canScrollForward
+                }
+            }
+
+            val bottomFadeAlpha by animateFloatAsState(
+                targetValue = if (isAtEnd) 0f else 1f,
+                animationSpec = tween(durationMillis = 200),
+                label = "bottomFadeAlpha"
             )
-        }
-    ) { padding ->
-        val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        val topAlpha by remember {
-            derivedStateOf {
-                if (lazyListState.firstVisibleItemIndex > 0) 1f
-                else (lazyListState.firstVisibleItemScrollOffset / 100f).coerceIn(0f, 1f)
-            }
-        }
 
-        val isAtEnd by remember {
-            derivedStateOf {
-                !lazyListState.canScrollForward
-            }
-        }
-
-        val bottomFadeAlpha by animateFloatAsState(
-            targetValue = if (isAtEnd) 0f else 1f,
-            animationSpec = tween(durationMillis = 200),
-            label = "bottomFadeAlpha"
-        )
-
-        Box(modifier = Modifier.fillMaxSize()) {
-            LazyColumn(
-                state = lazyListState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(
+            Box(modifier = Modifier.fillMaxSize()) {
+                LazyColumn(
+                    state = lazyListState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .advancedUiSource(hazeState, advancedUi),
+                    contentPadding = PaddingValues(
                     start = 16.dp, 
                     top = padding.calculateTopPadding() + 8.dp, 
                     end = 16.dp, 
@@ -253,6 +259,7 @@ fun GranularBackupScreen(
                 }
             )
         }
+    }
     }
 }
 

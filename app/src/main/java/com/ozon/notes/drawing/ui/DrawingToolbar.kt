@@ -37,8 +37,12 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ozon.notes.DrawingTool
+import com.ozon.notes.LocalAdvancedUiEnabled
+import com.ozon.notes.LocalHazeState
 import com.ozon.notes.R
 import com.ozon.notes.ToolbarAnchor
+import com.ozon.notes.advancedUiBlur
+import com.ozon.notes.advancedUiSurfaceColor
 import kotlin.math.roundToInt
 
 private val HorizontalToolbarWidth = 340.dp
@@ -182,6 +186,9 @@ fun DrawingToolbar(
                 Spacer(Modifier.height(6.dp))
             }
 
+            val advancedUi = LocalAdvancedUiEnabled.current
+            val hazeState = LocalHazeState.current
+
             Surface(
                 modifier = Modifier
                     .then(
@@ -189,7 +196,14 @@ fun DrawingToolbar(
                         else Modifier.wrapContentSize()
                     )
                     .offset { IntOffset(dragOffset.x.roundToInt(), dragOffset.y.roundToInt()) }
-                    .shadow(if (isCollapsed) 3.dp else 6.dp, CircleShape)
+                    .shadow(if (advancedUi) 0.dp else (if (isCollapsed) 3.dp else 6.dp), CircleShape)
+                    .advancedUiBlur(
+                        hazeState = hazeState,
+                        shape = CircleShape,
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        backgroundColor = MaterialTheme.colorScheme.surface,
+                        enabled = advancedUi
+                    )
                     .clip(CircleShape)
                     .pointerInput(anchor) {
                         detectDragGesturesAfterLongPress(
@@ -240,8 +254,12 @@ fun DrawingToolbar(
                             }
                         )
                     },
-                color = MaterialTheme.colorScheme.surfaceColorAtElevation(if (isCollapsed) 2.dp else 4.dp),
-                tonalElevation = if (isCollapsed) 2.dp else 4.dp
+                color = advancedUiSurfaceColor(
+                    originalColor = MaterialTheme.colorScheme.surfaceColorAtElevation(if (isCollapsed) 2.dp else 4.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                    enabled = advancedUi
+                ),
+                tonalElevation = if (advancedUi) 0.dp else (if (isCollapsed) 2.dp else 4.dp)
             ) {
                 val toolbarPadding = 8.dp
                 if (isHorizontal) {
@@ -439,10 +457,27 @@ fun ColorPopup(selectedColor: Color, onColorChange: (Color) -> Unit, onOpenPicke
         Color.Black, Color(0xFFF44336), Color(0xFF2196F3), Color(0xFF4CAF50),
         Color(0xFFFFEB3B), Color(0xFFFF9800), Color(0xFF9C27B0), Color(0xFF795548)
     )
+    val advancedUi = LocalAdvancedUiEnabled.current
+    val hazeState = LocalHazeState.current
+
     Surface(
-        modifier = Modifier.width(240.dp).shadow(4.dp, RoundedCornerShape(16.dp)),
+        modifier = Modifier
+            .width(240.dp)
+            .shadow(if (advancedUi) 0.dp else 4.dp, RoundedCornerShape(16.dp))
+            .advancedUiBlur(
+                hazeState = hazeState,
+                shape = RoundedCornerShape(16.dp),
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                backgroundColor = MaterialTheme.colorScheme.surface,
+                enabled = advancedUi
+            ),
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp)
+        color = advancedUiSurfaceColor(
+            originalColor = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp),
+            tint = MaterialTheme.colorScheme.primary,
+            enabled = advancedUi
+        ),
+        tonalElevation = if (advancedUi) 0.dp else 8.dp
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(
@@ -504,10 +539,27 @@ fun ThicknessPopup(
     min: Float = 0.5f,
     max: Float = 50f
 ) {
+    val advancedUi = LocalAdvancedUiEnabled.current
+    val hazeState = LocalHazeState.current
+
     Surface(
-        modifier = Modifier.width(300.dp).shadow(4.dp, RoundedCornerShape(16.dp)),
+        modifier = Modifier
+            .width(300.dp)
+            .shadow(if (advancedUi) 0.dp else 4.dp, RoundedCornerShape(16.dp))
+            .advancedUiBlur(
+                hazeState = hazeState,
+                shape = RoundedCornerShape(16.dp),
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                backgroundColor = MaterialTheme.colorScheme.surface,
+                enabled = advancedUi
+            ),
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp)
+        color = advancedUiSurfaceColor(
+            originalColor = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp),
+            tint = MaterialTheme.colorScheme.primary,
+            enabled = advancedUi
+        ),
+        tonalElevation = if (advancedUi) 0.dp else 8.dp
     ) {
         Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Row(

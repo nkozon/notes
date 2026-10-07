@@ -9,18 +9,14 @@ plugins {
 
 android {
     namespace = "com.ozon.notes"
-    compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
-    }
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.ozon.notes"
         minSdk = 30
         targetSdk = 36
-        versionCode = 44
-        versionName = "1.12.1"
+        versionCode = 45
+        versionName = "1.12.2"
 
         val localProperties = Properties()
         val localPropertiesFile = rootProject.file("local.properties")
@@ -63,7 +59,7 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
-    implementation(platform(libs.androidx.compose.bom))
+    implementation(enforcedPlatform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
@@ -99,4 +95,8 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.serialization)
     implementation(libs.okhttp.logging)
+    
+    val hazeVersion = "2.0.1"
+    implementation("dev.chrisbanes.haze:haze:$hazeVersion")
+    implementation("dev.chrisbanes.haze:haze-blur:$hazeVersion")
 }

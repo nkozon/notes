@@ -73,12 +73,36 @@ fun CircleIconButton(
     contentColor: Color = MaterialTheme.colorScheme.onSecondaryContainer,
     iconSize: androidx.compose.ui.unit.Dp = 24.dp
 ) {
+    val hazeState = LocalHazeState.current
+    val advancedUi = LocalAdvancedUiEnabled.current
+    val isSurfaceVisible = containerColor.alpha > 0.01f && containerColor != Color.Transparent
+
+    val effectiveContainerColor = if (advancedUi && isSurfaceVisible) {
+        advancedUiSurfaceColor(
+            originalColor = containerColor,
+            tint = MaterialTheme.colorScheme.primary,
+            translucentAlpha = (containerColor.alpha * 0.65f).coerceIn(0.2f, 0.75f),
+            tintAlpha = 0.15f
+        )
+    } else {
+        containerColor
+    }
+
     Box(
         modifier = modifier
             .minimumInteractiveComponentSize()
             .size(44.dp)
+            .then(
+                if (advancedUi && hazeState != null && isSurfaceVisible) {
+                    Modifier.advancedUiBlur(
+                        hazeState = hazeState,
+                        shape = shape,
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    )
+                } else Modifier
+            )
             .clip(shape)
-            .background(if (enabled) containerColor else containerColor.copy(alpha = 0.3f))
+            .background(if (enabled) effectiveContainerColor else effectiveContainerColor.copy(alpha = 0.3f))
             .clickable(
                 enabled = enabled,
                 role = androidx.compose.ui.semantics.Role.Button,
@@ -630,12 +654,36 @@ fun SettingsTopAppBar(
         label = "titleContentColor"
     )
 
+    val hazeState = LocalHazeState.current
+    val advancedUi = LocalAdvancedUiEnabled.current
+
+    val pillContainerColor = if (advancedUi && showTitlePill) {
+        advancedUiSurfaceColor(
+            originalColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = titlePillAlpha),
+            tint = MaterialTheme.colorScheme.primary,
+            translucentAlpha = (titlePillAlpha * 0.65f).coerceIn(0.2f, 0.75f),
+            tintAlpha = 0.15f
+        )
+    } else {
+        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = titlePillAlpha)
+    }
+
     TopAppBar(
         title = {
             Surface(
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = titlePillAlpha),
-                modifier = Modifier.graphicsLayer(alpha = headerAlpha)
+                color = pillContainerColor,
+                modifier = Modifier
+                    .then(
+                        if (advancedUi && hazeState != null && showTitlePill) {
+                            Modifier.advancedUiBlur(
+                                hazeState = hazeState,
+                                shape = CircleShape,
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                            )
+                        } else Modifier
+                    )
+                    .graphicsLayer(alpha = headerAlpha)
             ) {
                 Text(
                     text = title,
@@ -801,15 +849,35 @@ fun SystemBarGradients(
 ) {
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navigationBarHeight = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val hazeState = LocalHazeState.current
+    val advancedUi = LocalAdvancedUiEnabled.current
 
     Box(modifier = modifier.fillMaxSize()) {
         // Status Bar Gradient
         if (showTop) {
+            val effTopAlpha = topAlpha()
+            val topHeight = statusBarHeight * 3f
+
+            if (advancedUi && hazeState != null && effTopAlpha > 0.001f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(topHeight)
+                        .progressiveSystemBarBlur(
+                            hazeState = hazeState,
+                            isTop = true,
+                            alpha = effTopAlpha,
+                            backgroundColor = color
+                        )
+                        .align(Alignment.TopCenter)
+                )
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(statusBarHeight * 3f)
-                    .graphicsLayer { alpha = topAlpha() }
+                    .height(topHeight)
+                    .graphicsLayer { alpha = effTopAlpha }
                     .background(
                         brush = Brush.verticalGradient(
                             colors = listOf(
@@ -824,12 +892,29 @@ fun SystemBarGradients(
 
         // Navigation Bar Gradient
         if (showBottom) {
+            val effBottomAlpha = bottomAlpha()
             val effBottomHeight = bottomHeight ?: maxOf(navigationBarHeight * 5f, 160.dp)
+
+            if (advancedUi && hazeState != null && effBottomAlpha > 0.001f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(effBottomHeight)
+                        .progressiveSystemBarBlur(
+                            hazeState = hazeState,
+                            isTop = false,
+                            alpha = effBottomAlpha,
+                            backgroundColor = color
+                        )
+                        .align(Alignment.BottomCenter)
+                )
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(effBottomHeight)
-                    .graphicsLayer { alpha = bottomAlpha() }
+                    .graphicsLayer { alpha = effBottomAlpha }
                     .background(
                         brush = Brush.verticalGradient(
                             colors = listOf(

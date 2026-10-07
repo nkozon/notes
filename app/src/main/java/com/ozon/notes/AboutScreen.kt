@@ -58,9 +58,13 @@ fun AboutScreen(
         label = "backButtonContentColor"
     )
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+    val hazeState = dev.chrisbanes.haze.rememberHazeState()
+    val advancedUi = LocalAdvancedUiEnabled.current
+
+    CompositionLocalProvider(LocalHazeState provides hazeState) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
                 title = { },
@@ -105,6 +109,7 @@ fun AboutScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .advancedUiSource(hazeState, advancedUi)
                 .verticalScroll(scrollState)
                 .padding(top = topPadding, bottom = bottomPadding)
                 .padding(24.dp),
@@ -291,4 +296,5 @@ fun AboutScreen(
             bottomAlpha = { bottomFadeAlpha }
         )
     }
+}
 }

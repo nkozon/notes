@@ -128,6 +128,7 @@ import androidx.activity.compose.BackHandler
 import androidx.core.content.ContextCompat
 import android.content.Context
 import androidx.compose.ui.platform.LocalContext
+import dev.chrisbanes.haze.rememberHazeState
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -159,6 +160,8 @@ fun ListDetailScreen(
     val lowScoreEnabled by settingsViewModel.lowScoreEnabled.collectAsStateWithLifecycle()
     val lowScoreThreshold by settingsViewModel.lowScoreThreshold.collectAsStateWithLifecycle()
     val moviePostersEnabled by settingsViewModel.moviePostersEnabled.collectAsStateWithLifecycle()
+    val advancedUi by settingsViewModel.advancedUiState.collectAsStateWithLifecycle()
+    val hazeState = rememberHazeState()
 
     val currentList = list
     val searchQuery by checklistViewModel.searchQuery.collectAsStateWithLifecycle()
@@ -379,24 +382,38 @@ fun ListDetailScreen(
         return
     }
 
-    Scaffold(
-        modifier = Modifier.nestedScroll(nestedScrollConnection),
-        containerColor = Color.Transparent,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        floatingActionButtonPosition = androidx.compose.material3.FabPosition.Center,
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = { 
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = titlePillAlpha),
-                        modifier = Modifier
-                            .graphicsLayer(alpha = headerAlpha)
-                            .clickable(
-                                enabled = headerAlpha > 0.5f,
-                                onClick = { showRenameListDialog = true }
-                            )
-                    ) {
+    CompositionLocalProvider(LocalHazeState provides hazeState) {
+        Scaffold(
+            modifier = Modifier.nestedScroll(nestedScrollConnection),
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            floatingActionButtonPosition = androidx.compose.material3.FabPosition.Center,
+            topBar = {
+                CenterAlignedTopAppBar(
+                    title = { 
+                        Surface(
+                            shape = CircleShape,
+                            color = if (titlePillAlpha > 0.01f) {
+                                advancedUiSurfaceColor(
+                                    originalColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = titlePillAlpha),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    translucentAlpha = titlePillAlpha * 0.7f,
+                                    enabled = advancedUi
+                                )
+                            } else Color.Transparent,
+                            modifier = Modifier
+                                .graphicsLayer(alpha = headerAlpha)
+                                .advancedUiBlur(
+                                    hazeState = hazeState,
+                                    shape = CircleShape,
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                    enabled = advancedUi && titlePillAlpha > 0.01f
+                                )
+                                .clickable(
+                                    enabled = headerAlpha > 0.5f,
+                                    onClick = { showRenameListDialog = true }
+                                )
+                        ) {
                         Text(
                             text = currentList.title,
                             style = MaterialTheme.typography.titleLarge,
@@ -450,11 +467,21 @@ fun ListDetailScreen(
                     Surface(
                         modifier = Modifier
                             .width(currentSearchWidth)
-                            .height(56.dp),
+                            .height(56.dp)
+                            .advancedUiBlur(
+                                hazeState = hazeState,
+                                shape = CircleShape,
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                enabled = advancedUi
+                            ),
                         shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        tonalElevation = 3.dp,
-                        shadowElevation = 3.dp
+                        color = advancedUiSurfaceColor(
+                            originalColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            tint = MaterialTheme.colorScheme.primary,
+                            enabled = advancedUi
+                        ),
+                        tonalElevation = if (advancedUi) 0.dp else 3.dp,
+                        shadowElevation = if (advancedUi) 0.dp else 3.dp
                     ) {
                         if (isSearchActive && bottomBarCollapseProgress < 0.3f) {
                             Row(
@@ -588,9 +615,21 @@ fun ListDetailScreen(
                             }
                         },
                         shape = CircleShape,
-                        modifier = Modifier.size(56.dp),
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        modifier = Modifier
+                            .size(56.dp)
+                            .advancedUiBlur(
+                                hazeState = hazeState,
+                                shape = CircleShape,
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                enabled = advancedUi
+                            ),
+                        containerColor = advancedUiSurfaceColor(
+                            originalColor = MaterialTheme.colorScheme.primaryContainer,
+                            tint = MaterialTheme.colorScheme.primary,
+                            enabled = advancedUi
+                        ),
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        elevation = if (advancedUi) FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp) else FloatingActionButtonDefaults.elevation()
                     ) {
                         Icon(Icons.Rounded.Add, contentDescription = "Add Entry")
                     }
@@ -716,7 +755,9 @@ fun ListDetailScreen(
             // 0. LIST (zIndex 0)
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .advancedUiSource(hazeState, advancedUi),
                 contentPadding = PaddingValues(
                     start = 16.dp, 
                     top = topPadding + headerHeight + 16.dp, 
@@ -1160,10 +1201,12 @@ fun ListDetailScreen(
             // 1. Gradients (zIndex 1)
             SystemBarGradients(
                 modifier = Modifier.zIndex(1f),
+                topAlpha = { if (isAtTop) 0f else 1f },
                 bottomAlpha = { bottomFadeAlpha }
             )
         }
     }
+}
 
     if (entryForPosterSearch != null) {
         entryForPosterSearch?.let { entry ->

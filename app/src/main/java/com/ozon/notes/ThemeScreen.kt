@@ -45,6 +45,7 @@ fun ThemeScreen(
     val theme by viewModel.themeState.collectAsStateWithLifecycle()
     val useDynamicColor by viewModel.useDynamicColorState.collectAsStateWithLifecycle()
     val isOledMode by viewModel.isOledModeState.collectAsStateWithLifecycle()
+    val advancedUi by viewModel.advancedUiState.collectAsStateWithLifecycle()
     val font by viewModel.fontState.collectAsStateWithLifecycle()
     val tabletMode by viewModel.tabletModeState.collectAsStateWithLifecycle()
 
@@ -52,6 +53,7 @@ fun ThemeScreen(
 
     val scrollState = rememberScrollState()
     val headerState = rememberScrollAwareHeaderState(scrollState)
+    val hazeState = dev.chrisbanes.haze.rememberHazeState()
 
     val presetColors = listOf(
         Color(0xFF6750A4), // Purple
@@ -64,9 +66,10 @@ fun ThemeScreen(
         Color(0xFF625B71), // Grey
     )
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+    CompositionLocalProvider(LocalHazeState provides hazeState) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
         modifier = Modifier.nestedScroll(headerState.nestedScrollConnection),
         topBar = {
             SettingsTopAppBar(
@@ -95,63 +98,87 @@ fun ThemeScreen(
             label = "bottomFadeAlpha"
         )
 
-        Box(modifier = Modifier.fillMaxSize()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(scrollState)
-                    .padding(horizontal = 16.dp)
-                    .padding(top = padding.calculateTopPadding() + 8.dp, bottom = bottomPadding + 16.dp)
-                    .animateContentSize(animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing)),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
-            ) {
-                // Mode Section
-                SettingsSection(title = "Mode") {
-                    Column {
-                        SettingsItemContainer(index = 0, total = 2) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Text("App Theme", style = MaterialTheme.typography.titleMedium)
-                                Spacer(Modifier.height(12.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    AppTheme.entries.forEach { appTheme ->
-                                        ThemeModeItem(
-                                            label = appTheme.name.lowercase().replaceFirstChar { it.uppercase() },
-                                            selected = theme == appTheme,
-                                            onClick = { viewModel.onEvent(NoteEvent.UpdateTheme(appTheme)) },
-                                            modifier = Modifier.weight(1f)
-                                        )
+            Box(modifier = Modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(scrollState)
+                        .advancedUiSource(hazeState, advancedUi)
+                        .padding(horizontal = 16.dp)
+                        .padding(top = padding.calculateTopPadding() + 8.dp, bottom = bottomPadding + 16.dp)
+                        .animateContentSize(animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing)),
+                    verticalArrangement = Arrangement.spacedBy(24.dp)
+                ) {
+                    // Mode Section
+                    SettingsSection(title = "Mode") {
+                        Column {
+                            SettingsItemContainer(index = 0, total = 3) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Text("App Theme", style = MaterialTheme.typography.titleMedium)
+                                    Spacer(Modifier.height(12.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        AppTheme.entries.forEach { appTheme ->
+                                            ThemeModeItem(
+                                                label = appTheme.name.lowercase().replaceFirstChar { it.uppercase() },
+                                                selected = theme == appTheme,
+                                                onClick = { viewModel.onEvent(NoteEvent.UpdateTheme(appTheme)) },
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                        }
                                     }
                                 }
                             }
-                        }
 
-                        SettingsItemContainer(index = 1, total = 2) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("OLED Mode", style = MaterialTheme.typography.titleMedium)
-                                    Text(
-                                        "Pure black background in dark theme",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                            SettingsItemContainer(index = 1, total = 3) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("OLED Mode", style = MaterialTheme.typography.titleMedium)
+                                        Text(
+                                            "Pure black background in dark theme",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Switch(
+                                        checked = isOledMode,
+                                        onCheckedChange = { viewModel.onEvent(NoteEvent.UpdateIsOledMode(it)) }
                                     )
                                 }
-                                Switch(
-                                    checked = isOledMode,
-                                    onCheckedChange = { viewModel.onEvent(NoteEvent.UpdateIsOledMode(it)) }
-                                )
+                            }
+
+                            SettingsItemContainer(index = 2, total = 3) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Advanced user interface", style = MaterialTheme.typography.titleMedium)
+                                        Text(
+                                            "Frosted glass blur and progressive gradient blurs",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Switch(
+                                        checked = advancedUi,
+                                        onCheckedChange = { viewModel.onEvent(NoteEvent.UpdateAdvancedUi(it)) }
+                                    )
+                                }
                             }
                         }
                     }
-                }
 
                 // Custom Colors Section
                 SettingsSection(title = "Custom Colors") {
@@ -335,6 +362,7 @@ fun ThemeScreen(
             )
         }
     }
+}
 }
 
 @Composable

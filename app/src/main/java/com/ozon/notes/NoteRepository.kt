@@ -66,6 +66,8 @@ interface NoteRepository {
     suspend fun setCustomAccentColor(color: Int?)
     fun getIsOledMode(): Flow<Boolean>
     suspend fun setIsOledMode(enabled: Boolean)
+    fun getAdvancedUi(): Flow<Boolean>
+    suspend fun setAdvancedUi(enabled: Boolean)
     fun getTabletMode(): Flow<TabletMode>
     suspend fun setTabletMode(mode: TabletMode)
     fun getNoteSortOrder(): Flow<ListSortOrder>

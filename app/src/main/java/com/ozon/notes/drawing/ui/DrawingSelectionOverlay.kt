@@ -26,7 +26,11 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.ozon.notes.DrawingImage
+import com.ozon.notes.LocalAdvancedUiEnabled
+import com.ozon.notes.LocalHazeState
 import com.ozon.notes.Stroke as NoteStroke
+import com.ozon.notes.advancedUiBlur
+import com.ozon.notes.advancedUiSurfaceColor
 import com.ozon.notes.drawing.controller.DrawingCanvasController
 import com.ozon.notes.drawing.geometry.DrawingGeometry
 import kotlin.math.roundToInt
@@ -55,6 +59,9 @@ fun DrawingSelectionOverlay(
         }
     }
 
+    val advancedUi = LocalAdvancedUiEnabled.current
+    val hazeState = LocalHazeState.current
+
     Surface(
         modifier = Modifier
             .offset {
@@ -79,11 +86,22 @@ fun DrawingSelectionOverlay(
                 val yOffset = if (isTooHigh) (bBottom * canvasScale + canvasOffset.y + px16) else (screenY - px64)
                 IntOffset((screenX - 72.dp.toPx().toInt()).roundToInt(), yOffset.roundToInt())
             }
-            .shadow(4.dp, CircleShape)
+            .shadow(if (advancedUi) 0.dp else 4.dp, CircleShape)
+            .advancedUiBlur(
+                hazeState = hazeState,
+                shape = CircleShape,
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                backgroundColor = MaterialTheme.colorScheme.surface,
+                enabled = advancedUi
+            )
             .clip(CircleShape)
             .zIndex(15f),
-        color = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
-        tonalElevation = 6.dp
+        color = advancedUiSurfaceColor(
+            originalColor = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
+            tint = MaterialTheme.colorScheme.primary,
+            enabled = advancedUi
+        ),
+        tonalElevation = if (advancedUi) 0.dp else 6.dp
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),

@@ -60,46 +60,51 @@ fun DropboxSyncScreen(
     val scrollState = rememberScrollState()
     val headerState = rememberScrollAwareHeaderState(scrollState)
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        modifier = Modifier.nestedScroll(headerState.nestedScrollConnection),
-        topBar = {
-            SettingsTopAppBar(
-                title = "Cloud Sync",
-                onNavigateUp = onNavigateUp,
-                headerState = headerState
+    val hazeState = dev.chrisbanes.haze.rememberHazeState()
+    val advancedUi = LocalAdvancedUiEnabled.current
+
+    CompositionLocalProvider(LocalHazeState provides hazeState) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            modifier = Modifier.nestedScroll(headerState.nestedScrollConnection),
+            topBar = {
+                SettingsTopAppBar(
+                    title = "Cloud Sync",
+                    onNavigateUp = onNavigateUp,
+                    headerState = headerState
+                )
+            }
+        ) { padding ->
+            val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            val topAlpha by remember {
+                derivedStateOf {
+                    (scrollState.value / 100f).coerceIn(0f, 1f)
+                }
+            }
+
+            val isAtEnd by remember {
+                derivedStateOf {
+                    !scrollState.canScrollForward
+                }
+            }
+
+            val bottomFadeAlpha by animateFloatAsState(
+                targetValue = if (isAtEnd) 0f else 1f,
+                animationSpec = tween(durationMillis = 200),
+                label = "bottomFadeAlpha"
             )
-        }
-    ) { padding ->
-        val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        val topAlpha by remember {
-            derivedStateOf {
-                (scrollState.value / 100f).coerceIn(0f, 1f)
-            }
-        }
 
-        val isAtEnd by remember {
-            derivedStateOf {
-                !scrollState.canScrollForward
-            }
-        }
-
-        val bottomFadeAlpha by animateFloatAsState(
-            targetValue = if (isAtEnd) 0f else 1f,
-            animationSpec = tween(durationMillis = 200),
-            label = "bottomFadeAlpha"
-        )
-
-        Box(modifier = Modifier.fillMaxSize()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(scrollState)
-                    .padding(horizontal = 16.dp)
-                    .padding(top = padding.calculateTopPadding() + 8.dp, bottom = bottomPadding + 16.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
-            ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .advancedUiSource(hazeState, advancedUi)
+                        .verticalScroll(scrollState)
+                        .padding(horizontal = 16.dp)
+                        .padding(top = padding.calculateTopPadding() + 8.dp, bottom = bottomPadding + 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(24.dp)
+                ) {
                 // Connection & Account Section
                 SettingsSection(title = "Dropbox Account") {
                     if (!dropboxAuthState.isConfigured) {
@@ -718,6 +723,7 @@ fun DropboxSyncScreen(
                 subTitle = "Please wait while Dropbox sync is in progress..."
             )
         }
+    }
     }
 }
 

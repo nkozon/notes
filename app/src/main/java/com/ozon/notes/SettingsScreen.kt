@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.chrisbanes.haze.rememberHazeState
 import com.ozon.notes.ui.theme.GoogleSansFlexRounded
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -81,42 +82,47 @@ fun SettingsScreen(
         }
     }
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        modifier = Modifier.nestedScroll(headerState.nestedScrollConnection),
-        topBar = {
-            SettingsTopAppBar(
-                title = "Settings",
-                onNavigateUp = onNavigateUp,
-                headerState = headerState
+    val advancedUi by viewModel.advancedUiState.collectAsStateWithLifecycle()
+    val hazeState = rememberHazeState()
+
+    CompositionLocalProvider(LocalHazeState provides hazeState) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            modifier = Modifier.nestedScroll(headerState.nestedScrollConnection),
+            topBar = {
+                SettingsTopAppBar(
+                    title = "Settings",
+                    onNavigateUp = onNavigateUp,
+                    headerState = headerState
+                )
+            }
+        ) { padding ->
+            val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            val topAlpha by remember {
+                derivedStateOf {
+                    (scrollState.value / 100f).coerceIn(0f, 1f)
+                }
+            }
+
+            val isAtEnd by remember {
+                derivedStateOf {
+                    !scrollState.canScrollForward
+                }
+            }
+
+            val bottomFadeAlpha by animateFloatAsState(
+                targetValue = if (isAtEnd) 0f else 1f,
+                animationSpec = tween(durationMillis = 200),
+                label = "bottomFadeAlpha"
             )
-        }
-    ) { padding ->
-        val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        val topAlpha by remember {
-            derivedStateOf {
-                (scrollState.value / 100f).coerceIn(0f, 1f)
-            }
-        }
 
-        val isAtEnd by remember {
-            derivedStateOf {
-                !scrollState.canScrollForward
-            }
-        }
-
-        val bottomFadeAlpha by animateFloatAsState(
-            targetValue = if (isAtEnd) 0f else 1f,
-            animationSpec = tween(durationMillis = 200),
-            label = "bottomFadeAlpha"
-        )
-
-        Box(modifier = Modifier.fillMaxSize()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(scrollState)
+            Box(modifier = Modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .advancedUiSource(hazeState, advancedUi)
+                        .verticalScroll(scrollState)
                     .padding(horizontal = 16.dp)
                     .padding(top = padding.calculateTopPadding() + 8.dp, bottom = bottomPadding + 16.dp)
                     .animateContentSize(animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing)),
@@ -396,6 +402,7 @@ fun SettingsScreen(
             )
         }
     }
+}
 
     if (showClearDataDialog) {
         AlertDialog(

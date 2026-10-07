@@ -1024,6 +1024,13 @@ class RoomNoteRepository(
         _isOledMode.value = enabled
     }
 
+    private val _advancedUi = MutableStateFlow(prefs.getBoolean("advanced_ui_enabled", false))
+    override fun getAdvancedUi(): Flow<Boolean> = _advancedUi
+    override suspend fun setAdvancedUi(enabled: Boolean) {
+        prefs.edit().putBoolean("advanced_ui_enabled", enabled).apply()
+        _advancedUi.value = enabled
+    }
+
     override fun getTabletMode(): Flow<TabletMode> = _tabletMode
     override suspend fun setTabletMode(mode: TabletMode) {
         prefs.edit().putString("tablet_mode", mode.name).apply()

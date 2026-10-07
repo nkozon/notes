@@ -60,6 +60,9 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
     val isOledModeState: StateFlow<Boolean> = repository.getIsOledMode()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    val advancedUiState: StateFlow<Boolean> = repository.getAdvancedUi()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     val tabletModeState: StateFlow<TabletMode> = repository.getTabletMode()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TabletMode.AUTOMATIC)
 
@@ -560,6 +563,7 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
             is NoteEvent.UpdateCustomSecondaryColor -> viewModelScope.launch { repository.setCustomSecondaryColor(event.color) }
             is NoteEvent.UpdateCustomAccentColor -> viewModelScope.launch { repository.setCustomAccentColor(event.color) }
             is NoteEvent.UpdateIsOledMode -> viewModelScope.launch { repository.setIsOledMode(event.enabled) }
+            is NoteEvent.UpdateAdvancedUi -> viewModelScope.launch { repository.setAdvancedUi(event.enabled) }
             is NoteEvent.UpdateTabletMode -> viewModelScope.launch { repository.setTabletMode(event.mode) }
             is NoteEvent.UpdateChecklistBehavior -> viewModelScope.launch { repository.setChecklistBehavior(event.behavior) }
             is NoteEvent.UpdateShowEntryCount -> viewModelScope.launch { repository.setShowEntryCount(event.show) }

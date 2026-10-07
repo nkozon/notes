@@ -94,6 +94,7 @@ import android.net.Uri
 import android.content.Intent
 import androidx.compose.ui.graphics.vector.ImageVector
 import coil.compose.AsyncImage
+import dev.chrisbanes.haze.rememberHazeState
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -157,6 +158,8 @@ fun NoteListScreen(
     val dropboxSyncWifiOnly by settingsViewModel.dropboxSyncWifiOnly.collectAsStateWithLifecycle()
     val hasPendingChanges by settingsViewModel.hasPendingChanges.collectAsStateWithLifecycle()
     val mobileDataPrompt by settingsViewModel.mobileDataDownloadPrompt.collectAsStateWithLifecycle()
+    val advancedUi by settingsViewModel.advancedUiState.collectAsStateWithLifecycle()
+    val hazeState = rememberHazeState()
 
     val lastSelectedTab by settingsViewModel.lastSelectedTabState.collectAsStateWithLifecycle()
     val selectedTab = lastSelectedTab
@@ -336,9 +339,10 @@ fun NoteListScreen(
         }
     }
 
-    @Suppress("UnusedMaterial3ScaffoldPaddingParameter")
-    Scaffold(
-        containerColor = Color.Transparent,
+    CompositionLocalProvider(LocalHazeState provides hazeState) {
+        @Suppress("UnusedMaterial3ScaffoldPaddingParameter")
+        Scaffold(
+            containerColor = Color.Transparent,
         modifier = Modifier.nestedScroll(nestedScrollConnection),
         floatingActionButton = {
             val haptics = LocalHapticFeedback.current
@@ -436,11 +440,21 @@ fun NoteListScreen(
                         Surface(
                             modifier = Modifier
                                 .width(currentSearchWidth)
-                                .height(56.dp),
+                                .height(56.dp)
+                                .advancedUiBlur(
+                                    hazeState = hazeState,
+                                    shape = CircleShape,
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                    enabled = advancedUi
+                                ),
                             shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            tonalElevation = 3.dp,
-                            shadowElevation = 3.dp
+                            color = advancedUiSurfaceColor(
+                                originalColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                tint = MaterialTheme.colorScheme.primary,
+                                enabled = advancedUi
+                            ),
+                            tonalElevation = if (advancedUi) 0.dp else 3.dp,
+                            shadowElevation = if (advancedUi) 0.dp else 3.dp
                         ) {
                             if (isSearchActive && collapseProgress < 0.3f) {
                                 Row(
@@ -587,10 +601,21 @@ fun NoteListScreen(
                                 isCreateMenuOpen = !isCreateMenuOpen
                             },
                             shape = CircleShape,
-                            modifier = Modifier.size(56.dp),
-                            containerColor = fabContainerColor,
+                            modifier = Modifier
+                                .size(56.dp)
+                                .advancedUiBlur(
+                                    hazeState = hazeState,
+                                    shape = CircleShape,
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                    enabled = advancedUi
+                                ),
+                            containerColor = advancedUiSurfaceColor(
+                                originalColor = fabContainerColor,
+                                tint = MaterialTheme.colorScheme.primary,
+                                enabled = advancedUi
+                            ),
                             contentColor = fabContentColor,
-                            elevation = FloatingActionButtonDefaults.elevation(
+                            elevation = if (advancedUi) FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp) else FloatingActionButtonDefaults.elevation(
                                 defaultElevation = if (isCreateMenuOpen) 6.dp else 4.dp,
                                 pressedElevation = 8.dp
                             )
@@ -640,9 +665,20 @@ fun NoteListScreen(
                                     Surface(
                                         onClick = { showSyncDetailsDialog = true },
                                         shape = CircleShape,
-                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        color = advancedUiSurfaceColor(
+                                            originalColor = MaterialTheme.colorScheme.primaryContainer,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            enabled = advancedUi
+                                        ),
                                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        modifier = Modifier.height(38.dp)
+                                        modifier = Modifier
+                                            .height(38.dp)
+                                            .advancedUiBlur(
+                                                hazeState = hazeState,
+                                                shape = CircleShape,
+                                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                                enabled = advancedUi
+                                            )
                                     ) {
                                         Row(
                                             modifier = Modifier.padding(horizontal = 12.dp),
@@ -667,9 +703,20 @@ fun NoteListScreen(
                                             settingsViewModel.syncWithDropbox(silent = false, forceMobileData = false)
                                         },
                                         shape = CircleShape,
-                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        color = advancedUiSurfaceColor(
+                                            originalColor = MaterialTheme.colorScheme.primaryContainer,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            enabled = advancedUi
+                                        ),
                                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        modifier = Modifier.height(38.dp)
+                                        modifier = Modifier
+                                            .height(38.dp)
+                                            .advancedUiBlur(
+                                                hazeState = hazeState,
+                                                shape = CircleShape,
+                                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                                enabled = advancedUi
+                                            )
                                     ) {
                                         Row(
                                             modifier = Modifier.padding(horizontal = 12.dp),
@@ -785,7 +832,9 @@ fun NoteListScreen(
                 ),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalItemSpacing = 0.dp,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .advancedUiSource(hazeState, advancedUi)
             ) {
                 if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) {
                     // NOTES SECTION
@@ -930,6 +979,7 @@ fun NoteListScreen(
             }
         }
     }
+}
 
     DeleteNoteDialog(
         note = noteToDelete,
@@ -1986,15 +2036,29 @@ private fun MainTabItem(
         label = "tabPadding"
     )
 
+    val advancedUi = LocalAdvancedUiEnabled.current
+    val hazeState = LocalHazeState.current
+
     Surface(
         onClick = {
             hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             onClick()
         },
-        modifier = modifier.fillMaxHeight(),
+        modifier = modifier
+            .fillMaxHeight()
+            .advancedUiBlur(
+                hazeState = hazeState,
+                shape = CircleShape,
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                enabled = advancedUi
+            ),
         shape = CircleShape,
-        color = backgroundColor,
-        tonalElevation = if (isSelected) 2.dp else 0.dp
+        color = advancedUiSurfaceColor(
+            originalColor = backgroundColor,
+            tint = MaterialTheme.colorScheme.primary,
+            enabled = advancedUi
+        ),
+        tonalElevation = if (advancedUi) 0.dp else (if (isSelected) 2.dp else 0.dp)
     ) {
         Row(
             modifier = Modifier
@@ -2121,19 +2185,32 @@ private fun CreateOptionItem(
         RoundedCornerShape(topRadius, topRadius, bottomRadius, bottomRadius)
     }
 
+    val advancedUi = LocalAdvancedUiEnabled.current
+    val hazeState = LocalHazeState.current
+
     Surface(
         onClick = {
             haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             option.onClick()
         },
         shape = shape,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        color = advancedUiSurfaceColor(
+            originalColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tint = MaterialTheme.colorScheme.primary,
+            enabled = advancedUi
+        ),
         contentColor = MaterialTheme.colorScheme.onSurface,
-        tonalElevation = 6.dp,
-        shadowElevation = 4.dp,
+        tonalElevation = if (advancedUi) 0.dp else 6.dp,
+        shadowElevation = if (advancedUi) 0.dp else 4.dp,
         modifier = modifier
             .fillMaxWidth()
             .height(54.dp)
+            .advancedUiBlur(
+                hazeState = hazeState,
+                shape = shape,
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                enabled = advancedUi
+            )
     ) {
         Row(
             modifier = Modifier

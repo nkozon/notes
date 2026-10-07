@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import dev.chrisbanes.haze.rememberHazeState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -99,6 +100,8 @@ fun DrawingNoteScreen(
     val smoothingStrength by settingsViewModel.smoothingStrength.collectAsStateWithLifecycle()
     val savedToolbarAnchor by notesViewModel.toolbarAnchor.collectAsStateWithLifecycle()
     val appTheme by settingsViewModel.themeState.collectAsStateWithLifecycle()
+    val advancedUi by settingsViewModel.advancedUiState.collectAsStateWithLifecycle()
+    val hazeState = rememberHazeState()
 
     val isDarkTheme = when (appTheme) {
         AppTheme.LIGHT -> false
@@ -496,9 +499,10 @@ fun DrawingNoteScreen(
         }
     }
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+    CompositionLocalProvider(LocalHazeState provides hazeState) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
         snackbarHost = {
             SnackbarHost(
                 hostState = snackbarHostState,
@@ -544,6 +548,32 @@ fun DrawingNoteScreen(
                 }
             }
 
+            // Central Interactive Drawing Canvas
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFFF9F9F9))
+                    .advancedUiSource(hazeState, advancedUi)
+            ) {
+                DrawingCanvas(
+                    controller = controller,
+                    smoothingStrength = smoothingStrength,
+                    forceStylusOnly = forceStylusOnly,
+                    showGuidelines = showGuidelines,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            // System bar gradients
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(if (isNormalTablet) Modifier.statusBarsPadding() else Modifier)
+                    .zIndex(1f)
+            ) {
+                SystemBarGradients(color = Color(0xFFF9F9F9), showTop = true, showBottom = true)
+            }
+
             // Top Bar
             DrawingTopBar(
                 controller = controller,
@@ -565,25 +595,6 @@ fun DrawingNoteScreen(
                     onNavigateUp()
                 }
             )
-
-            // Central Interactive Drawing Canvas
-            DrawingCanvas(
-                controller = controller,
-                smoothingStrength = smoothingStrength,
-                forceStylusOnly = forceStylusOnly,
-                showGuidelines = showGuidelines,
-                modifier = Modifier.fillMaxSize()
-            )
-
-            // System bar gradients
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .then(if (isNormalTablet) Modifier.statusBarsPadding() else Modifier)
-                    .zIndex(1f)
-            ) {
-                SystemBarGradients(color = Color.White, showTop = true, showBottom = true)
-            }
 
             // Toolbar and Selection Layer
             Box(modifier = Modifier.fillMaxSize().zIndex(11f)) {
@@ -690,6 +701,7 @@ fun DrawingNoteScreen(
             }
         }
     }
+}
 
     // Phone Bottom Sheet Page Overview
     if (!isSplitScreen && controller.canvasType != CanvasType.INFINITE && showPageOverview) {

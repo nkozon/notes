@@ -72,6 +72,7 @@ class MainActivity : ComponentActivity() {
             val customSecondaryColor by settingsViewModel.customSecondaryColorState.collectAsStateWithLifecycle()
             val customAccentColor by settingsViewModel.customAccentColorState.collectAsStateWithLifecycle()
             val isOledMode by settingsViewModel.isOledModeState.collectAsStateWithLifecycle()
+            val advancedUi by settingsViewModel.advancedUiState.collectAsStateWithLifecycle()
 
             val listId by initialListId
             val entryId by rescheduleEntryId
@@ -133,29 +134,31 @@ class MainActivity : ComponentActivity() {
                 isOledMode = isOledMode,
                 appFont = appFont
             ) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    MainAdaptiveScreen(
-                        notesViewModel = notesViewModel,
-                        settingsViewModel = settingsViewModel,
-                        checklistViewModel = checklistViewModel,
-                        initialListId = listId,
-                        rescheduleEntryId = entryId
-                    )
-
-                    val showInitialSyncDialog by settingsViewModel.showInitialSyncDialog.collectAsStateWithLifecycle()
-                    if (showInitialSyncDialog) {
-                        InitialSyncResolutionDialog(
-                            onDismissRequest = { settingsViewModel.setShowInitialSyncDialog(false) },
-                            onConfirm = { mode ->
-                                settingsViewModel.resolveInitialSync(mode) { success, error ->
-                                    val msg = if (success) "Sync resolved successfully" else "Sync resolution failed: ${error ?: ""}"
-                                    android.widget.Toast.makeText(applicationContext, msg, android.widget.Toast.LENGTH_SHORT).show()
-                                }
-                            }
+                androidx.compose.runtime.CompositionLocalProvider(LocalAdvancedUiEnabled provides advancedUi) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                    ) {
+                        MainAdaptiveScreen(
+                            notesViewModel = notesViewModel,
+                            settingsViewModel = settingsViewModel,
+                            checklistViewModel = checklistViewModel,
+                            initialListId = listId,
+                            rescheduleEntryId = entryId
                         )
+
+                        val showInitialSyncDialog by settingsViewModel.showInitialSyncDialog.collectAsStateWithLifecycle()
+                        if (showInitialSyncDialog) {
+                            InitialSyncResolutionDialog(
+                                onDismissRequest = { settingsViewModel.setShowInitialSyncDialog(false) },
+                                onConfirm = { mode ->
+                                    settingsViewModel.resolveInitialSync(mode) { success, error ->
+                                        val msg = if (success) "Sync resolved successfully" else "Sync resolution failed: ${error ?: ""}"
+                                        android.widget.Toast.makeText(applicationContext, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }

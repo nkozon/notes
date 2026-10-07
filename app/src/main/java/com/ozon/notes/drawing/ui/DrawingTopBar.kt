@@ -45,6 +45,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.ozon.notes.CanvasType
+import com.ozon.notes.LocalAdvancedUiEnabled
+import com.ozon.notes.LocalHazeState
+import com.ozon.notes.advancedUiBlur
+import com.ozon.notes.advancedUiSurfaceColor
 import com.ozon.notes.drawing.controller.DrawingCanvasController
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -81,15 +85,29 @@ fun DrawingTopBar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
+        val advancedUi = LocalAdvancedUiEnabled.current
+        val hazeState = LocalHazeState.current
+
         // Left pill: Back button and Title
         Surface(
             modifier = Modifier
                 .weight(1f, fill = false)
-                .shadow(8.dp, CircleShape)
+                .shadow(if (advancedUi) 0.dp else 8.dp, CircleShape)
+                .advancedUiBlur(
+                    hazeState = hazeState,
+                    shape = CircleShape,
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                    backgroundColor = MaterialTheme.colorScheme.surface,
+                    enabled = advancedUi
+                )
                 .clip(CircleShape),
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
-            tonalElevation = 6.dp
+            color = advancedUiSurfaceColor(
+                originalColor = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
+                tint = MaterialTheme.colorScheme.primary,
+                enabled = advancedUi
+            ),
+            tonalElevation = if (advancedUi) 0.dp else 6.dp
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
@@ -167,11 +185,22 @@ fun DrawingTopBar(
         // Right pill: Action buttons (Save/Checkmark, Page Overview, More Menu)
         Surface(
             modifier = Modifier
-                .shadow(8.dp, CircleShape)
+                .shadow(if (advancedUi) 0.dp else 8.dp, CircleShape)
+                .advancedUiBlur(
+                    hazeState = hazeState,
+                    shape = CircleShape,
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                    backgroundColor = MaterialTheme.colorScheme.surface,
+                    enabled = advancedUi
+                )
                 .clip(CircleShape),
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
-            tonalElevation = 6.dp
+            color = advancedUiSurfaceColor(
+                originalColor = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
+                tint = MaterialTheme.colorScheme.primary,
+                enabled = advancedUi
+            ),
+            tonalElevation = if (advancedUi) 0.dp else 6.dp
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),

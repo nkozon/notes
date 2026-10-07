@@ -45,6 +45,7 @@ import com.mohamedrejeb.richeditor.model.RichTextState
 import com.mohamedrejeb.richeditor.model.rememberRichTextState
 import com.mohamedrejeb.richeditor.ui.material3.RichTextEditor
 import com.mohamedrejeb.richeditor.ui.material3.RichTextEditorDefaults
+import dev.chrisbanes.haze.rememberHazeState
 import java.util.UUID
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -215,9 +216,13 @@ private fun AddNoteScreenContent(
         }
     }
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+    val advancedUi = LocalAdvancedUiEnabled.current
+    val hazeState = rememberHazeState()
+
+    CompositionLocalProvider(LocalHazeState provides hazeState) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
@@ -310,6 +315,7 @@ private fun AddNoteScreenContent(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .advancedUiSource(hazeState, advancedUi)
                     .verticalScroll(scrollState)
                     .padding(horizontal = 24.dp)
                     .imePadding()
@@ -379,6 +385,7 @@ private fun AddNoteScreenContent(
             )
         }
     }
+}
 }
 
 @Composable
@@ -462,11 +469,20 @@ fun TextFormattingToolbar(
                 ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            val advancedUi = LocalAdvancedUiEnabled.current
+            val hazeState = LocalHazeState.current
+
             Surface(
                 modifier = Modifier
                     .wrapContentSize()
                     .offset { IntOffset(dragOffset.x.roundToInt(), dragOffset.y.roundToInt()) }
-                    .shadow(if (isCollapsed) 4.dp else 8.dp, CircleShape)
+                    .shadow(if (advancedUi) 0.dp else (if (isCollapsed) 4.dp else 8.dp), CircleShape)
+                    .advancedUiBlur(
+                        hazeState = hazeState,
+                        shape = CircleShape,
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        enabled = advancedUi
+                    )
                     .clip(CircleShape)
                     .pointerInput(anchor) {
                         detectDragGesturesAfterLongPress(
@@ -508,8 +524,12 @@ fun TextFormattingToolbar(
                             onDragCancel = { dragOffset = Offset.Zero; predictedAnchor = null }
                         )
                     },
-                color = MaterialTheme.colorScheme.surfaceColorAtElevation(if (isCollapsed) 2.dp else 6.dp),
-                tonalElevation = if (isCollapsed) 2.dp else 6.dp
+                color = advancedUiSurfaceColor(
+                    originalColor = MaterialTheme.colorScheme.surfaceColorAtElevation(if (isCollapsed) 2.dp else 6.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                    enabled = advancedUi
+                ),
+                tonalElevation = if (advancedUi) 0.dp else (if (isCollapsed) 2.dp else 6.dp)
             ) {
                 val isHorizontal = anchor == ToolbarAnchor.TOP || anchor == ToolbarAnchor.BOTTOM || 
                                anchor == ToolbarAnchor.TOP_LEFT || anchor == ToolbarAnchor.TOP_RIGHT ||
@@ -608,11 +628,24 @@ private fun FormattingToolbarContent(
         )
 
         Box {
+            val advancedUi = LocalAdvancedUiEnabled.current
+            val hazeState = LocalHazeState.current
             Surface(
                 onClick = { showTypeMenu = true },
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
-                modifier = if (isHorizontal) Modifier.height(34.dp) else Modifier.width(34.dp)
+                color = advancedUiSurfaceColor(
+                    originalColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
+                    tint = MaterialTheme.colorScheme.primary,
+                    translucentAlpha = 0.5f,
+                    enabled = advancedUi
+                ),
+                modifier = (if (isHorizontal) Modifier.height(34.dp) else Modifier.width(34.dp))
+                    .advancedUiBlur(
+                        hazeState = hazeState,
+                        shape = CircleShape,
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        enabled = advancedUi
+                    )
             ) {
                 if (isHorizontal) {
                     Row(

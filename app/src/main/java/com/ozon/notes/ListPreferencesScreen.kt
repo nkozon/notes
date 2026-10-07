@@ -33,19 +33,22 @@ fun ListPreferencesScreen(
 
     val scrollState = rememberScrollState()
     val headerState = rememberScrollAwareHeaderState(scrollState)
+    val hazeState = dev.chrisbanes.haze.rememberHazeState()
+    val advancedUi = LocalAdvancedUiEnabled.current
 
-    Scaffold(
-        containerColor = Color.Transparent,
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        modifier = Modifier.nestedScroll(headerState.nestedScrollConnection),
-        topBar = {
-            SettingsTopAppBar(
-                title = "List Preferences",
-                onNavigateUp = onNavigateUp,
-                headerState = headerState
-            )
-        }
-    ) { padding ->
+    CompositionLocalProvider(LocalHazeState provides hazeState) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            modifier = Modifier.nestedScroll(headerState.nestedScrollConnection),
+            topBar = {
+                SettingsTopAppBar(
+                    title = "List Preferences",
+                    onNavigateUp = onNavigateUp,
+                    headerState = headerState
+                )
+            }
+        ) { padding ->
         val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val topAlpha by remember {
             derivedStateOf {
@@ -69,6 +72,7 @@ fun ListPreferencesScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .advancedUiSource(hazeState, advancedUi)
                     .verticalScroll(scrollState)
                     .padding(horizontal = 16.dp)
                     .padding(top = padding.calculateTopPadding() + 8.dp, bottom = bottomPadding + 16.dp)
@@ -159,4 +163,5 @@ fun ListPreferencesScreen(
             )
         }
     }
+}
 }
