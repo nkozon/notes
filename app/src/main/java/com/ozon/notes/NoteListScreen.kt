@@ -63,6 +63,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -242,6 +243,14 @@ fun NoteListScreen(
     var isCreateMenuOpen by rememberSaveable { mutableStateOf(false) }
     var isScrollingDown by rememberSaveable { mutableStateOf(false) }
 
+    val menuProgress by animateFloatAsState(
+        targetValue = if (isCreateMenuOpen) 1f else 0f,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "menuProgress"
+    )
+
+    val menuBlurRadius = if (advancedUi) (20.dp * menuProgress).coerceAtLeast(0.dp) else 0.dp
+
     BackHandler(enabled = isCreateMenuOpen || isSearchActive) {
         if (isCreateMenuOpen) {
             isCreateMenuOpen = false
@@ -376,12 +385,6 @@ fun NoteListScreen(
                 animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
                 label = "fabContentColor"
             )
-            val menuProgress by animateFloatAsState(
-                targetValue = if (isCreateMenuOpen) 1f else 0f,
-                animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
-                label = "menuProgress"
-            )
-
             Column(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -423,7 +426,18 @@ fun NoteListScreen(
                 }
 
                 BoxWithConstraints(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (isCreateMenuOpen) {
+                                Modifier.clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null
+                                ) {
+                                    isCreateMenuOpen = false
+                                }
+                            } else Modifier
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     val fullSearchWidth = (maxWidth - 56.dp - 12.dp).coerceAtLeast(56.dp)
@@ -638,7 +652,15 @@ fun NoteListScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = { 
             Box(modifier = Modifier.fillMaxWidth().zIndex(3f)) {
-                Column(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (menuBlurRadius > 0.dp) {
+                                Modifier.blur(menuBlurRadius)
+                            } else Modifier
+                        )
+                ) {
                     TopAppBar(
                         title = {
                             Text(
@@ -834,6 +856,11 @@ fun NoteListScreen(
                 verticalItemSpacing = 0.dp,
                 modifier = Modifier
                     .fillMaxSize()
+                    .then(
+                        if (menuBlurRadius > 0.dp) {
+                            Modifier.blur(menuBlurRadius)
+                        } else Modifier
+                    )
                     .advancedUiSource(hazeState, advancedUi)
             ) {
                 if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) {
@@ -956,6 +983,7 @@ fun NoteListScreen(
 
             SystemBarGradients(
                 modifier = Modifier.zIndex(1f),
+                showTopBlur = false,
                 topAlpha = { topAlpha }
             )
 

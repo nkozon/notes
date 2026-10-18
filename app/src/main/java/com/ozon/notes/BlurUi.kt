@@ -51,16 +51,17 @@ fun Modifier.advancedUiBlur(
     enabled: Boolean = true
 ): Modifier {
     if (!enabled || hazeState == null) return this
+    val effectiveRadius = blurRadius.coerceAtLeast(0.dp)
     return this
         .clip(shape)
         .hazeBlur(
             input = HazeInput.Sources(hazeState),
             style = HazeBlurStyle {
-                this.blurRadius(blurRadius)
+                this.blurRadius(effectiveRadius)
                 if (backgroundColor != Color.Unspecified) {
                     this.backgroundColor(backgroundColor)
                 }
-                if (tint != null && tint.alpha > 0.001f) {
+                if (tint != null && tint.alpha > 0.001f && effectiveRadius > 0.dp) {
                     this.colorEffects(listOf(HazeColorEffect.tint(tint)))
                 }
                 this.blurredEdgeTreatment(BlurredEdgeTreatment(shape))
@@ -77,16 +78,17 @@ fun Modifier.advancedUiBlur(
 fun Modifier.progressiveSystemBarBlur(
     hazeState: HazeState?,
     isTop: Boolean,
-    alpha: Float,
+    alpha: Float = 1f,
     backgroundColor: Color = Color.Unspecified,
-    blurRadius: Dp = 24.dp,
+    blurRadius: Dp = 10.dp,
     enabled: Boolean = true
 ): Modifier {
-    if (!enabled || hazeState == null || alpha <= 0.001f) return this
+    if (!enabled || hazeState == null) return this
+    val effectiveRadius = blurRadius.coerceAtLeast(0.dp)
     return this.hazeBlur(
         input = HazeInput.Sources(hazeState),
         style = HazeBlurStyle {
-            this.blurRadius(blurRadius)
+            this.blurRadius(effectiveRadius)
             if (backgroundColor != Color.Unspecified) {
                 this.backgroundColor(backgroundColor)
             }
@@ -121,7 +123,9 @@ fun advancedUiSurfaceColor(
     enabled: Boolean = LocalAdvancedUiEnabled.current
 ): Color {
     if (!enabled) return originalColor
+    if (translucentAlpha <= 0.001f || originalColor.alpha <= 0.001f) return Color.Transparent
     val base = originalColor.copy(alpha = translucentAlpha)
-    val tintOverlay = tint.copy(alpha = tintAlpha)
+    val scaledTintAlpha = (tintAlpha * (translucentAlpha / 0.65f)).coerceIn(0f, 1f)
+    val tintOverlay = tint.copy(alpha = scaledTintAlpha)
     return tintOverlay.compositeOver(base)
 }

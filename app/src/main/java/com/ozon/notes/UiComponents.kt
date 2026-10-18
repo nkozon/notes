@@ -81,7 +81,7 @@ fun CircleIconButton(
         advancedUiSurfaceColor(
             originalColor = containerColor,
             tint = MaterialTheme.colorScheme.primary,
-            translucentAlpha = (containerColor.alpha * 0.65f).coerceIn(0.2f, 0.75f),
+            translucentAlpha = containerColor.alpha * 0.65f,
             tintAlpha = 0.15f
         )
     } else {
@@ -92,14 +92,12 @@ fun CircleIconButton(
         modifier = modifier
             .minimumInteractiveComponentSize()
             .size(44.dp)
-            .then(
-                if (advancedUi && hazeState != null && isSurfaceVisible) {
-                    Modifier.advancedUiBlur(
-                        hazeState = hazeState,
-                        shape = shape,
-                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                    )
-                } else Modifier
+            .advancedUiBlur(
+                hazeState = hazeState,
+                shape = shape,
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                blurRadius = 24.dp * containerColor.alpha.coerceIn(0f, 1f),
+                enabled = advancedUi && hazeState != null && containerColor != Color.Transparent
             )
             .clip(shape)
             .background(if (enabled) effectiveContainerColor else effectiveContainerColor.copy(alpha = 0.3f))
@@ -628,10 +626,10 @@ fun SettingsTopAppBar(
     val isAtTop by headerState.isAtTop
     val headerAlpha by headerState.headerAlpha
 
-    val backButtonContainerAlpha by animateFloatAsState(
+    val pillBackgroundAlpha by animateFloatAsState(
         targetValue = if (isAtTop) 0f else 1f,
         animationSpec = tween(durationMillis = 200),
-        label = "backButtonContainerAlpha"
+        label = "pillBackgroundAlpha"
     )
 
     val backButtonContentColor by animateColorAsState(
@@ -640,16 +638,10 @@ fun SettingsTopAppBar(
         label = "backButtonContentColor"
     )
 
-    val showTitlePill = !isAtTop && headerAlpha > 0.01f
-
-    val titlePillAlpha by animateFloatAsState(
-        targetValue = if (showTitlePill) 1f else 0f,
-        animationSpec = tween(durationMillis = 200),
-        label = "titlePillAlpha"
-    )
+    val showTitle = isAtTop || headerAlpha > 0.5f
 
     val titleContentColor by animateColorAsState(
-        targetValue = if (showTitlePill) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+        targetValue = if (isAtTop) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer,
         animationSpec = tween(durationMillis = 200),
         label = "titleContentColor"
     )
@@ -657,62 +649,96 @@ fun SettingsTopAppBar(
     val hazeState = LocalHazeState.current
     val advancedUi = LocalAdvancedUiEnabled.current
 
-    val pillContainerColor = if (advancedUi && showTitlePill) {
+    val pillContainerColor = if (pillBackgroundAlpha > 0.01f) {
         advancedUiSurfaceColor(
-            originalColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = titlePillAlpha),
+            originalColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = pillBackgroundAlpha),
             tint = MaterialTheme.colorScheme.primary,
-            translucentAlpha = (titlePillAlpha * 0.65f).coerceIn(0.2f, 0.75f),
-            tintAlpha = 0.15f
+            translucentAlpha = pillBackgroundAlpha * 0.7f,
+            tintAlpha = 0.15f * pillBackgroundAlpha,
+            enabled = advancedUi
         )
-    } else {
-        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = titlePillAlpha)
-    }
+    } else Color.Transparent
 
-    TopAppBar(
-        title = {
-            Surface(
-                shape = CircleShape,
-                color = pillContainerColor,
-                modifier = Modifier
-                    .then(
-                        if (advancedUi && hazeState != null && showTitlePill) {
-                            Modifier.advancedUiBlur(
-                                hazeState = hazeState,
-                                shape = CircleShape,
-                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                            )
-                        } else Modifier
-                    )
-                    .graphicsLayer(alpha = headerAlpha)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .height(64.dp)
+            .padding(horizontal = 16.dp),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = pillContainerColor,
+            shadowElevation = if (advancedUi || isAtTop) 0.dp else 4.dp,
+            tonalElevation = if (advancedUi || isAtTop) 0.dp else 4.dp,
+            modifier = Modifier
+                .advancedUiBlur(
+                    hazeState = hazeState,
+                    shape = CircleShape,
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f * pillBackgroundAlpha),
+                    blurRadius = 24.dp * pillBackgroundAlpha,
+                    enabled = advancedUi && hazeState != null
+                )
+                .clip(CircleShape)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = titleContentColor,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Start,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                )
-            }
-        },
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = Color.Transparent,
-            scrolledContainerColor = Color.Transparent
-        ),
-        navigationIcon = {
-            Box(modifier = Modifier.padding(start = 16.dp)) {
-                CircleIconButton(
+                IconButton(
                     onClick = onNavigateUp,
-                    icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                    contentDescription = "Back",
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = backButtonContainerAlpha),
-                    contentColor = backButtonContentColor
-                )
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = "Back",
+                        tint = backButtonContentColor
+                    )
+                }
+
+                AnimatedVisibility(
+                    visible = showTitle,
+                    enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                            scaleIn(initialScale = 0.8f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                            expandHorizontally(
+                                expandFrom = Alignment.Start,
+                                animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                            ),
+                    exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                           scaleOut(targetScale = 0.8f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                           shrinkHorizontally(
+                               shrinkTowards = Alignment.Start,
+                               animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                           )
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .padding(start = 2.dp, end = 14.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            color = titleContentColor,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                        )
+                    }
+                }
             }
-        },
-        actions = actions
-    )
+        }
+
+        Row(
+            modifier = Modifier.align(Alignment.CenterEnd),
+            verticalAlignment = Alignment.CenterVertically,
+            content = actions
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -843,9 +869,12 @@ fun SystemBarGradients(
     color: Color = MaterialTheme.colorScheme.background,
     showTop: Boolean = true,
     showBottom: Boolean = true,
+    showTopBlur: Boolean = showTop,
+    showBottomBlur: Boolean = showBottom,
     topAlpha: () -> Float = { 1f },
     bottomAlpha: () -> Float = { 1f },
-    bottomHeight: Dp? = null
+    bottomHeight: Dp? = null,
+    blurRadius: Dp = 10.dp
 ) {
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navigationBarHeight = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -858,7 +887,7 @@ fun SystemBarGradients(
             val effTopAlpha = topAlpha()
             val topHeight = statusBarHeight * 3f
 
-            if (advancedUi && hazeState != null && effTopAlpha > 0.001f) {
+            if (showTopBlur && advancedUi && hazeState != null) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -866,8 +895,9 @@ fun SystemBarGradients(
                         .progressiveSystemBarBlur(
                             hazeState = hazeState,
                             isTop = true,
-                            alpha = effTopAlpha,
-                            backgroundColor = color
+                            alpha = 1f,
+                            backgroundColor = color,
+                            blurRadius = blurRadius * effTopAlpha
                         )
                         .align(Alignment.TopCenter)
                 )
@@ -895,7 +925,7 @@ fun SystemBarGradients(
             val effBottomAlpha = bottomAlpha()
             val effBottomHeight = bottomHeight ?: maxOf(navigationBarHeight * 5f, 160.dp)
 
-            if (advancedUi && hazeState != null && effBottomAlpha > 0.001f) {
+            if (showBottomBlur && advancedUi && hazeState != null) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -903,8 +933,9 @@ fun SystemBarGradients(
                         .progressiveSystemBarBlur(
                             hazeState = hazeState,
                             isTop = false,
-                            alpha = effBottomAlpha,
-                            backgroundColor = color
+                            alpha = 1f,
+                            backgroundColor = color,
+                            blurRadius = blurRadius * effBottomAlpha
                         )
                         .align(Alignment.BottomCenter)
                 )
@@ -935,18 +966,24 @@ fun SystemBarGradients(
     color: Color = MaterialTheme.colorScheme.background,
     showTop: Boolean = true,
     showBottom: Boolean = true,
+    showTopBlur: Boolean = showTop,
+    showBottomBlur: Boolean = showBottom,
     topAlpha: Float,
     bottomAlpha: Float = 1f,
-    bottomHeight: Dp? = null
+    bottomHeight: Dp? = null,
+    blurRadius: Dp = 10.dp
 ) {
     SystemBarGradients(
         modifier = modifier,
         color = color,
         showTop = showTop,
         showBottom = showBottom,
+        showTopBlur = showTopBlur,
+        showBottomBlur = showBottomBlur,
         topAlpha = { topAlpha },
         bottomAlpha = { bottomAlpha },
-        bottomHeight = bottomHeight
+        bottomHeight = bottomHeight,
+        blurRadius = blurRadius
     )
 }
 

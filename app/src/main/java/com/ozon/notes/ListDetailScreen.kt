@@ -284,6 +284,13 @@ fun ListDetailScreen(
         }
     }
 
+    val topAlpha by remember {
+        derivedStateOf {
+            if (listState.firstVisibleItemIndex > 0) 1f
+            else (listState.firstVisibleItemScrollOffset / 100f).coerceIn(0f, 1f)
+        }
+    }
+
     LaunchedEffect(isAtTop) {
         if (isAtTop) {
             isHeaderVisible = true
@@ -312,10 +319,10 @@ fun ListDetailScreen(
         label = "headerAlpha"
     )
 
-    val backButtonContainerAlpha by animateFloatAsState(
+    val pillBackgroundAlpha by animateFloatAsState(
         targetValue = if (isAtTop) 0f else 1f,
         animationSpec = tween(durationMillis = 200),
-        label = "backButtonContainerAlpha"
+        label = "pillBackgroundAlpha"
     )
 
     val backButtonContentColor by animateColorAsState(
@@ -324,19 +331,23 @@ fun ListDetailScreen(
         label = "backButtonContentColor"
     )
 
-    val showTitlePill = !isAtTop && showHeader
-
-    val titlePillAlpha by animateFloatAsState(
-        targetValue = if (showTitlePill) 1f else 0f,
-        animationSpec = tween(durationMillis = 200),
-        label = "titlePillAlpha"
-    )
+    val showTitle = isAtTop || isHeaderVisible || isSearchActive
 
     val titleContentColor by animateColorAsState(
-        targetValue = if (showTitlePill) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+        targetValue = if (isAtTop) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer,
         animationSpec = tween(durationMillis = 200),
         label = "titleContentColor"
     )
+
+    val pillContainerColor = if (pillBackgroundAlpha > 0.01f) {
+        advancedUiSurfaceColor(
+            originalColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = pillBackgroundAlpha),
+            tint = MaterialTheme.colorScheme.primary,
+            translucentAlpha = pillBackgroundAlpha * 0.7f,
+            tintAlpha = 0.15f * pillBackgroundAlpha,
+            enabled = advancedUi
+        )
+    } else Color.Transparent
 
     val isAtEnd by remember {
         derivedStateOf {
@@ -389,60 +400,83 @@ fun ListDetailScreen(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             floatingActionButtonPosition = androidx.compose.material3.FabPosition.Center,
             topBar = {
-                CenterAlignedTopAppBar(
-                    title = { 
-                        Surface(
-                            shape = CircleShape,
-                            color = if (titlePillAlpha > 0.01f) {
-                                advancedUiSurfaceColor(
-                                    originalColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = titlePillAlpha),
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    translucentAlpha = titlePillAlpha * 0.7f,
-                                    enabled = advancedUi
-                                )
-                            } else Color.Transparent,
-                            modifier = Modifier
-                                .graphicsLayer(alpha = headerAlpha)
-                                .advancedUiBlur(
-                                    hazeState = hazeState,
-                                    shape = CircleShape,
-                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                    enabled = advancedUi && titlePillAlpha > 0.01f
-                                )
-                                .clickable(
-                                    enabled = headerAlpha > 0.5f,
-                                    onClick = { showRenameListDialog = true }
-                                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .height(headerHeight)
+                        .padding(horizontal = 16.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = pillContainerColor,
+                        shadowElevation = if (advancedUi || isAtTop) 0.dp else 4.dp,
+                        tonalElevation = if (advancedUi || isAtTop) 0.dp else 4.dp,
+                        modifier = Modifier
+                            .advancedUiBlur(
+                                hazeState = hazeState,
+                                shape = CircleShape,
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f * pillBackgroundAlpha),
+                                blurRadius = 24.dp * pillBackgroundAlpha,
+                                enabled = advancedUi
+                            )
+                            .clip(CircleShape)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                        Text(
-                            text = currentList.title,
-                            style = MaterialTheme.typography.titleLarge,
-                            color = titleContentColor,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                        )
+                            IconButton(
+                                onClick = onNavigateUp,
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = backButtonContentColor
+                                )
+                            }
+
+                            AnimatedVisibility(
+                                visible = showTitle,
+                                enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                                        scaleIn(initialScale = 0.8f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                                        expandHorizontally(
+                                            expandFrom = Alignment.Start,
+                                            animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                                        ),
+                                exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                                       scaleOut(targetScale = 0.8f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                                       shrinkHorizontally(
+                                           shrinkTowards = Alignment.Start,
+                                           animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                                       )
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .padding(start = 2.dp, end = 12.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { showRenameListDialog = true },
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    Text(
+                                        text = currentList.title,
+                                        style = MaterialTheme.typography.titleLarge.copy(
+                                            fontWeight = FontWeight.SemiBold
+                                        ),
+                                        color = titleContentColor,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    scrolledContainerColor = Color.Transparent
-                ),
-                navigationIcon = {
-                    Box(modifier = Modifier.padding(start = 16.dp)) {
-                        CircleIconButton(
-                            onClick = onNavigateUp,
-                            icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "Back",
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = backButtonContainerAlpha),
-                            contentColor = backButtonContentColor
-                        )
-                    }
-                },
-                actions = { }
-            )
-        },
+                }
+            },
         floatingActionButton = {
             BoxWithConstraints(
                 modifier = Modifier
@@ -1201,7 +1235,7 @@ fun ListDetailScreen(
             // 1. Gradients (zIndex 1)
             SystemBarGradients(
                 modifier = Modifier.zIndex(1f),
-                topAlpha = { if (isAtTop) 0f else 1f },
+                topAlpha = { topAlpha },
                 bottomAlpha = { bottomFadeAlpha }
             )
         }
@@ -1518,6 +1552,8 @@ fun ListDetailScreen(
             val subEntries = entries.filter { it.parentId == entry.id }
             val posterEntry = parentEntry ?: entry
             
+            val previewHazeState = rememberHazeState()
+
             Dialog(
                 onDismissRequest = { previewEntry = null },
                 properties = DialogProperties(
@@ -1525,52 +1561,61 @@ fun ListDetailScreen(
                     decorFitsSystemWindows = false
                 )
             ) {
-                Surface(
-                    modifier = Modifier
-                        .width(if (isTabletUi) 640.dp else 400.dp)
-                        .then(
-                            if (isTabletUi) Modifier.height(456.dp) 
-                            else Modifier.heightIn(max = 800.dp)
-                        )
-                        .padding(horizontal = if (isTabletUi) 0.dp else 16.dp)
-                        .padding(vertical = if (isTabletUi) 24.dp else 32.dp),
-                    shape = RoundedCornerShape(if (isTabletUi) 32.dp else 48.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                    tonalElevation = 8.dp
-                ) {
-                    val containerColor = MaterialTheme.colorScheme.surfaceContainerHighest
-                    
-                    if (isTabletUi) {
-                        // Tablet Design: Side artwork + Persistent content on the right
-                        Row(
-                            modifier = Modifier.fillMaxSize(),
-                            horizontalArrangement = Arrangement.spacedBy(24.dp)
-                        ) {
-                            // Left: Artwork (Poster ratio, padded)
-                            PosterArtwork(
-                                entry = posterEntry,
-                                iconSize = 80.dp,
-                                onManualSearch = { entryForPosterSearch = posterEntry },
-                                modifier = Modifier
-                                    .padding(start = 24.dp, top = 24.dp, bottom = 4.dp)
-                                    .width(240.dp)
+                CompositionLocalProvider(LocalHazeState provides previewHazeState) {
+                    Surface(
+                        modifier = Modifier
+                            .width(if (isTabletUi) 640.dp else 400.dp)
+                            .then(
+                                if (isTabletUi) Modifier.height(456.dp) 
+                                else Modifier.heightIn(max = 800.dp)
                             )
-
-                            // Right: Persistent content box
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
+                            .padding(horizontal = if (isTabletUi) 0.dp else 16.dp)
+                            .padding(vertical = if (isTabletUi) 24.dp else 32.dp),
+                        shape = RoundedCornerShape(if (isTabletUi) 32.dp else 48.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        tonalElevation = 8.dp
+                    ) {
+                        val containerColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                        
+                        if (isTabletUi) {
+                            // Tablet Design: Side artwork + Persistent content on the right
+                            Row(
+                                modifier = Modifier.fillMaxSize(),
+                                horizontalArrangement = Arrangement.spacedBy(24.dp)
                             ) {
-                                // Right Side Scrollable Content
-                                val scrollState = rememberScrollState()
-                                Column(
+                                // Left: Artwork (Poster ratio, padded)
+                                PosterArtwork(
+                                    entry = posterEntry,
+                                    iconSize = 80.dp,
+                                    onManualSearch = { entryForPosterSearch = posterEntry },
                                     modifier = Modifier
-                                        .fillMaxSize()
-                                        .verticalScroll(scrollState)
-                                        .padding(start = 0.dp, top = 24.dp, end = 24.dp, bottom = 100.dp),
-                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                        .padding(start = 24.dp, top = 24.dp, bottom = 4.dp)
+                                        .width(240.dp)
+                                )
+
+                                // Right: Persistent content box
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
                                 ) {
+                                    // Right Side Scrollable Content
+                                    val scrollState = rememberScrollState()
+                                    val topAlpha by remember {
+                                        derivedStateOf {
+                                            if (scrollState.value > 0) {
+                                                (scrollState.value / 60f).coerceIn(0f, 1f)
+                                            } else 0f
+                                        }
+                                    }
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .advancedUiSource(previewHazeState, advancedUi)
+                                            .verticalScroll(scrollState)
+                                            .padding(start = 0.dp, top = 24.dp, end = 24.dp, bottom = 100.dp),
+                                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                                    ) {
                                     Column {
                                         if (parentEntry != null) {
                                             Text(
@@ -1740,6 +1785,55 @@ fun ListDetailScreen(
                                     }
                                 }
 
+                                // Right Side Top Progressive Blur & Gradient
+                                if (advancedUi) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(48.dp)
+                                            .progressiveSystemBarBlur(
+                                                hazeState = previewHazeState,
+                                                isTop = true,
+                                                alpha = 1f,
+                                                backgroundColor = containerColor,
+                                                blurRadius = 10.dp * topAlpha
+                                            )
+                                            .align(Alignment.TopCenter)
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(48.dp)
+                                        .graphicsLayer { alpha = topAlpha }
+                                        .background(
+                                            Brush.verticalGradient(
+                                                colors = listOf(
+                                                    containerColor,
+                                                    Color.Transparent
+                                                )
+                                            )
+                                        )
+                                        .align(Alignment.TopCenter)
+                                )
+
+                                // Right Side Bottom Progressive Blur
+                                if (advancedUi) {
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomCenter)
+                                            .fillMaxWidth()
+                                            .height(120.dp)
+                                            .progressiveSystemBarBlur(
+                                                hazeState = previewHazeState,
+                                                isTop = false,
+                                                alpha = 1f,
+                                                backgroundColor = containerColor
+                                            )
+                                    )
+                                }
+
                                 // Right Side Persistent Bottom Bar with Gradient
                                 Box(
                                     modifier = Modifier
@@ -1806,9 +1900,17 @@ fun ListDetailScreen(
                         // Mobile Design (Persistent Edge-to-Edge with drawing under fix)
                         Box(modifier = Modifier.fillMaxSize()) {
                             val scrollState = rememberScrollState()
+                            val topAlpha by remember {
+                                derivedStateOf {
+                                    if (scrollState.value > 0) {
+                                        (scrollState.value / 60f).coerceIn(0f, 1f)
+                                    } else 0f
+                                }
+                            }
                             Column(
                                 modifier = Modifier
                                     .fillMaxSize()
+                                    .advancedUiSource(previewHazeState, advancedUi)
                                     .verticalScroll(scrollState)
                             ) {
                                 // Artwork (Poster ratio, padded)
@@ -1998,6 +2100,55 @@ fun ListDetailScreen(
                                 Spacer(Modifier.height(140.dp))
                             }
 
+                            // Mobile Top Progressive Blur & Gradient
+                            if (advancedUi) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(64.dp)
+                                        .progressiveSystemBarBlur(
+                                            hazeState = previewHazeState,
+                                            isTop = true,
+                                            alpha = 1f,
+                                            backgroundColor = containerColor,
+                                            blurRadius = 10.dp * topAlpha
+                                        )
+                                        .align(Alignment.TopCenter)
+                                )
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(64.dp)
+                                    .graphicsLayer { alpha = topAlpha }
+                                    .background(
+                                        Brush.verticalGradient(
+                                            colors = listOf(
+                                                containerColor,
+                                                Color.Transparent
+                                            )
+                                        )
+                                    )
+                                    .align(Alignment.TopCenter)
+                            )
+
+                            // Mobile Bottom Progressive Blur
+                            if (advancedUi) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .fillMaxWidth()
+                                        .height(180.dp)
+                                        .progressiveSystemBarBlur(
+                                            hazeState = previewHazeState,
+                                            isTop = false,
+                                            alpha = 1f,
+                                            backgroundColor = containerColor
+                                        )
+                                )
+                            }
+
                             // Persistent Bottom Bar with Gradient (Overlaid)
                             Box(
                                 modifier = Modifier
@@ -2062,6 +2213,7 @@ fun ListDetailScreen(
             }
         }
     }
+}
 }
 
 @Composable
