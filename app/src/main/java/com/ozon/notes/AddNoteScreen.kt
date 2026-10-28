@@ -56,10 +56,11 @@ import kotlin.math.roundToInt
 fun AddNoteScreen(
     noteId: String?,
     viewModel: NotesViewModel,
-    onNavigateUp: () -> Unit
+    onNavigateUp: () -> Unit,
+    isTabletUi: Boolean = false
 ) {
     key(noteId) {
-        AddNoteScreenContent(noteId, viewModel, onNavigateUp)
+        AddNoteScreenContent(noteId, viewModel, onNavigateUp, isTabletUi)
     }
 }
 
@@ -68,7 +69,8 @@ fun AddNoteScreen(
 private fun AddNoteScreenContent(
     noteId: String?,
     viewModel: NotesViewModel,
-    onNavigateUp: () -> Unit
+    onNavigateUp: () -> Unit,
+    isTabletUi: Boolean = false
 ) {
     var title by remember { 
         mutableStateOf(
@@ -381,7 +383,8 @@ private fun AddNoteScreenContent(
                 anchor = toolbarAnchor,
                 onAnchorChange = { toolbarAnchor = it },
                 isCollapsed = isToolbarCollapsed,
-                onToggleCollapse = { isToolbarCollapsed = it }
+                onToggleCollapse = { isToolbarCollapsed = it },
+                isTabletUi = isTabletUi
             )
         }
     }
@@ -395,7 +398,8 @@ fun TextFormattingToolbar(
     anchor: ToolbarAnchor,
     onAnchorChange: (ToolbarAnchor) -> Unit,
     isCollapsed: Boolean,
-    onToggleCollapse: (Boolean) -> Unit
+    onToggleCollapse: (Boolean) -> Unit,
+    isTabletUi: Boolean = false
 ) {
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
     var predictedAnchor by remember { mutableStateOf<ToolbarAnchor?>(null) }
@@ -414,8 +418,8 @@ fun TextFormattingToolbar(
             ToolbarAnchor.BOTTOM_LEFT -> Alignment.BottomStart
             ToolbarAnchor.BOTTOM_RIGHT -> Alignment.BottomEnd
         }
-        val navBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val navBarPadding = if (isTabletUi) 0.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val statusBarPadding = if (isTabletUi) 0.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         val imePadding = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
         val headerHeight = 64.dp
         

@@ -42,6 +42,7 @@ fun DrawingCanvas(
     val viewConfiguration = LocalViewConfiguration.current
     val currentPathPoints = remember { mutableStateListOf<DrawingPoint>() }
     val activeStrokePath = remember { Path() }
+    val gridPath = remember { Path() }
 
     val gestureRemovedStrokes = remember { mutableStateListOf<Stroke>() }
     val gestureRemovedImages = remember { mutableStateListOf<DrawingImage>() }
@@ -134,7 +135,7 @@ fun DrawingCanvas(
         val eraseRect = Rect(minX - eraserRadius, minY - eraserRadius, maxX + eraserRadius, maxY + eraserRadius)
         val candidateIds = controller.spatialIndex.queryRect(eraseRect)
 
-        val toErase = candidateIds.mapNotNull { controller.spatialIndex.getStroke(it) }.filter { stroke ->
+        val toErase = candidateIds.asSequence().mapNotNull { controller.spatialIndex.getStroke(it) }.filter { stroke ->
             if (stroke.tool == DrawingTool.ERASER) false
             else {
                 val bounds = controller.spatialIndex.getBounds(stroke.id)
@@ -167,7 +168,7 @@ fun DrawingCanvas(
                     hit
                 }
             }
-        }
+        }.toList()
 
         if (toErase.isNotEmpty()) {
             gestureRemovedStrokes.addAll(toErase)
@@ -482,8 +483,10 @@ fun DrawingCanvas(
                                     }
                                 }
                                 DragMode.LASSO, DragMode.DRAW -> {
-                                    val addedPoints = mutableListOf<DrawingPoint>()
-                                    change.historical.forEach { h ->
+                                    val histSize = change.historical.size
+                                    val addedPoints = ArrayList<DrawingPoint>(histSize + 1)
+                                    for (i in 0 until histSize) {
+                                        val h = change.historical[i]
                                         val rawX = (h.position.x - controller.canvasOffset.x) / controller.canvasScale
                                         val rawY = (h.position.y - controller.canvasOffset.y) / controller.canvasScale
 
@@ -495,9 +498,7 @@ fun DrawingCanvas(
                                             smoothedY = rawY
                                         }
 
-                                        val pt = DrawingPoint(smoothedX, smoothedY)
-                                        addedPoints.add(pt)
-                                        currentPathPoints.add(pt)
+                                        addedPoints.add(DrawingPoint(smoothedX, smoothedY))
                                     }
                                     val rawX = worldPos.x
                                     val rawY = worldPos.y
@@ -510,9 +511,8 @@ fun DrawingCanvas(
                                         smoothedY = rawY
                                     }
 
-                                    val currentPt = DrawingPoint(smoothedX, smoothedY)
-                                    addedPoints.add(currentPt)
-                                    currentPathPoints.add(currentPt)
+                                    addedPoints.add(DrawingPoint(smoothedX, smoothedY))
+                                    currentPathPoints.addAll(addedPoints)
 
                                     if (dragMode == DragMode.DRAW && currentWorkingTool == DrawingTool.ERASER) {
                                         performErase(addedPoints)
@@ -560,11 +560,13 @@ fun DrawingCanvas(
                 }
         ) {
             val _ver = controller.tileCacheVersion
-            val viewport = controller.currentViewport
-            val pagePositions = controller.pagePositions
+            val canvasType = controller.canvasType
+            val needsViewport = showGuidelines || canvasType != CanvasType.INFINITE
+            val viewport = if (needsViewport) controller.currentViewport else Rect.Zero
+            val pagePositions = if (canvasType != CanvasType.INFINITE) controller.pagePositions else emptyList()
 
             // 1. Render PDF Background (with fast index culling)
-            if (controller.canvasType == CanvasType.PDF && controller.pdfInfo != null) {
+            if (canvasType == CanvasType.PDF && controller.pdfInfo != null) {
                 for (i in pagePositions.indices) {
                     val pageRect = pagePositions[i]
                     if (pageRect.bottom <= viewport.top) continue
@@ -589,7 +591,7 @@ fun DrawingCanvas(
             }
 
             // 2. Render Paged Background
-            if (controller.canvasType == CanvasType.PAGED) {
+            if (canvasType == CanvasType.PAGED) {
                 for (i in pagePositions.indices) {
                     val pageRect = pagePositions[i]
                     if (pageRect.bottom <= viewport.top) continue
@@ -604,36 +606,52 @@ fun DrawingCanvas(
                 val spacing = 40f
                 val guidelineColor = Color.LightGray.copy(alpha = 0.3f)
                 val strokeWidth = 1f / controller.canvasScale
+                gridPath.rewind()
 
-                if (controller.canvasType == CanvasType.INFINITE) {
-                    val startY = (viewport.top / spacing).toInt() * spacing
+                if (canvasType == CanvasType.INFINITE) {
+                    val startY = kotlin.math.floor(viewport.top / spacing) * spacing
                     val endY = viewport.bottom
                     var y = startY
                     while (y <= endY) {
-                        drawLine(
-                            color = guidelineColor,
-                            start = Offset(viewport.left, y),
-                            end = Offset(viewport.right, y),
-                            strokeWidth = strokeWidth
-                        )
+                        gridPath.moveTo(viewport.left, y)
+                        gridPath.lineTo(viewport.right, y)
                         y += spacing
                     }
+
+                    val startX = kotlin.math.floor(viewport.left / spacing) * spacing
+                    val endX = viewport.right
+                    var x = startX
+                    while (x <= endX) {
+                        gridPath.moveTo(x, viewport.top)
+                        gridPath.lineTo(x, viewport.bottom)
+                        x += spacing
+                    }
                 } else {
-                    pagePositions.forEach { pageRect ->
+                    for (i in pagePositions.indices) {
+                        val pageRect = pagePositions[i]
                         if (viewport.overlaps(pageRect)) {
                             var y = pageRect.top + spacing
                             while (y < pageRect.bottom) {
-                                drawLine(
-                                    color = guidelineColor,
-                                    start = Offset(pageRect.left, y),
-                                    end = Offset(pageRect.right, y),
-                                    strokeWidth = strokeWidth
-                                )
+                                gridPath.moveTo(pageRect.left, y)
+                                gridPath.lineTo(pageRect.right, y)
                                 y += spacing
+                            }
+
+                            var x = pageRect.left + spacing
+                            while (x < pageRect.right) {
+                                gridPath.moveTo(x, pageRect.top)
+                                gridPath.lineTo(x, pageRect.bottom)
+                                x += spacing
                             }
                         }
                     }
                 }
+
+                drawPath(
+                    path = gridPath,
+                    color = guidelineColor,
+                    style = DrawStroke(width = strokeWidth)
+                )
             }
 
             // 4. Hardware-Accelerated Vector Display List Drawing (Images + Strokes)
@@ -649,151 +667,142 @@ fun DrawingCanvas(
         }
 
         // LAYER 2: Real-time Active Stroke & Live Transformations
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            withTransform({
-                translate(controller.canvasOffset.x, controller.canvasOffset.y)
-                scale(controller.canvasScale, controller.canvasScale, Offset.Zero)
-            }) {
-                val drawingTool = controller.activeDrawingTool ?: controller.currentTool
-
-                // 1. Live Active Stroke
-                if (currentPathPoints.isNotEmpty()) {
-                    activeStrokePath.rewind()
-                    val pts = currentPathPoints
-                    if (pts.size == 1) {
-                        activeStrokePath.moveTo(pts[0].x, pts[0].y)
-                        activeStrokePath.lineTo(pts[0].x + 0.1f, pts[0].y)
-                    } else if (pts.size == 2 || drawingTool == DrawingTool.LASSO) {
-                        pts.forEachIndexed { i, p ->
-                            if (i == 0) activeStrokePath.moveTo(p.x, p.y)
-                            else activeStrokePath.lineTo(p.x, p.y)
-                        }
-                    } else {
-                        activeStrokePath.moveTo(pts[0].x, pts[0].y)
-                        for (i in 1 until pts.size - 1) {
-                            val midX = (pts[i].x + pts[i + 1].x) / 2f
-                            val midY = (pts[i].y + pts[i + 1].y) / 2f
-                            activeStrokePath.quadraticTo(pts[i].x, pts[i].y, midX, midY)
-                        }
-                        activeStrokePath.lineTo(pts.last().x, pts.last().y)
-                    }
-                    if (drawingTool == DrawingTool.LASSO) {
-                        drawPath(
-                            path = activeStrokePath,
-                            color = Color.Blue,
-                            style = DrawStroke(
-                                width = 1.dp.toPx() / controller.canvasScale,
-                                pathEffect = PathEffect.dashPathEffect(
-                                    floatArrayOf(10f / controller.canvasScale, 10f / controller.canvasScale),
-                                    0f
-                                )
-                            )
-                        )
-                    } else if (drawingTool != DrawingTool.HAND) {
-                        drawPath(
-                            path = activeStrokePath,
-                            color = if (drawingTool == DrawingTool.ERASER) Color.LightGray else controller.selectedPenColor,
-                            style = DrawStroke(
-                                width = if (drawingTool == DrawingTool.ERASER) controller.eraserThickness else controller.penThickness,
-                                cap = StrokeCap.Round,
-                                join = StrokeJoin.Round
-                            )
-                        )
-                    }
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationX = controller.canvasOffset.x
+                    translationY = controller.canvasOffset.y
+                    scaleX = controller.canvasScale
+                    scaleY = controller.canvasScale
+                    transformOrigin = TransformOrigin(0f, 0f)
                 }
+        ) {
+            val drawingTool = controller.activeDrawingTool ?: controller.currentTool
 
-                // 2. Selected Strokes & Images with Live Transformation
-                if (controller.selectedStrokeIds.isNotEmpty() || controller.selectedImageIds.isNotEmpty()) {
-                    val liveXform = controller.activeTransformation
-                    withTransform({
-                        if (liveXform != null) {
-                            liveXform.offset?.let { translate(it.x, it.y) }
-                            if (liveXform.scale != null && liveXform.pivot != null) {
-                                scale(liveXform.scale.x, liveXform.scale.y, Offset(liveXform.pivot.x, liveXform.pivot.y))
-                            }
+            // 1. Live Active Stroke
+            if (currentPathPoints.isNotEmpty()) {
+                activeStrokePath.rewind()
+                val pts = currentPathPoints.toList()
+                val size = pts.size
+                if (size == 1) {
+                    activeStrokePath.moveTo(pts[0].x, pts[0].y)
+                    activeStrokePath.lineTo(pts[0].x + 0.1f, pts[0].y)
+                } else if (size == 2 || drawingTool == DrawingTool.LASSO) {
+                    for (i in 0 until size) {
+                        val p = pts[i]
+                        if (i == 0) activeStrokePath.moveTo(p.x, p.y)
+                        else activeStrokePath.lineTo(p.x, p.y)
+                    }
+                } else {
+                    activeStrokePath.moveTo(pts[0].x, pts[0].y)
+                    for (i in 1 until size - 1) {
+                        val midX = (pts[i].x + pts[i + 1].x) / 2f
+                        val midY = (pts[i].y + pts[i + 1].y) / 2f
+                        activeStrokePath.quadraticTo(pts[i].x, pts[i].y, midX, midY)
+                    }
+                    activeStrokePath.lineTo(pts[size - 1].x, pts[size - 1].y)
+                }
+                if (drawingTool == DrawingTool.LASSO) {
+                    drawPath(
+                        path = activeStrokePath,
+                        color = Color.Blue,
+                        style = DrawStroke(
+                            width = 1.dp.toPx() / controller.canvasScale,
+                            pathEffect = PathEffect.dashPathEffect(
+                                floatArrayOf(10f / controller.canvasScale, 10f / controller.canvasScale),
+                                0f
+                            )
+                        )
+                    )
+                } else if (drawingTool != DrawingTool.HAND) {
+                    drawPath(
+                        path = activeStrokePath,
+                        color = if (drawingTool == DrawingTool.ERASER) Color.LightGray else controller.selectedPenColor,
+                        style = DrawStroke(
+                            width = if (drawingTool == DrawingTool.ERASER) controller.eraserThickness else controller.penThickness,
+                            cap = StrokeCap.Round,
+                            join = StrokeJoin.Round
+                        )
+                    )
+                }
+            }
+
+            // 2. Selected Strokes & Images with Live Transformation
+            if (controller.selectedStrokeIds.isNotEmpty() || controller.selectedImageIds.isNotEmpty()) {
+                val liveXform = controller.activeTransformation
+                withTransform({
+                    if (liveXform != null) {
+                        liveXform.offset?.let { translate(it.x, it.y) }
+                        if (liveXform.scale != null && liveXform.pivot != null) {
+                            scale(liveXform.scale.x, liveXform.scale.y, Offset(liveXform.pivot.x, liveXform.pivot.y))
                         }
-                    }) {
-                        // Draw selected images
-                        controller.selectedImageIds.forEach { id ->
-                            val img = controller.imageMap[id] ?: return@forEach
-                            val bmp = controller.imageCache.get(img.path)
-                            if (bmp != null && !bmp.isRecycled) {
-                                drawImage(
-                                    image = bmp.asImageBitmap(),
-                                    dstOffset = IntOffset(img.offset.x.roundToInt(), img.offset.y.roundToInt()),
-                                    dstSize = IntSize(img.scale.x.roundToInt(), img.scale.y.roundToInt()),
-                                    filterQuality = FilterQuality.Medium
-                                )
-                            }
+                    }
+                }) {
+                    // Draw selected images
+                    controller.selectedImageIds.forEach { id ->
+                        val img = controller.imageMap[id] ?: return@forEach
+                        val bmp = controller.imageCache.get(img.path)
+                        if (bmp != null && !bmp.isRecycled) {
+                            drawImage(
+                                image = bmp.asImageBitmap(),
+                                dstOffset = IntOffset(img.offset.x.roundToInt(), img.offset.y.roundToInt()),
+                                dstSize = IntSize(img.scale.x.roundToInt(), img.scale.y.roundToInt()),
+                                filterQuality = FilterQuality.Medium
+                            )
                         }
-                        // Draw selected strokes
-                        val livePath = Path()
+                    }
+                    // Draw selected strokes with cached path and drawIntoCanvas
+                    drawIntoCanvas { canvas ->
                         controller.selectedStrokeIds.forEach { id ->
                             val stroke = controller.strokeMap[id] ?: return@forEach
-                            livePath.rewind()
-                            val pts = stroke.points
-                            if (pts.isNotEmpty()) {
-                                livePath.moveTo(pts[0].x, pts[0].y)
-                                if (pts.size == 1) {
-                                    livePath.lineTo(pts[0].x + 0.1f, pts[0].y)
-                                } else {
-                                    for (i in 1 until pts.size) {
-                                        livePath.lineTo(pts[i].x, pts[i].y)
-                                    }
-                                }
-                                drawPath(
-                                    path = livePath,
-                                    color = Color(stroke.colorArgb),
-                                    style = DrawStroke(
-                                        width = stroke.width,
-                                        cap = StrokeCap.Round,
-                                        join = StrokeJoin.Round
-                                    )
-                                )
-                            }
+                            val path = controller.strokePathCache.getOrCreate(stroke)
+                            renderPaint.color = stroke.colorArgb
+                            renderPaint.strokeWidth = stroke.width
+                            canvas.nativeCanvas.drawPath(path, renderPaint)
                         }
                     }
                 }
+            }
 
-                // 3. Selection Bounding Box & Handles
-                controller.selectionBounds?.let { bounds ->
-                    val liveXform = controller.activeTransformation
-                    withTransform({
-                        if (liveXform != null) {
-                            liveXform.offset?.let { translate(it.x, it.y) }
-                            if (liveXform.scale != null && liveXform.pivot != null) {
-                                scale(liveXform.scale.x, liveXform.scale.y, Offset(liveXform.pivot.x, liveXform.pivot.y))
-                            }
+            // 3. Selection Bounding Box & Handles
+            controller.selectionBounds?.let { bounds ->
+                val liveXform = controller.activeTransformation
+                withTransform({
+                    if (liveXform != null) {
+                        liveXform.offset?.let { translate(it.x, it.y) }
+                        if (liveXform.scale != null && liveXform.pivot != null) {
+                            scale(liveXform.scale.x, liveXform.scale.y, Offset(liveXform.pivot.x, liveXform.pivot.y))
                         }
-                    }) {
-                        drawRect(
-                            color = Color.Blue,
-                            topLeft = bounds.topLeft,
-                            size = bounds.size,
-                            style = DrawStroke(
-                                width = 1.dp.toPx() / controller.canvasScale,
-                                pathEffect = PathEffect.dashPathEffect(
-                                    floatArrayOf(10f / controller.canvasScale, 10f / controller.canvasScale),
-                                    0f
-                                )
+                    }
+                }) {
+                    drawRect(
+                        color = Color.Blue,
+                        topLeft = bounds.topLeft,
+                        size = bounds.size,
+                        style = DrawStroke(
+                            width = 1.dp.toPx() / controller.canvasScale,
+                            pathEffect = PathEffect.dashPathEffect(
+                                floatArrayOf(10f / controller.canvasScale, 10f / controller.canvasScale),
+                                0f
                             )
                         )
-                        val r = 6.dp.toPx() / controller.canvasScale
-                        val strokeW = 2.dp.toPx() / controller.canvasScale
-                        listOf(
-                            bounds.topLeft,
-                            bounds.topRight,
-                            bounds.bottomLeft,
-                            bounds.bottomRight
-                        ).forEach { c ->
-                            drawCircle(color = Color.White, radius = r, center = c)
-                            drawCircle(
-                                color = Color.Blue,
-                                radius = r,
-                                center = c,
-                                style = DrawStroke(width = strokeW)
-                            )
-                        }
+                    )
+                    val r = 6.dp.toPx() / controller.canvasScale
+                    val strokeW = 2.dp.toPx() / controller.canvasScale
+                    listOf(
+                        bounds.topLeft,
+                        bounds.topRight,
+                        bounds.bottomLeft,
+                        bounds.bottomRight
+                    ).forEach { c ->
+                        drawCircle(color = Color.White, radius = r, center = c)
+                        drawCircle(
+                            color = Color.Blue,
+                            radius = r,
+                            center = c,
+                            style = DrawStroke(width = strokeW)
+                        )
                     }
                 }
             }

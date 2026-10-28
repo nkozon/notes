@@ -484,7 +484,7 @@ fun DrawingNoteScreen(
         }
     }
 
-    val currentViewingPageIndex by remember(controller.pagePositions, controller.canvasOffset, controller.canvasScale, controller.canvasSize) {
+    val currentViewingPageIndexState = remember(controller) {
         derivedStateOf {
             val positions = controller.pagePositions
             if (positions.isEmpty()) 0
@@ -565,14 +565,16 @@ fun DrawingNoteScreen(
             }
 
             // System bar gradients
-            Box(
+            SystemBarGradients(
                 modifier = Modifier
                     .fillMaxSize()
                     .then(if (isNormalTablet) Modifier.statusBarsPadding() else Modifier)
-                    .zIndex(1f)
-            ) {
-                SystemBarGradients(color = Color(0xFFF9F9F9), showTop = true, showBottom = true)
-            }
+                    .zIndex(1f),
+                color = Color(0xFFF9F9F9),
+                showTop = true,
+                showBottom = true,
+                bottomHeight = 60.dp
+            )
 
             // Top Bar
             DrawingTopBar(
@@ -640,7 +642,7 @@ fun DrawingNoteScreen(
                     onUndo = { controller.undo() },
                     redoEnabled = controller.historyManager.canRedo,
                     onRedo = { controller.redo() },
-                    canvasScale = controller.canvasScale,
+                    canvasScale = { controller.canvasScale },
                     onResetZoom = {
                         controller.canvasScale = 1f
                         controller.canvasOffset = Offset.Zero
@@ -679,7 +681,7 @@ fun DrawingNoteScreen(
                         pdfRenderer = pdfRenderer,
                         pdfInfo = controller.pdfInfo,
                         pageCount = controller.pageCount,
-                        currentViewingPageIndex = currentViewingPageIndex,
+                        currentViewingPageIndex = currentViewingPageIndexState.value,
                         strokes = controller.currentStrokes,
                         images = controller.currentImages,
                         onClose = { showPageOverview = false },
@@ -712,7 +714,7 @@ fun DrawingNoteScreen(
             pdfRenderer = pdfRenderer,
             pdfInfo = controller.pdfInfo,
             pageCount = controller.pageCount,
-            currentViewingPageIndex = currentViewingPageIndex,
+            currentViewingPageIndex = currentViewingPageIndexState.value,
             strokes = controller.currentStrokes,
             images = controller.currentImages,
             onDismiss = { showPageOverview = false },

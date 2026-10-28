@@ -12,6 +12,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeInput
@@ -50,20 +51,24 @@ fun Modifier.advancedUiBlur(
     blurRadius: Dp = 24.dp,
     enabled: Boolean = true
 ): Modifier {
-    if (!enabled || hazeState == null) return this
+    if (!enabled || hazeState == null || blurRadius <= 0.01.dp) return this
     val effectiveRadius = blurRadius.coerceAtLeast(0.dp)
+    val hasOpaqueBackground = backgroundColor.isSpecified && backgroundColor != Color.Transparent && backgroundColor.alpha > 0.01f
     return this
         .clip(shape)
         .hazeBlur(
             input = HazeInput.Sources(hazeState),
             style = HazeBlurStyle {
                 this.blurRadius(effectiveRadius)
-                if (backgroundColor != Color.Unspecified) {
-                    this.backgroundColor(backgroundColor)
-                }
-                if (tint != null && tint.alpha > 0.001f && effectiveRadius > 0.dp) {
+                this.noiseFactor(0f)
+                this.backgroundColor(if (hasOpaqueBackground) backgroundColor else Color.Transparent)
+                // Never apply tint to transparent surfaces to prevent discoloration
+                if (hasOpaqueBackground && tint != null && tint.isSpecified && tint != Color.Transparent && tint.alpha > 0.01f) {
                     this.colorEffects(listOf(HazeColorEffect.tint(tint)))
+                } else {
+                    this.colorEffects(emptyList())
                 }
+                this.fallbackColorEffect(null)
                 this.blurredEdgeTreatment(BlurredEdgeTreatment(shape))
             }
         )
@@ -83,15 +88,17 @@ fun Modifier.progressiveSystemBarBlur(
     blurRadius: Dp = 10.dp,
     enabled: Boolean = true
 ): Modifier {
-    if (!enabled || hazeState == null) return this
+    if (!enabled || hazeState == null || alpha <= 0.001f || blurRadius <= 0.01.dp) return this
     val effectiveRadius = blurRadius.coerceAtLeast(0.dp)
+    val hasOpaqueBackground = backgroundColor.isSpecified && backgroundColor != Color.Transparent && backgroundColor.alpha > 0.01f
     return this.hazeBlur(
         input = HazeInput.Sources(hazeState),
         style = HazeBlurStyle {
             this.blurRadius(effectiveRadius)
-            if (backgroundColor != Color.Unspecified) {
-                this.backgroundColor(backgroundColor)
-            }
+            this.noiseFactor(0f)
+            this.backgroundColor(if (hasOpaqueBackground) backgroundColor else Color.Transparent)
+            this.colorEffects(emptyList())
+            this.fallbackColorEffect(null)
             this.alpha(alpha.coerceIn(0f, 1f))
             this.progressive(
                 if (isTop) {

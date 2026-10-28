@@ -69,7 +69,7 @@ fun DrawingToolbar(
     onUndo: () -> Unit,
     redoEnabled: Boolean,
     onRedo: () -> Unit,
-    canvasScale: Float,
+    canvasScale: () -> Float,
     onResetZoom: () -> Unit,
     thicknessPresets: List<Float> = emptyList(),
     onThicknessPresetsChange: (List<Float>) -> Unit = {}
@@ -340,6 +340,57 @@ fun DrawingToolbar(
 }
 
 @Composable
+fun DrawingToolbar(
+    currentTool: DrawingTool,
+    onToolChange: (DrawingTool) -> Unit,
+    anchor: ToolbarAnchor,
+    onAnchorChange: (ToolbarAnchor) -> Unit,
+    isCollapsed: Boolean,
+    onToggleCollapse: (Boolean) -> Unit,
+    penThickness: Float,
+    onPenThicknessChange: (Float) -> Unit,
+    eraserThickness: Float,
+    onEraserThicknessChange: (Float) -> Unit,
+    showThicknessPopup: Boolean,
+    selectedPenColor: Color,
+    onPenColorChange: (Color) -> Unit,
+    showColorPopup: Boolean,
+    onToggleColorPopup: (Boolean) -> Unit,
+    undoEnabled: Boolean,
+    onUndo: () -> Unit,
+    redoEnabled: Boolean,
+    onRedo: () -> Unit,
+    canvasScale: Float,
+    onResetZoom: () -> Unit,
+    thicknessPresets: List<Float> = emptyList(),
+    onThicknessPresetsChange: (List<Float>) -> Unit = {}
+) = DrawingToolbar(
+    currentTool = currentTool,
+    onToolChange = onToolChange,
+    anchor = anchor,
+    onAnchorChange = onAnchorChange,
+    isCollapsed = isCollapsed,
+    onToggleCollapse = onToggleCollapse,
+    penThickness = penThickness,
+    onPenThicknessChange = onPenThicknessChange,
+    eraserThickness = eraserThickness,
+    onEraserThicknessChange = onEraserThicknessChange,
+    showThicknessPopup = showThicknessPopup,
+    selectedPenColor = selectedPenColor,
+    onPenColorChange = onPenColorChange,
+    showColorPopup = showColorPopup,
+    onToggleColorPopup = onToggleColorPopup,
+    undoEnabled = undoEnabled,
+    onUndo = onUndo,
+    redoEnabled = redoEnabled,
+    onRedo = onRedo,
+    canvasScale = { canvasScale },
+    onResetZoom = onResetZoom,
+    thicknessPresets = thicknessPresets,
+    onThicknessPresetsChange = onThicknessPresetsChange
+)
+
+@Composable
 private fun ToolbarContent(
     isHorizontal: Boolean,
     isCollapsed: Boolean,
@@ -353,7 +404,7 @@ private fun ToolbarContent(
     onUndo: () -> Unit,
     redoEnabled: Boolean,
     onRedo: () -> Unit,
-    canvasScale: Float,
+    canvasScale: () -> Float,
     onResetZoom: () -> Unit
 ) {
     if (!isCollapsed) {
@@ -400,6 +451,7 @@ private fun ToolbarContent(
         Icon(Icons.AutoMirrored.Rounded.Redo, contentDescription = "Redo", modifier = Modifier.size(16.dp))
     }
     ToolbarSeparator(isHorizontal)
+    val scale = canvasScale()
     if (isHorizontal) {
         TextButton(
             onClick = onResetZoom,
@@ -407,10 +459,10 @@ private fun ToolbarContent(
             contentPadding = PaddingValues(0.dp)
         ) {
             Text(
-                text = "${(canvasScale * 100).roundToInt()}%",
+                text = "${(scale * 100).roundToInt()}%",
                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                 fontWeight = FontWeight.Bold,
-                color = if (canvasScale != 1f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                color = if (scale != 1f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     } else {
@@ -419,7 +471,7 @@ private fun ToolbarContent(
                 Icons.Rounded.ZoomIn,
                 contentDescription = "Reset Zoom",
                 modifier = Modifier.size(18.dp),
-                tint = if (canvasScale != 1f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                tint = if (scale != 1f) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }

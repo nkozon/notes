@@ -383,7 +383,7 @@ fun ListDetailScreen(
         checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
     }
 
-    val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val topPadding = if (isTabletUi) 0.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val headerHeight = 64.dp
 
     if (currentList == null) {
@@ -674,7 +674,7 @@ fun ListDetailScreen(
         Box(
             modifier = Modifier.fillMaxSize()
         ) {
-            val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            val bottomPadding = if (isTabletUi) 0.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
             val currentTime = remember { System.currentTimeMillis() }
             val isMoveToBottom = currentList.type == ListType.CHECKLIST && checklistBehavior == ChecklistBehavior.MOVE_TO_BOTTOM

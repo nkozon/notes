@@ -58,6 +58,8 @@ sealed interface NoteEvent {
     data class UpdateSplitFraction(val fraction: Float) : NoteEvent
     data object ToggleSidePanel : NoteEvent
     data class SetSidePanelVisible(val visible: Boolean) : NoteEvent
+    data object ToggleSidePanelCollapsed : NoteEvent
+    data class SetSidePanelCollapsed(val collapsed: Boolean) : NoteEvent
     data class UpdateForceStylusOnly(val enabled: Boolean) : NoteEvent
     data class UpdateLastDrawingColor(val color: Int) : NoteEvent
     data class UpdateLastDrawingThickness(val thickness: Float) : NoteEvent

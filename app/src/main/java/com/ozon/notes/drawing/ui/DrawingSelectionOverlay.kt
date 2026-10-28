@@ -41,9 +41,6 @@ fun DrawingSelectionOverlay(
     onExportSelection: (List<NoteStroke>, List<DrawingImage>) -> Unit
 ) {
     val selectionBounds = controller.selectionBounds ?: return
-    val canvasScale = controller.canvasScale
-    val canvasOffset = controller.canvasOffset
-    val liveXform = controller.activeTransformation
 
     val density = LocalDensity.current
     val px16 = with(density) { 16.dp.toPx() }
@@ -65,6 +62,10 @@ fun DrawingSelectionOverlay(
     Surface(
         modifier = Modifier
             .offset {
+                val liveXform = controller.activeTransformation
+                val canvasScale = controller.canvasScale
+                val canvasOffset = controller.canvasOffset
+
                 var x = selectionBounds.center.x
                 var y = selectionBounds.top
                 var bBottom = selectionBounds.bottom
@@ -158,6 +159,10 @@ fun DrawingSelectionOverlay(
         Column(
             modifier = Modifier
                 .offset {
+                    val liveXform = controller.activeTransformation
+                    val canvasScale = controller.canvasScale
+                    val canvasOffset = controller.canvasOffset
+
                     var x = selectionBounds.center.x
                     var y = selectionBounds.top
                     var bBottom = selectionBounds.bottom

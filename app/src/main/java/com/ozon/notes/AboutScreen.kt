@@ -29,7 +29,8 @@ import androidx.compose.ui.unit.dp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AboutScreen(
-    onNavigateUp: () -> Unit
+    onNavigateUp: () -> Unit,
+    isTabletUi: Boolean = false
 ) {
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
@@ -86,8 +87,8 @@ fun AboutScreen(
             )
         }
     ) { padding ->
-        val topPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-        val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val topPadding = if (isTabletUi) 0.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val bottomPadding = if (isTabletUi) 0.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val topAlpha by remember {
             derivedStateOf {
                 (scrollState.value / 100f).coerceIn(0f, 1f)

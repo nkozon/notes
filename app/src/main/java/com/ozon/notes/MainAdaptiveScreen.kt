@@ -1,11 +1,19 @@
 package com.ozon.notes
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
-import androidx.compose.animation.core.*
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
@@ -14,18 +22,22 @@ import androidx.compose.material3.adaptive.navigation.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
@@ -177,160 +189,513 @@ private fun TabletSplitScreen(
     initialListId: String? = null,
     rescheduleEntryId: String? = null
 ) {
-    var currentDetailRoute by remember { 
-        mutableStateOf<DetailRoute?>(initialListId?.let { DetailRoute.List(it, rescheduleEntryId) }) 
+    val initialRoute = remember {
+        initialListId?.let { DetailRoute.List(it, rescheduleEntryId) }
     }
-    val splitFraction by notesViewModel.splitFractionState.collectAsStateWithLifecycle()
+    var displayedRoute by remember { mutableStateOf<DetailRoute?>(initialRoute) }
+    var openRoute by remember { mutableStateOf<DetailRoute?>(initialRoute) }
+    var isPeeking by remember { mutableStateOf(false) }
+    var isDismissing by remember { mutableStateOf(false) }
+    var showSettingsPanel by remember { mutableStateOf(false) }
+    var settingsRoute by remember { mutableStateOf<DetailRoute>(DetailRoute.Settings) }
 
-    LaunchedEffect(rescheduleEntryId, initialListId) {
+    val peekProgress = remember { Animatable(if (isPeeking) 1f else 0f) }
+    val homeLeanProgress = remember { Animatable(if (isPeeking) 1f else 0f) }
+    var isPeekDragging by remember { mutableStateOf(false) }
+    var isSettling by remember { mutableStateOf(false) }
+    var dragFraction by remember { mutableFloatStateOf(if (isPeeking) 1f else 0f) }
+    var settleJob by remember { mutableStateOf<Job?>(null) }
+    val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    fun cancelPanelSettle() {
+        settleJob?.cancel()
+        settleJob = null
+        isSettling = false
+    }
+
+    fun openDetail(route: DetailRoute) {
+        cancelPanelSettle()
+        displayedRoute = route
+        openRoute = route
+        isPeeking = false
+    }
+
+    fun hideDetail() {
+        cancelPanelSettle()
+        keyboardController?.hide()
+        focusManager.clearFocus(force = true)
+        openRoute = null
+    }
+
+    fun handleDetailBack() {
+        cancelPanelSettle()
+        if (isPeeking) {
+            hideDetail()
+        } else {
+            keyboardController?.hide()
+            focusManager.clearFocus(force = true)
+            isPeeking = true
+        }
+    }
+
+    val allNotes by notesViewModel.allNotesState.collectAsStateWithLifecycle()
+    val allLists by notesViewModel.allListsState.collectAsStateWithLifecycle()
+
+    fun openSettings() {
+        settingsRoute = DetailRoute.Settings
+        showSettingsPanel = true
+    }
+
+    fun openSettingsRoute(route: DetailRoute) {
+        settingsRoute = route
+        showSettingsPanel = true
+    }
+
+    LaunchedEffect(initialListId, rescheduleEntryId) {
         if (rescheduleEntryId != null && initialListId != null) {
-            currentDetailRoute = DetailRoute.List(initialListId, rescheduleEntryId)
-        }
-    }
-    val isSidePanelVisible by notesViewModel.isSidePanelVisible.collectAsStateWithLifecycle()
-    
-    // Auto-close detail pane if the selected item is deleted
-    val notes by notesViewModel.notesState.collectAsStateWithLifecycle()
-    LaunchedEffect(notes) {
-        val route = currentDetailRoute
-        if (route is DetailRoute.Note && route.id != null && notes.none { it.id == route.id }) currentDetailRoute = null
-        if (route is DetailRoute.Drawing && route.id != null && notes.none { it.id == route.id }) currentDetailRoute = null
-    }
-
-    val density = LocalDensity.current
-    var totalWidth by remember { mutableFloatStateOf(0f) }
-    
-    // --- STABLE STATE MANAGEMENT ---
-    // We use a simple float for the local weight and update it manually to avoid remember-key resets
-    var localWeight by remember { mutableFloatStateOf(splitFraction) }
-    var isDragging by remember { mutableStateOf(false) }
-
-    // Sync local weight with database only when NOT dragging
-    LaunchedEffect(splitFraction) {
-        if (!isDragging) {
-            localWeight = splitFraction
+            val route = DetailRoute.List(initialListId, rescheduleEntryId)
+            displayedRoute = route
+            openRoute = route
+            isPeeking = false
         }
     }
 
-    // Smooth opening/closing animation
-    val animWeight by animateFloatAsState(
-        targetValue = if (isSidePanelVisible) localWeight else 0f,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = Spring.DampingRatioNoBouncy),
-        label = "SidePanelAnim"
+    fun routeStillExists(route: DetailRoute?, notes: List<Note>, lists: List<NoteList>): Boolean = when (route) {
+        is DetailRoute.Note -> route.id == null || notes.any { it.id == route.id }
+        is DetailRoute.Drawing -> route.id == null || notes.any { it.id == route.id }
+        is DetailRoute.List -> lists.any { it.id == route.id }
+        else -> true
+    }
+
+    LaunchedEffect(allNotes, allLists) {
+        val notes = allNotes ?: return@LaunchedEffect
+        val lists = allLists ?: return@LaunchedEffect
+        if (!routeStillExists(openRoute, notes, lists)) {
+            hideDetail()
+        }
+    }
+
+    LaunchedEffect(openRoute) {
+        if (openRoute == null) {
+            kotlinx.coroutines.delay(360)
+            isPeeking = false
+        }
+    }
+
+    LaunchedEffect(isPeeking) {
+        if (isPeeking) {
+            keyboardController?.hide()
+            focusManager.clearFocus(force = true)
+        }
+    }
+
+    val settingsPanelProgress by animateFloatAsState(
+        targetValue = if (showSettingsPanel) 1f else 0f,
+        animationSpec = tween(durationMillis = 320, easing = FastOutSlowInEasing),
+        label = "settingsPanelProgress"
     )
 
-    // The weight used for the layout
-    val activeWeight = if (isDragging) localWeight else animWeight
+    fun animatePanelTo(
+        targetProgress: Float,
+        startProgress: Float? = null,
+        initialVelocity: Float = 0f,
+        onFinished: ((completed: Boolean) -> Unit)? = null
+    ) {
+        settleJob?.cancel()
+        isSettling = true
+        settleJob = scope.launch {
+            var completed = false
+            try {
+                if (startProgress != null) {
+                    peekProgress.snapTo(startProgress)
+                }
+                peekProgress.animateTo(
+                    targetValue = targetProgress,
+                    animationSpec = spring(
+                        dampingRatio = 1f,
+                        stiffness = 500f,
+                        visibilityThreshold = 0.0005f
+                    ),
+                    initialVelocity = initialVelocity
+                )
+                completed = true
+            } finally {
+                onFinished?.invoke(completed)
+                isSettling = false
+                settleJob = null
+            }
+        }
+    }
+
+    LaunchedEffect(isPeeking, openRoute, isPeekDragging, isDismissing, isSettling) {
+        if (!isPeekDragging && !isDismissing && !isSettling) {
+            val panelTarget = if (isPeeking) 1f else 0f
+            val homeTarget = if (openRoute != null) 1f else 0f
+            val panelSpec = tween<Float>(durationMillis = 420, easing = FastOutSlowInEasing)
+            launch { peekProgress.animateTo(panelTarget, panelSpec) }
+            launch { homeLeanProgress.animateTo(homeTarget, panelSpec) }
+        }
+    }
+
+    LaunchedEffect(dragFraction, isPeekDragging) {
+        if (isPeekDragging) {
+            peekProgress.snapTo(dragFraction)
+        }
+    }
+
+    LaunchedEffect(isPeeking) {
+        if (!isPeeking) {
+            isPeekDragging = false
+        }
+    }
+
+    val panelColor = MaterialTheme.colorScheme.surface
+    val panelOutline = MaterialTheme.colorScheme.outline
+    val sidePadding = 12.dp
+    val navigationBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val bottomPadding = if (navigationBarBottom > 0.dp) 0.dp else sidePadding
+    val density = LocalDensity.current
+
+    @Composable
+    fun FloatingPanel(
+        modifier: Modifier,
+        content: @Composable () -> Unit
+    ) {
+        Surface(
+            modifier = modifier,
+            shape = RoundedCornerShape(16.dp),
+            color = panelColor,
+            border = BorderStroke(1.dp, panelOutline.copy(alpha = 0.45f)),
+            tonalElevation = 0.dp,
+            shadowElevation = 2.dp,
+            content = content
+        )
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .onSizeChanged { totalWidth = it.width.toFloat() }
+            .background(panelColor)
     ) {
-        Row(modifier = Modifier.fillMaxSize()) {
-            // 1. Sidebar (List Pane)
-            if (activeWeight > 0.001f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .weight(activeWeight)
-                        .graphicsLayer { clip = true }
-                ) {
-                    // Use a Box with REQUIRED width to prevent internal squishing during resize
-                    // This width is based on the LAST SET weight to keep layout perfectly stable
-                    val sidebarWidth = with(density) { (totalWidth * localWeight).toDp() }
-                    Box(modifier = Modifier.requiredWidth(sidebarWidth).fillMaxHeight()) {
-                        NoteListScreen(
-                            notesViewModel = notesViewModel,
-                            settingsViewModel = settingsViewModel,
-                            activeRoute = currentDetailRoute,
-                            onAddClick = { id -> currentDetailRoute = DetailRoute.Note(id) },
-                            onAddDrawingClick = { id -> currentDetailRoute = DetailRoute.Drawing(id) },
-                            onNoteClick = { id, type -> 
-                                currentDetailRoute = if (type == NoteType.DRAWING) DetailRoute.Drawing(id) else DetailRoute.Note(id) 
-                            },
-                            onListClick = { id -> currentDetailRoute = DetailRoute.List(id) },
-                            onSettingsClick = { currentDetailRoute = DetailRoute.Settings }
+        // The main screen is always full-bleed. It is never wrapped in a floating panel.
+        // Its content leans left to make room for a docked detail or the settings panel.
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+        ) {
+            val homePeekWidth = minOf(360.dp, maxWidth * 0.42f)
+            val settingsPanelInset = 380.dp + sidePadding
+            val homeEndPadding = maxOf(
+                homePeekWidth * homeLeanProgress.value,
+                settingsPanelInset * settingsPanelProgress
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(end = homeEndPadding)
+            ) {
+                NoteListScreen(
+                    notesViewModel = notesViewModel,
+                    settingsViewModel = settingsViewModel,
+                    activeRoute = openRoute,
+                    onAddClick = { id -> openDetail(DetailRoute.Note(id)) },
+                    onAddDrawingClick = { id -> openDetail(DetailRoute.Drawing(id)) },
+                    onNoteClick = { id, type ->
+                        openDetail(
+                            if (type == NoteType.DRAWING) {
+                                DetailRoute.Drawing(id)
+                            } else {
+                                DetailRoute.Note(id)
+                            }
                         )
+                    },
+                    onListClick = { id -> openDetail(DetailRoute.List(id)) },
+                    onSettingsClick = { openSettings() },
+                    isTabletUi = true,
+                    showAllCategories = true
+                )
+            }
+        }
+
+        // Solid backdrop while the detail is fullscreen. Fades away as it docks to the right.
+        AnimatedVisibility(
+            visible = openRoute != null,
+            enter = fadeIn(animationSpec = tween(160)),
+            exit = fadeOut(animationSpec = tween(240))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = (1f - peekProgress.value).coerceIn(0f, 1f) }
+                    .background(panelColor)
+            )
+        }
+
+        // A note/list opens fullscreen, keeps its exact fullscreen size when docked, and is
+        // only moved to the right. The parent clips it at the safe-area edge.
+        AnimatedVisibility(
+            visible = openRoute != null,
+            enter = slideInHorizontally(
+                initialOffsetX = { it },
+                animationSpec = tween(420, easing = FastOutSlowInEasing)
+            ) + fadeIn(animationSpec = tween(160)),
+            exit = slideOutHorizontally(
+                targetOffsetX = { it },
+                animationSpec = tween(320, easing = FastOutSlowInEasing)
+            ) + fadeOut(animationSpec = tween(220))
+        ) {
+            displayedRoute?.let { route ->
+                // The drawing canvas runs edge-to-edge under the system bars. Its own top bar and
+                // toolbar apply the status/navigation bar insets internally.
+                val isEdgeToEdgeDrawing = route is DetailRoute.Drawing
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (isEdgeToEdgeDrawing) {
+                                Modifier
+                            } else {
+                                Modifier.windowInsetsPadding(WindowInsets.safeDrawing)
+                            }
+                        )
+                        .clipToBounds()
+                ) {
+                    val peekWidth = minOf(360.dp, maxWidth * 0.42f)
+                    val peekOffset = (maxWidth - peekWidth).coerceAtLeast(0.dp)
+                    val peekOffsetPx = with(density) { peekOffset.toPx() }
+                    val dismissEndProgress = if (peekOffset > 0.dp) maxWidth / peekOffset else 1.1f
+                    val dismissThresholdProgress = if (peekOffset > 0.dp) {
+                        1f + (peekWidth * 0.3f) / peekOffset
+                    } else {
+                        1.5f
+                    }
+                    val dockedFraction = peekProgress.value.coerceIn(0f, 1f)
+                    val visualProgress = when {
+                        peekProgress.value < 0f -> 0f
+                        peekProgress.value > 1f &&
+                            openRoute != null &&
+                            !isPeekDragging &&
+                            !isDismissing -> 1f
+                        else -> peekProgress.value
+                    }
+                    val panelTranslationX = with(density) { (peekOffset * visualProgress).toPx() }
+                    val cornerRadius = 16.dp * dockedFraction
+                    val panelShape = RoundedCornerShape(
+                        topStart = cornerRadius,
+                        topEnd = 0.dp,
+                        bottomEnd = 0.dp,
+                        bottomStart = cornerRadius
+                    )
+
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { translationX = panelTranslationX },
+                        shape = panelShape,
+                        color = panelColor,
+                        border = if (dockedFraction > 0.001f) {
+                            BorderStroke(
+                                width = 1.dp,
+                                color = panelOutline.copy(alpha = 0.45f * dockedFraction)
+                            )
+                        } else {
+                            null
+                        },
+                        shadowElevation = 10.dp * dockedFraction,
+                        tonalElevation = 0.dp
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            BackHandler { handleDetailBack() }
+
+                            DetailPaneContent(
+                                route = route,
+                                notesViewModel = notesViewModel,
+                                settingsViewModel = settingsViewModel,
+                                checklistViewModel = checklistViewModel,
+                                onClose = { handleDetailBack() },
+                                onNavigateToSettings = { openSettings() },
+                                onNavigateToTheme = { openSettingsRoute(DetailRoute.Theme) },
+                                onNavigateToTabs = { openSettingsRoute(DetailRoute.TabsSettings) },
+                                onNavigateToListPreferences = { openSettingsRoute(DetailRoute.ListPreferences) },
+                                onNavigateToDrawingSettings = { openSettingsRoute(DetailRoute.DrawingSettings) },
+                                onNavigateToMoviePosters = { openSettingsRoute(DetailRoute.MoviePosters) },
+                                onNavigateToCloudSync = { openSettingsRoute(DetailRoute.CloudSync) },
+                                onNavigateToBackup = { openSettingsRoute(DetailRoute.BackupRestore) },
+                                onNavigateToGranularBackup = { openSettingsRoute(DetailRoute.GranularBackup) },
+                                onNavigateToAbout = { openSettingsRoute(DetailRoute.About) }
+                            )
+
+                            if (dockedFraction > 0.001f) {
+                                Box(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .background(Color.Black.copy(alpha = 0.25f * dockedFraction))
+                                )
+                            }
+
+                            if (isPeeking && !isDismissing) {
+                                Box(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .pointerInput(route, peekOffsetPx, dismissEndProgress) {
+                                            if (peekOffsetPx > 0f) {
+                                                val velocityTracker = VelocityTracker()
+                                                var currentProgress = peekProgress.value
+                                                detectHorizontalDragGestures(
+                                                    onDragStart = {
+                                                        cancelPanelSettle()
+                                                        velocityTracker.resetTracking()
+                                                        currentProgress = peekProgress.value.coerceIn(0f, 1f)
+                                                        dragFraction = currentProgress
+                                                        isPeekDragging = true
+                                                    },
+                                                    onHorizontalDrag = { change, dragAmount ->
+                                                        change.historical.forEach { historical ->
+                                                            velocityTracker.addPosition(
+                                                                historical.uptimeMillis,
+                                                                historical.position
+                                                            )
+                                                        }
+                                                        velocityTracker.addPosition(
+                                                            change.uptimeMillis,
+                                                            change.position
+                                                        )
+                                                        currentProgress =
+                                                            (currentProgress + dragAmount / peekOffsetPx)
+                                                                .coerceIn(0f, dismissEndProgress)
+                                                        dragFraction = currentProgress
+                                                        change.consume()
+                                                    },
+                                                    onDragEnd = {
+                                                        isPeekDragging = false
+                                                        val releaseVelocity = (
+                                                            velocityTracker.calculateVelocity().x /
+                                                                peekOffsetPx
+                                                            ).coerceIn(-6f, 6f)
+                                                        when {
+                                                            currentProgress < 0.5f -> {
+                                                                isPeeking = false
+                                                                animatePanelTo(
+                                                                    targetProgress = 0f,
+                                                                    startProgress = currentProgress,
+                                                                    initialVelocity = releaseVelocity
+                                                                )
+                                                            }
+                                                            currentProgress > dismissThresholdProgress -> {
+                                                                isDismissing = true
+                                                                animatePanelTo(
+                                                                    targetProgress = dismissEndProgress,
+                                                                    startProgress = currentProgress,
+                                                                    initialVelocity = releaseVelocity
+                                                                ) { completed ->
+                                                                    isDismissing = false
+                                                                    if (completed && openRoute == route) {
+                                                                        keyboardController?.hide()
+                                                                        focusManager.clearFocus(force = true)
+                                                                        openRoute = null
+                                                                        isPeeking = false
+                                                                    }
+                                                                }
+                                                            }
+                                                            else -> {
+                                                                animatePanelTo(
+                                                                    targetProgress = 1f,
+                                                                    startProgress = currentProgress,
+                                                                    initialVelocity = releaseVelocity
+                                                                )
+                                                            }
+                                                        }
+                                                    },
+                                                    onDragCancel = {
+                                                        isPeekDragging = false
+                                                        animatePanelTo(targetProgress = 1f)
+                                                    }
+                                                )
+                                            }
+                                        }
+                                )
+                            }
+                        }
                     }
                 }
             }
+        }
 
-            // 2. Detail Pane
+        // Settings stays a phone-sized floating panel. The main screen remains full-size behind it.
+        AnimatedVisibility(
+            visible = showSettingsPanel,
+            enter = fadeIn(animationSpec = tween(180)),
+            exit = fadeOut(animationSpec = tween(220))
+        ) {
             Box(
                 modifier = Modifier
-                    .fillMaxHeight()
-                    .weight(1f - activeWeight)
-            ) {
-                AnimatedContent(
-                    targetState = currentDetailRoute,
-                    transitionSpec = {
-                        fadeIn(tween(300)) + slideInHorizontally { it / 12 } togetherWith fadeOut(tween(200))
-                    },
-                    label = "DetailPaneTransition"
-                ) { targetRoute ->
-                    key(targetRoute) {
-                        DetailPaneContent(
-                            route = targetRoute,
-                            notesViewModel = notesViewModel,
-                            settingsViewModel = settingsViewModel,
-                            checklistViewModel = checklistViewModel,
-                            onClose = { 
-                                currentDetailRoute = null
-                                notesViewModel.onEvent(NoteEvent.SetSidePanelVisible(true))
-                            },
-                            onNavigateToSettings = { currentDetailRoute = DetailRoute.Settings },
-                            onNavigateToTheme = { currentDetailRoute = DetailRoute.Theme },
-                            onNavigateToTabs = { currentDetailRoute = DetailRoute.TabsSettings },
-                            onNavigateToListPreferences = { currentDetailRoute = DetailRoute.ListPreferences },
-                            onNavigateToDrawingSettings = { currentDetailRoute = DetailRoute.DrawingSettings },
-                            onNavigateToMoviePosters = { currentDetailRoute = DetailRoute.MoviePosters },
-                            onNavigateToCloudSync = { currentDetailRoute = DetailRoute.CloudSync },
-                            onNavigateToBackup = { currentDetailRoute = DetailRoute.BackupRestore },
-                            onNavigateToGranularBackup = { currentDetailRoute = DetailRoute.GranularBackup },
-                            onNavigateToAbout = { currentDetailRoute = DetailRoute.About }
-                        )
-                    }
-                }
-
-                // 3. Floating Resize Handle
-                if (isSidePanelVisible) {
-                    val currentTotalWidth by rememberUpdatedState(totalWidth)
-                    val currentSplitFraction by rememberUpdatedState(splitFraction)
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .width(64.dp)
-                            .align(Alignment.CenterStart)
-                            .offset(x = (-32).dp)
-                            // We use Unit as key so the pointer block NEVER restarts during a drag
-                            .pointerInput(Unit) {
-                                detectDragGestures(
-                                    onDragStart = { isDragging = true },
-                                    onDragEnd = { 
-                                        isDragging = false
-                                        notesViewModel.onEvent(NoteEvent.UpdateSplitFraction(localWeight))
-                                    },
-                                    onDragCancel = { 
-                                        isDragging = false
-                                        localWeight = currentSplitFraction 
-                                    },
-                                    onDrag = { change, dragAmount ->
-                                        change.consume()
-                                        if (currentTotalWidth > 0) {
-                                            val delta = dragAmount.x / currentTotalWidth
-                                            localWeight = (localWeight + delta).coerceIn(0.2f, 0.6f)
-                                        }
-                                    }
-                                )
-                            },
-                        contentAlignment = Alignment.Center
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.32f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
                     ) {
-                        Surface(
-                            modifier = Modifier.width(4.dp).height(48.dp).clip(CircleShape),
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
-                        ) {}
+                        showSettingsPanel = false
+                        settingsRoute = DetailRoute.Settings
                     }
+            )
+        }
+
+        AnimatedVisibility(
+            visible = showSettingsPanel,
+            enter = slideInHorizontally(
+                initialOffsetX = { it },
+                animationSpec = tween(320, easing = FastOutSlowInEasing)
+            ) + fadeIn(animationSpec = tween(160)),
+            exit = slideOutHorizontally(
+                targetOffsetX = { it },
+                animationSpec = tween(260, easing = FastOutSlowInEasing)
+            ) + fadeOut(animationSpec = tween(180))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(start = sidePadding, end = sidePadding, bottom = bottomPadding),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                FloatingPanel(
+                    modifier = Modifier
+                        .width(380.dp)
+                        .fillMaxHeight()
+                ) {
+                    BackHandler {
+                        if (settingsRoute == DetailRoute.Settings) {
+                            showSettingsPanel = false
+                        } else {
+                            settingsRoute = DetailRoute.Settings
+                        }
+                    }
+
+                    DetailPaneContent(
+                        route = settingsRoute,
+                        notesViewModel = notesViewModel,
+                        settingsViewModel = settingsViewModel,
+                        checklistViewModel = checklistViewModel,
+                        onClose = {
+                            showSettingsPanel = false
+                            settingsRoute = DetailRoute.Settings
+                        },
+                        onNavigateToSettings = { settingsRoute = DetailRoute.Settings },
+                        onNavigateToTheme = { settingsRoute = DetailRoute.Theme },
+                        onNavigateToTabs = { settingsRoute = DetailRoute.TabsSettings },
+                        onNavigateToListPreferences = { settingsRoute = DetailRoute.ListPreferences },
+                        onNavigateToDrawingSettings = { settingsRoute = DetailRoute.DrawingSettings },
+                        onNavigateToMoviePosters = { settingsRoute = DetailRoute.MoviePosters },
+                        onNavigateToCloudSync = { settingsRoute = DetailRoute.CloudSync },
+                        onNavigateToBackup = { settingsRoute = DetailRoute.BackupRestore },
+                        onNavigateToGranularBackup = { settingsRoute = DetailRoute.GranularBackup },
+                        onNavigateToAbout = { settingsRoute = DetailRoute.About }
+                    )
                 }
             }
         }
@@ -357,14 +722,18 @@ private fun DetailPaneContent(
 ) {
     when (route) {
         is DetailRoute.Note -> {
-            AddNoteScreen(noteId = route.id, viewModel = notesViewModel, onNavigateUp = onClose)
+            AddNoteScreen(
+                noteId = route.id,
+                viewModel = notesViewModel,
+                onNavigateUp = onClose,
+                isTabletUi = true
+            )
         }
         is DetailRoute.Drawing -> {
             DrawingNoteScreen(
                 noteId = route.id,
                 notesViewModel = notesViewModel,
                 settingsViewModel = settingsViewModel,
-                isSplitScreen = true,
                 onNavigateUp = onClose
             )
         }
@@ -422,7 +791,7 @@ private fun DetailPaneContent(
             )
         }
         is DetailRoute.About -> {
-            AboutScreen(onNavigateUp = onNavigateToSettings)
+            AboutScreen(onNavigateUp = onNavigateToSettings, isTabletUi = true)
         }
         null -> {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

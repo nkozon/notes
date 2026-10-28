@@ -40,6 +40,12 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
     .flowOn(Dispatchers.Default)
     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val allNotesState: StateFlow<List<Note>?> = repository.getAllNotes()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val allListsState: StateFlow<List<NoteList>?> = repository.getAllLists()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     val listsSortOrder: StateFlow<ListSortOrder> = repository.getListsSortOrder()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ListSortOrder.NEWEST)
 
@@ -109,6 +115,9 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
 
     private val _isSidePanelVisible = MutableStateFlow(true)
     val isSidePanelVisible = _isSidePanelVisible.asStateFlow()
+
+    private val _isSidePanelCollapsed = MutableStateFlow(false)
+    val isSidePanelCollapsed = _isSidePanelCollapsed.asStateFlow()
 
     private val _deletingIds = MutableStateFlow<Set<String>>(emptySet())
     val deletingIds = _deletingIds.asStateFlow()
@@ -255,6 +264,12 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
             }
             is NoteEvent.SetSidePanelVisible -> {
                 _isSidePanelVisible.value = event.visible
+            }
+            is NoteEvent.ToggleSidePanelCollapsed -> {
+                _isSidePanelCollapsed.value = !_isSidePanelCollapsed.value
+            }
+            is NoteEvent.SetSidePanelCollapsed -> {
+                _isSidePanelCollapsed.value = event.collapsed
             }
             else -> { /* Handled elsewhere */ }
         }
