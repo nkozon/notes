@@ -342,7 +342,8 @@ class TileRenderEngine(
             }
         }
 
-        // 2. Draw strokes with anti-aliasing
+        // 2. Draw strokes with anti-aliasing (using quadratic Bézier curves to match
+        //    StrokePathCache / DrawingDisplayListEngine / DrawingExportEngine)
         val localPath = strokePath
         visibleStrokes.forEach { stroke ->
             strokePaint.color = stroke.colorArgb
@@ -351,13 +352,18 @@ class TileRenderEngine(
             if (pts.isNotEmpty()) {
                 localPath.reset()
                 localPath.moveTo(pts[0].x, pts[0].y)
-                if (pts.size == 1) {
+                val size = pts.size
+                if (size == 1) {
                     localPath.lineTo(pts[0].x + 0.1f, pts[0].y)
+                } else if (size == 2) {
+                    localPath.lineTo(pts[1].x, pts[1].y)
                 } else {
-                    val n = pts.size
-                    for (i in 1 until n) {
-                        localPath.lineTo(pts[i].x, pts[i].y)
+                    for (i in 1 until size - 1) {
+                        val midX = (pts[i].x + pts[i + 1].x) / 2f
+                        val midY = (pts[i].y + pts[i + 1].y) / 2f
+                        localPath.quadTo(pts[i].x, pts[i].y, midX, midY)
                     }
+                    localPath.lineTo(pts[size - 1].x, pts[size - 1].y)
                 }
                 canvas.drawPath(localPath, strokePaint)
             }

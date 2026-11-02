@@ -65,7 +65,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -374,13 +373,11 @@ fun NoteListScreen(
         }
     }
 
-    val menuProgress by animateFloatAsState(
+    val menuProgress = animateFloatAsState(
         targetValue = if (isCreateMenuOpen) 1f else 0f,
         animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
         label = "menuProgress"
     )
-
-    val menuBlurRadius = if (advancedUi) (20.dp * menuProgress).coerceAtLeast(0.dp) else 0.dp
 
     BackHandler(enabled = isCreateMenuOpen || isSearchActive) {
         if (isCreateMenuOpen) {
@@ -564,7 +561,7 @@ fun NoteListScreen(
                     .padding(bottom = 6.dp)
                     .zIndex(3f)
             ) {
-                if (!showAllCategories && menuProgress > 0.001f) {
+                if (!showAllCategories && menuProgress.value > 0.001f) {
                     Column(
                         horizontalAlignment = Alignment.End,
                         modifier = Modifier
@@ -572,13 +569,13 @@ fun NoteListScreen(
                             .padding(bottom = 8.dp)
                             .layout { measurable, constraints ->
                                 val placeable = measurable.measure(constraints)
-                                val animatedHeight = (placeable.height * menuProgress).roundToInt()
+                                val animatedHeight = (placeable.height * menuProgress.value).roundToInt()
                                 layout(placeable.width, animatedHeight) {
                                     placeable.placeRelative(0, animatedHeight - placeable.height)
                                 }
                             }
                             .graphicsLayer {
-                                scaleY = menuProgress
+                                scaleY = menuProgress.value
                                 transformOrigin = TransformOrigin(1f, 1f)
                             },
                         verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -815,10 +812,10 @@ fun NoteListScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .then(
-                            if (menuBlurRadius > 0.dp) {
-                                Modifier.blur(menuBlurRadius)
-                            } else Modifier
+                        .animatedBlur(
+                            progress = { menuProgress.value },
+                            maxRadius = 20.dp,
+                            enabled = advancedUi
                         )
                 ) {
                     TopAppBar(
@@ -1087,10 +1084,10 @@ fun NoteListScreen(
                 verticalItemSpacing = 0.dp,
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(
-                        if (menuBlurRadius > 0.dp) {
-                            Modifier.blur(menuBlurRadius)
-                        } else Modifier
+                    .animatedBlur(
+                        progress = { menuProgress.value },
+                        maxRadius = 20.dp,
+                        enabled = advancedUi
                     )
                     .advancedUiSource(hazeState, advancedUi)
             ) {

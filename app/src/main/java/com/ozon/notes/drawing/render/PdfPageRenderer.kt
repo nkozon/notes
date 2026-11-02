@@ -3,9 +3,19 @@ package com.ozon.notes.drawing.render
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.LruCache
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Thread-safe LRU manager for rendered PDF page bitmaps with dynamic scale tracking.
@@ -82,17 +92,81 @@ class PdfBitmapCacheManager(
 }
 
 /**
- * High-performance, OOM-protected cache for embedded drawing images.
+ * Bounded, OOM-protected cache for embedded drawing images.
+ *
+ * Decoding never happens on the thread that requests a bitmap: [get] returns the cached bitmap if
+ * available and otherwise schedules a background decode. When the decode finishes [revision]
+ * changes, which lets draw scopes refresh without recomposing the screen.
  */
 class DrawingImageCache(private val context: Context) {
-    private val memoryCache = ConcurrentHashMap<String, Bitmap>()
+    private val decodeDispatcher = Executors.newFixedThreadPool(MAX_CONCURRENT_DECODES) { runnable ->
+        Thread(runnable, "drawing-image-decode").apply { isDaemon = true }
+    }.asCoroutineDispatcher()
 
-    fun get(path: String): Bitmap? {
-        memoryCache[path]?.let { if (!it.isRecycled) return it }
-        return loadDirect(path)
+    private val scope = CoroutineScope(SupervisorJob() + decodeDispatcher)
+    private val decoding = ConcurrentHashMap.newKeySet<String>()
+    private val failed = ConcurrentHashMap.newKeySet<String>()
+    private val generation = AtomicInteger(0)
+
+    private val memoryCache = object : LruCache<String, Bitmap>(MAX_CACHE_BYTES) {
+        override fun sizeOf(key: String, value: Bitmap): Int =
+            value.allocationByteCount.coerceAtLeast(1)
+
+        override fun entryRemoved(
+            evicted: Boolean,
+            key: String,
+            oldValue: Bitmap,
+            newValue: Bitmap?
+        ) {
+            // A bitmap evicted here may still be referenced by an in-flight hardware render pass.
+            // Let the GC reclaim it instead of recycling it under the render thread.
+        }
     }
 
-    fun loadDirect(path: String): Bitmap? {
+    /** Incremented whenever a background decode publishes a new bitmap. */
+    var revision by mutableIntStateOf(0)
+        private set
+
+    fun get(path: String): Bitmap? {
+        val cached = memoryCache.get(path)
+        if (cached != null && !cached.isRecycled) return cached
+        requestDecode(path)
+        return null
+    }
+
+    /** Schedules background decoding for images that are about to be displayed. */
+    fun preload(paths: Collection<String>) {
+        paths.forEach { requestDecode(it) }
+    }
+
+    private fun requestDecode(path: String) {
+        if (path.isBlank()) return
+        val cached = memoryCache.get(path)
+        if (cached != null && !cached.isRecycled) return
+        if (path in failed) return
+        if (!decoding.add(path)) return
+
+        val expectedGeneration = generation.get()
+        scope.launch {
+            try {
+                val bitmap = decode(path)
+                if (bitmap == null) {
+                    if (generation.get() == expectedGeneration) failed.add(path)
+                    return@launch
+                }
+                if (generation.get() != expectedGeneration || bitmap.isRecycled) return@launch
+                memoryCache.put(path, bitmap)
+                revision++
+            } finally {
+                decoding.remove(path)
+            }
+        }
+    }
+
+    /** Synchronous decode used only by callers that explicitly need the bitmap immediately. */
+    fun loadDirect(path: String): Bitmap? = decode(path)
+
+    private fun decode(path: String): Bitmap? {
         try {
             var f = File(path)
             if (!f.exists()) {
@@ -119,11 +193,7 @@ class DrawingImageCache(private val context: Context) {
             opts.inJustDecodeBounds = false
             opts.inSampleSize = inSampleSize
             opts.inPreferredConfig = Bitmap.Config.ARGB_8888
-            val bmp = BitmapFactory.decodeFile(f.absolutePath, opts)
-            if (bmp != null) {
-                memoryCache[path] = bmp
-            }
-            return bmp
+            return BitmapFactory.decodeFile(f.absolutePath, opts)
         } catch (e: Exception) {
             e.printStackTrace()
             return null
@@ -131,14 +201,19 @@ class DrawingImageCache(private val context: Context) {
     }
 
     fun remove(path: String) {
-        val old = memoryCache.remove(path)
-        if (old != null && !old.isRecycled) {
-            old.recycle()
-        }
+        failed.remove(path)
+        memoryCache.remove(path)
     }
 
     fun clear() {
-        memoryCache.values.forEach { if (!it.isRecycled) it.recycle() }
-        memoryCache.clear()
+        generation.incrementAndGet()
+        memoryCache.evictAll()
+        decoding.clear()
+        failed.clear()
+    }
+
+    private companion object {
+        const val MAX_CACHE_BYTES = 64 * 1024 * 1024
+        const val MAX_CONCURRENT_DECODES = 2
     }
 }

@@ -11,6 +11,7 @@ sealed interface NoteEvent {
     data class DeleteList(val listId: String) : NoteEvent
     data class SetCurrentList(val listId: String?) : NoteEvent
     data class SaveEntry(val entry: ListEntry) : NoteEvent
+    data class SaveEntries(val entries: List<ListEntry>) : NoteEvent
     data class DeleteEntry(val entryId: String) : NoteEvent
     data class SaveTag(val tag: Tag) : NoteEvent
     data class DeleteTag(val tagId: String) : NoteEvent

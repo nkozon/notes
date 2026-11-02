@@ -51,51 +51,77 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
         else repository.getTagsForList(id)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val entriesState: StateFlow<List<ListEntry>> = combine(
-        _currentListId,
+    private data class EntryFilterParams(
+        val sortOrder: ListSortOrder = ListSortOrder.ALPHABETICAL,
+        val query: String = "",
+        val tagIds: Set<String> = emptySet(),
+        val filterMode: TagFilterMode = TagFilterMode.OR,
+        val behavior: ChecklistBehavior = ChecklistBehavior.HIDE,
+        val isChecklist: Boolean = false,
+        val tags: List<Tag> = emptyList()
+    )
+
+    private data class FilterSelection(
+        val sortOrder: ListSortOrder,
+        val query: String,
+        val tagIds: Set<String>,
+        val filterMode: TagFilterMode
+    )
+
+    /**
+     * In-memory filter parameters. Changing search/sort/tags no longer re-subscribes to the Room
+     * query for the current list; only [entriesState]'s mapper re-runs.
+     */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, kotlinx.coroutines.FlowPreview::class)
+    private val filterParams: Flow<EntryFilterParams> = combine(
         listSortOrder,
-        _searchQuery,
+        _searchQuery.debounce { if (it.isBlank()) 0L else 120L }.distinctUntilChanged(),
         _selectedFilterTagIds,
-        _tagFilterMode,
-        repository.getChecklistBehavior(),
-        currentList,
-        allTags
-    ) { args ->
-        val listId = args[0] as String?
-        val sortOrder = args[1] as ListSortOrder
-        val query = args[2] as String
-        val tagIds = args[3] as Set<String>
-        val filterMode = args[4] as TagFilterMode
-        val behavior = args[5] as ChecklistBehavior
-        val list = args[6] as NoteList?
-        val tags = args[7] as List<Tag>
+        _tagFilterMode
+    ) { sortOrder, query, tagIds, filterMode ->
+        FilterSelection(sortOrder, query, tagIds, filterMode)
+    }.combine(repository.getChecklistBehavior()) { selection, behavior ->
+        EntryFilterParams(
+            sortOrder = selection.sortOrder,
+            query = selection.query,
+            tagIds = selection.tagIds,
+            filterMode = selection.filterMode,
+            behavior = behavior
+        )
+    }.combine(currentList) { params, list ->
+        params.copy(
+            isChecklist = list?.type == ListType.CHECKLIST || list?.type == ListType.UPCOMING
+        )
+    }.combine(allTags) { params, tags ->
+        params.copy(tags = tags)
+    }
 
-        val isChecklist = list?.type == ListType.CHECKLIST || list?.type == ListType.UPCOMING
-        
-        ChecklistFilterParams(listId, sortOrder, query, tagIds, filterMode, behavior, isChecklist, tags)
-    }.flatMapLatest { params ->
-        val listId = params.listId
-        if (listId == null) return@flatMapLatest flowOf(emptyList<ListEntry>())
-
-        combine(repository.getEntriesForList(listId), _pendingEntries) { entries, pending ->
-            val pendingIds = pending.map { it.id }.toSet()
-            val filteredDb = entries.filter { it.id !in pendingIds }
-            val relevantPending = pending.filter { it.listId == listId }
-            filteredDb + relevantPending
-        }.map { allEntries ->
-            getFilteredEntriesUseCase(
-                allEntries,
-                params.query,
-                params.tagIds,
-                params.filterMode,
-                params.sortOrder,
-                params.behavior,
-                params.isChecklist,
-                params.tags
-            )
-        }.flowOn(Dispatchers.Default)
-    }.stateIn(
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val entriesState: StateFlow<List<ListEntry>> = _currentListId.flatMapLatest { listId ->
+        if (listId == null) {
+            flowOf(emptyList())
+        } else {
+            combine(
+                repository.getEntriesForList(listId),
+                _pendingEntries,
+                filterParams
+            ) { entries, pending, params ->
+                val pendingIds = pending.mapTo(HashSet()) { it.id }
+                val filteredDb = entries.filter { it.id !in pendingIds }
+                val relevantPending = pending.filter { it.listId == listId }
+                getFilteredEntriesUseCase(
+                    filteredDb + relevantPending,
+                    params.query,
+                    params.tagIds,
+                    params.filterMode,
+                    params.sortOrder,
+                    params.behavior,
+                    params.isChecklist,
+                    params.tags
+                )
+            }
+        }
+    }.flowOn(Dispatchers.Default).stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
@@ -157,6 +183,27 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
 
                     // Keep in pending for a short while to ensure Room has emitted the change
                     _pendingEntries.update { current -> current.filter { it.id != event.entry.id } }
+                }
+            }
+            is NoteEvent.SaveEntries -> {
+                val entries = event.entries
+                if (entries.isEmpty()) return
+                val entryIds = entries.mapTo(HashSet()) { it.id }
+                _pendingEntries.update { current ->
+                    current.filter { it.id !in entryIds } + entries
+                }
+                viewModelScope.launch {
+                    repository.saveEntries(entries)
+
+                    entries.forEach { entry ->
+                        if (entry.remindMe) {
+                            NotificationHelper.scheduleNotification(repository.getContext(), entry)
+                        } else {
+                            NotificationHelper.cancelNotification(repository.getContext(), entry.id)
+                        }
+                    }
+
+                    _pendingEntries.update { current -> current.filter { it.id !in entryIds } }
                 }
             }
             is NoteEvent.DeleteEntry -> {

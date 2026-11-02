@@ -26,8 +26,6 @@ import com.ozon.notes.drawing.controller.DrawingCanvasController
 import com.ozon.notes.drawing.geometry.DrawingGeometry
 import com.ozon.notes.drawing.history.DrawingAction
 import com.ozon.notes.drawing.history.GeometricChange
-import com.ozon.notes.drawing.render.TileRenderEngine
-import com.ozon.notes.drawing.spatial.DEFAULT_SPATIAL_GRID_SIZE
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -179,14 +177,7 @@ fun DrawingCanvas(
                 maxOf(eraseBounds.right, eraseRect.right) + 25f,
                 maxOf(eraseBounds.bottom, eraseRect.bottom) + 25f
             )
-            toErase.forEach { stroke ->
-                controller.strokeMap.remove(stroke.id)
-                controller.strokeOrder.remove(stroke.id)
-                controller.strokePathCache.remove(stroke.id)
-                controller.spatialIndex.removeStroke(stroke.id)
-            }
-            controller.invalidateAndRenderArea(totalEraseArea)
-            controller.isDirty = true
+            controller.removeStrokesSilently(toErase, totalEraseArea)
         }
     }
 
@@ -195,6 +186,8 @@ fun DrawingCanvas(
             .fillMaxSize()
             .pointerInput(controller.currentTool, forceStylusOnly, smoothingStrength) {
                 awaitEachGesture {
+                    // Ignore input while the note is still being prepared in the background.
+                    if (controller.isDrawingLoading) return@awaitEachGesture
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val initialEvent = currentEvent
                     val isStylus = isStylusEvent(down, initialEvent)
@@ -560,9 +553,12 @@ fun DrawingCanvas(
                 }
         ) {
             val _ver = controller.tileCacheVersion
+            val _imageRevision = controller.imageCache.revision
+            val _engineRevision = controller.displayListEngine.revision
             val canvasType = controller.canvasType
-            val needsViewport = showGuidelines || canvasType != CanvasType.INFINITE
-            val viewport = if (needsViewport) controller.currentViewport else Rect.Zero
+            val viewport = if (controller.canvasSize.width > 0 && controller.canvasSize.height > 0) {
+                controller.currentViewport
+            } else Rect.Zero
             val pagePositions = if (canvasType != CanvasType.INFINITE) controller.pagePositions else emptyList()
 
             // 1. Render PDF Background (with fast index culling)
@@ -654,15 +650,36 @@ fun DrawingCanvas(
                 )
             }
 
-            // 4. Hardware-Accelerated Vector Display List Drawing (Images + Strokes)
+            // 4. Embedded images, then the visible hardware display-list chunks.
+            //    Images are drawn per frame (outside the cached Pictures) so the bounded image
+            //    cache can evict bitmaps without invalidating stroke display lists.
             drawIntoCanvas { canvas ->
-                val picture = controller.displayListEngine.getOrRecord(
-                    controller = controller,
-                    version = controller.tileCacheVersion,
-                    excludedStrokeIds = controller.selectedStrokeIds,
-                    excludedImageIds = controller.selectedImageIds
-                )
-                canvas.nativeCanvas.drawPicture(picture)
+                val nativeCanvas = canvas.nativeCanvas
+
+                controller.imageOrder.forEach { id ->
+                    if (id in controller.selectedImageIds) return@forEach
+                    val img = controller.imageMap[id] ?: return@forEach
+                    val bmp = controller.imageCache.get(img.path) ?: return@forEach
+                    if (bmp.isRecycled) return@forEach
+
+                    val dst = RectF(
+                        img.offset.x,
+                        img.offset.y,
+                        img.offset.x + img.scale.x,
+                        img.offset.y + img.scale.y
+                    )
+                    if (img.rotation != 0f) {
+                        nativeCanvas.save()
+                        nativeCanvas.rotate(img.rotation, dst.centerX(), dst.centerY())
+                        nativeCanvas.drawBitmap(bmp, null, dst, tilePaint)
+                        nativeCanvas.restore()
+                    } else {
+                        nativeCanvas.drawBitmap(bmp, null, dst, tilePaint)
+                    }
+                }
+
+                controller.displayListEngine.setExcludedStrokes(controller.selectedStrokeIds)
+                controller.displayListEngine.draw(nativeCanvas, viewport)
             }
         }
 
@@ -678,6 +695,7 @@ fun DrawingCanvas(
                     transformOrigin = TransformOrigin(0f, 0f)
                 }
         ) {
+            val _imageRevision = controller.imageCache.revision
             val drawingTool = controller.activeDrawingTool ?: controller.currentTool
 
             // 1. Live Active Stroke

@@ -33,6 +33,9 @@ interface NoteRepository {
     fun getAllEntries(): Flow<List<ListEntry>>
     fun getEntriesForList(listId: String): Flow<List<ListEntry>>
     suspend fun saveEntry(entry: ListEntry)
+    suspend fun saveEntries(entries: List<ListEntry>) {
+        entries.forEach { saveEntry(it) }
+    }
     suspend fun deleteEntry(entryId: String)
     suspend fun deleteCompletedEntries(listId: String)
 

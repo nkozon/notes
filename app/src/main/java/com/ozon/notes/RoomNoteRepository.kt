@@ -18,6 +18,8 @@ import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import coil.Coil
 import coil.imageLoader
 
+private const val BATCH_QUERY_CHUNK = 500
+
 class RoomNoteRepository(
     private val context: Context,
     private val database: NoteDatabase
@@ -353,6 +355,30 @@ class RoomNoteRepository(
         }
         setHasPendingChanges(true)
         dropboxSyncEngine.enqueueListSync(entry.listId)
+    }
+
+    override suspend fun saveEntries(entries: List<ListEntry>) {
+        if (entries.isEmpty()) return
+        val entryIds = entries.map { it.id }
+        database.withTransaction {
+            entries.forEach { entry ->
+                entry.description?.let { saveFile("${entry.id}.desc", it) }
+            }
+            database.listDao().upsertEntries(
+                entries.map { it.toEntity().copy(description = null) }
+            )
+            entryIds.chunked(BATCH_QUERY_CHUNK).forEach { ids ->
+                database.entryTagCrossRefDao().deleteByEntryIds(ids)
+                database.deletedItemDao().deleteDeletedItems(ids, "ENTRY")
+            }
+            database.entryTagCrossRefDao().insertAll(
+                entries.flatMap { entry ->
+                    entry.tagIds.map { EntryTagCrossRef(entry.id, it) }
+                }
+            )
+        }
+        setHasPendingChanges(true)
+        entries.map { it.listId }.distinct().forEach { dropboxSyncEngine.enqueueListSync(it) }
     }
 
     override suspend fun deleteEntry(entryId: String) {
@@ -1307,6 +1333,7 @@ class RoomNoteRepository(
         }
     }
 
+    @OptIn(coil.annotation.ExperimentalCoilApi::class)
     override suspend fun clearPosterCache() {
         withContext(Dispatchers.IO) {
             context.imageLoader.diskCache?.clear()
@@ -1314,6 +1341,7 @@ class RoomNoteRepository(
         }
     }
 
+    @OptIn(coil.annotation.ExperimentalCoilApi::class)
     override fun getPosterCacheSize(): Long {
         return context.imageLoader.diskCache?.size ?: 0L
     }

@@ -19,6 +19,8 @@ import com.ozon.notes.drawing.render.PdfBitmapCacheManager
 import com.ozon.notes.drawing.render.StrokePathCache
 import com.ozon.notes.drawing.render.TileRenderEngine
 import com.ozon.notes.drawing.spatial.DrawingSpatialIndex
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 /**
@@ -28,19 +30,27 @@ import java.util.UUID
 class DrawingCanvasController(
     val context: Context,
     val noteId: String?,
-    val spatialIndex: DrawingSpatialIndex = DrawingSpatialIndex(),
+    var spatialIndex: DrawingSpatialIndex = DrawingSpatialIndex(),
     val tileEngine: TileRenderEngine = TileRenderEngine(),
     val historyManager: DrawingHistoryManager = DrawingHistoryManager(),
     val imageCache: DrawingImageCache = DrawingImageCache(context),
     val pdfBitmapCache: PdfBitmapCacheManager = PdfBitmapCacheManager(),
     val strokePathCache: StrokePathCache = StrokePathCache(),
-    val displayListEngine: DrawingDisplayListEngine = DrawingDisplayListEngine()
+    val displayListEngine: DrawingDisplayListEngine = DrawingDisplayListEngine(strokePathCache)
 ) {
     // --- Data Store ---
     val strokeMap = mutableStateMapOf<String, Stroke>()
     val strokeOrder = mutableStateListOf<String>()
     val imageMap = mutableStateMapOf<String, DrawingImage>()
     val imageOrder = mutableStateListOf<String>()
+
+    // Erased strokes stay in [strokeOrder] as cheap tombstones so removals are O(1) per stroke.
+    // The list is compacted periodically to keep iteration bounded.
+    private var strokeOrderTombstones = 0
+
+    /** True while a drawing file is being prepared on a background thread. */
+    var isDrawingLoading by mutableStateOf(false)
+        private set
 
     val currentStrokes: List<Stroke> get() = strokeOrder.mapNotNull { strokeMap[it] }
     val currentImages: List<DrawingImage> get() = imageOrder.mapNotNull { imageMap[it] }
@@ -132,52 +142,73 @@ class DrawingCanvasController(
             }
         }
 
-    fun loadDrawingData(note: Note) {
-        title = note.title
-        isPinned = note.isPinned
-        isContentHidden = note.isContentHidden
-        if (note.timestamp > 0) {
-            lastSavedTime = note.timestamp
+    suspend fun loadDrawingData(note: Note) {
+        isDrawingLoading = true
+        try {
+            title = note.title
+            isPinned = note.isPinned
+            isContentHidden = note.isContentHidden
+            if (note.timestamp > 0) {
+                lastSavedTime = note.timestamp
+            }
+
+            val data = note.drawingData
+            val initialStrokes = data?.strokes ?: emptyList()
+            val initialImages = data?.images ?: emptyList()
+
+            // Build the spatial index, stroke paths and display-list chunks entirely off the UI
+            // thread. Large drawings no longer stall the first frame.
+            val prepared = withContext(Dispatchers.Default) {
+                val index = DrawingSpatialIndex(spatialIndex.gridSize)
+                index.reset(initialStrokes)
+                val chunks = displayListEngine.buildChunks(initialStrokes)
+                PreparedDrawing(index, chunks)
+            }
+
+            strokeMap.clear()
+            strokeOrder.clear()
+            initialStrokes.forEach {
+                strokeMap[it.id] = it
+                strokeOrder.add(it.id)
+            }
+            strokeOrderTombstones = 0
+            spatialIndex = prepared.index
+
+            imageMap.clear()
+            imageOrder.clear()
+            initialImages.forEach {
+                imageMap[it.id] = it
+                imageOrder.add(it.id)
+            }
+
+            canvasType = data?.canvasType ?: CanvasType.INFINITE
+            pageLayout = data?.pageLayout ?: PageLayout()
+            pdfInfo = data?.pdfInfo
+            pageCount = data?.pageCount ?: 1
+
+            if (data?.viewportScale != null && data.viewportScale > 0) {
+                canvasOffset = Offset(data.viewportX, data.viewportY)
+                canvasScale = data.viewportScale
+                viewportLoaded = true
+            } else {
+                viewportLoaded = false
+            }
+
+            displayListEngine.setChunks(prepared.chunks, initialStrokes)
+            imageCache.preload(initialImages.map { it.path })
+
+            tileEngine.invalidateAll()
+            tileCacheVersion++
+            isDirty = false
+        } finally {
+            isDrawingLoading = false
         }
-
-        val data = note.drawingData
-        val initialStrokes = data?.strokes ?: emptyList()
-        strokeMap.clear()
-        strokeOrder.clear()
-        strokePathCache.clear()
-        initialStrokes.forEach {
-            strokeMap[it.id] = it
-            strokeOrder.add(it.id)
-            strokePathCache.getOrCreate(it)
-        }
-        spatialIndex.reset(initialStrokes)
-
-        val initialImages = data?.images ?: emptyList()
-        imageMap.clear()
-        imageOrder.clear()
-        initialImages.forEach {
-            imageMap[it.id] = it
-            imageOrder.add(it.id)
-        }
-
-        canvasType = data?.canvasType ?: CanvasType.INFINITE
-        pageLayout = data?.pageLayout ?: PageLayout()
-        pdfInfo = data?.pdfInfo
-        pageCount = data?.pageCount ?: 1
-
-        if (data?.viewportScale != null && data.viewportScale > 0) {
-            canvasOffset = Offset(data.viewportX, data.viewportY)
-            canvasScale = data.viewportScale
-            viewportLoaded = true
-        } else {
-            viewportLoaded = false
-        }
-
-        tileEngine.invalidateAll()
-        displayListEngine.invalidate()
-        tileCacheVersion++
-        isDirty = false
     }
+
+    private class PreparedDrawing(
+        val index: DrawingSpatialIndex,
+        val chunks: List<DrawingDisplayListEngine.StrokeChunk>
+    )
 
     fun addStroke(stroke: Stroke) {
         strokeMap[stroke.id] = stroke
@@ -186,10 +217,31 @@ class DrawingCanvasController(
         spatialIndex.addStroke(stroke)
 
         val bounds = spatialIndex.computeStrokeBounds(stroke)
+        displayListEngine.onStrokeAdded(stroke, bounds)
         val paddedBounds = Rect(bounds.left - 25f, bounds.top - 25f, bounds.right + 25f, bounds.bottom + 25f)
         invalidateAndRenderArea(paddedBounds)
 
         historyManager.pushAction(DrawingAction.Add(strokes = listOf(stroke)))
+        isDirty = true
+    }
+
+    /**
+     * Removes strokes without pushing a history action. Used by the live eraser gesture, which
+     * batches its history entry when the gesture ends.
+     */
+    fun removeStrokesSilently(strokesToErase: List<Stroke>, area: Rect) {
+        if (strokesToErase.isEmpty()) return
+
+        val removedIds = ArrayList<String>(strokesToErase.size)
+        strokesToErase.forEach { stroke ->
+            strokeMap.remove(stroke.id)
+            strokePathCache.remove(stroke.id)
+            spatialIndex.removeStroke(stroke.id)
+            removedIds.add(stroke.id)
+        }
+        displayListEngine.onStrokesRemoved(removedIds)
+        noteStrokeOrderRemovals(removedIds.size)
+        invalidateAndRenderArea(area)
         isDirty = true
     }
 
@@ -204,21 +256,33 @@ class DrawingCanvasController(
             eraseBounds.bottom + 25f
         )
 
-        strokesToErase.forEach { stroke ->
-            strokeMap.remove(stroke.id)
-            strokeOrder.remove(stroke.id)
-            strokePathCache.remove(stroke.id)
-            spatialIndex.removeStroke(stroke.id)
-        }
-
-        invalidateAndRenderArea(paddedArea)
+        removeStrokesSilently(strokesToErase, paddedArea)
         historyManager.pushAction(DrawingAction.Remove(strokes = strokesToErase))
-        isDirty = true
+    }
+
+    /**
+     * Erased ids remain in [strokeOrder] as tombstones (lookups skip missing map entries), which
+     * turns each removal into O(1) instead of an O(n) list shift. Compact once the tombstones
+     * dominate the list so iteration stays cheap.
+     */
+    private fun noteStrokeOrderRemovals(count: Int) {
+        if (count <= 0) return
+        strokeOrderTombstones += count
+        if (strokeOrder.size >= 1024 && strokeOrderTombstones * 2 > strokeOrder.size) {
+            val live = strokeOrder.filter { it in strokeMap }
+            strokeOrder.clear()
+            strokeOrder.addAll(live)
+            strokeOrderTombstones = 0
+            // Keep the display-list engine's ordered id list in lockstep so undo restores a
+            // stroke at the same z-position in both structures.
+            displayListEngine.compact()
+        }
     }
 
     fun addImage(image: DrawingImage) {
         imageMap[image.id] = image
         imageOrder.add(image.id)
+        imageCache.preload(listOf(image.path))
         val bounds = Rect(image.offset.x, image.offset.y, image.offset.x + image.scale.x, image.offset.y + image.scale.y)
         invalidateAndRenderArea(bounds)
         historyManager.pushAction(DrawingAction.Add(images = listOf(image)))
@@ -272,12 +336,15 @@ class DrawingCanvasController(
         when (action) {
             is DrawingAction.Add -> {
                 if (isUndo) {
+                    val removedIds = ArrayList<String>(action.strokes.size)
                     action.strokes.forEach {
                         strokeMap.remove(it.id)
-                        strokeOrder.remove(it.id)
                         strokePathCache.remove(it.id)
                         spatialIndex.removeStroke(it.id)
+                        removedIds.add(it.id)
                     }
+                    displayListEngine.onStrokesRemoved(removedIds)
+                    noteStrokeOrderRemovals(removedIds.size)
                     action.images.forEach {
                         imageMap.remove(it.id)
                         imageOrder.remove(it.id)
@@ -288,6 +355,7 @@ class DrawingCanvasController(
                         if (it.id !in strokeOrder) strokeOrder.add(it.id)
                         strokePathCache.getOrCreate(it)
                         spatialIndex.addStroke(it)
+                        displayListEngine.onStrokeAdded(it, spatialIndex.computeStrokeBounds(it))
                     }
                     action.images.forEach {
                         imageMap[it.id] = it
@@ -302,18 +370,22 @@ class DrawingCanvasController(
                         if (it.id !in strokeOrder) strokeOrder.add(it.id)
                         strokePathCache.getOrCreate(it)
                         spatialIndex.addStroke(it)
+                        displayListEngine.onStrokeAdded(it, spatialIndex.computeStrokeBounds(it))
                     }
                     action.images.forEach {
                         imageMap[it.id] = it
                         if (it.id !in imageOrder) imageOrder.add(it.id)
                     }
                 } else {
+                    val removedIds = ArrayList<String>(action.strokes.size)
                     action.strokes.forEach {
                         strokeMap.remove(it.id)
-                        strokeOrder.remove(it.id)
                         strokePathCache.remove(it.id)
                         spatialIndex.removeStroke(it.id)
+                        removedIds.add(it.id)
                     }
+                    displayListEngine.onStrokesRemoved(removedIds)
+                    noteStrokeOrderRemovals(removedIds.size)
                     action.images.forEach {
                         imageMap.remove(it.id)
                         imageOrder.remove(it.id)
@@ -347,6 +419,7 @@ class DrawingCanvasController(
                         spatialIndex.updateStroke(s, newS)
                         strokeMap[id] = newS
                         strokePathCache.update(newS)
+                        displayListEngine.onStrokeChanged(newS, spatialIndex.computeStrokeBounds(newS))
                     }
                     action.imageIds.forEach { id ->
                         val img = imageMap[id] ?: return@forEach
@@ -374,6 +447,7 @@ class DrawingCanvasController(
                             spatialIndex.updateStroke(old, replacement)
                             strokeMap[id] = replacement
                             strokePathCache.update(replacement)
+                            displayListEngine.onStrokeChanged(replacement, spatialIndex.computeStrokeBounds(replacement))
                         }
                     }
                 }
@@ -410,6 +484,7 @@ class DrawingCanvasController(
         oldStrokes.zip(newStrokes).forEach { (old, new) ->
             strokeMap[new.id] = new
             spatialIndex.updateStroke(old, new)
+            displayListEngine.onStrokeChanged(new, spatialIndex.computeStrokeBounds(new))
         }
         val sBounds = DrawingGeometry.getBounds(newStrokes, emptyList())
         invalidateAndRenderArea(sBounds)
@@ -424,6 +499,7 @@ class DrawingCanvasController(
         oldStrokes.zip(newStrokes).forEach { (old, new) ->
             strokeMap[new.id] = new
             spatialIndex.updateStroke(old, new)
+            displayListEngine.onStrokeChanged(new, spatialIndex.computeStrokeBounds(new))
         }
         val sBounds = DrawingGeometry.getBounds(newStrokes, emptyList())
         invalidateAndRenderArea(sBounds)
@@ -444,6 +520,7 @@ class DrawingCanvasController(
             strokeOrder.add(it.id)
             strokePathCache.getOrCreate(it)
             spatialIndex.addStroke(it)
+            displayListEngine.onStrokeAdded(it, spatialIndex.computeStrokeBounds(it))
         }
         newImages.forEach {
             imageMap[it.id] = it
@@ -464,11 +541,8 @@ class DrawingCanvasController(
         val removedI = selectedImageIds.mapNotNull { imageMap[it] }
         val removedBounds = DrawingGeometry.getBounds(removedS, removedI, spatialIndex.strokeBoundsMap)
 
-        removedS.forEach {
-            strokeMap.remove(it.id)
-            strokeOrder.remove(it.id)
-            strokePathCache.remove(it.id)
-            spatialIndex.removeStroke(it.id)
+        if (removedS.isNotEmpty()) {
+            removeStrokesSilently(removedS, removedBounds)
         }
         removedI.forEach {
             imageMap.remove(it.id)
@@ -477,7 +551,9 @@ class DrawingCanvasController(
 
         selectedStrokeIds = emptySet()
         selectedImageIds = emptySet()
-        invalidateAndRenderArea(removedBounds)
+        if (removedS.isEmpty()) {
+            invalidateAndRenderArea(removedBounds)
+        }
         historyManager.pushAction(DrawingAction.Remove(strokes = removedS, images = removedI))
         isDirty = true
     }
@@ -508,6 +584,7 @@ class DrawingCanvasController(
             strokeOrder.add(it.id)
             strokePathCache.getOrCreate(it)
             spatialIndex.addStroke(it)
+            displayListEngine.onStrokeAdded(it, spatialIndex.computeStrokeBounds(it))
         }
         val pastedBounds = DrawingGeometry.getBounds(pasted, emptyList())
         invalidateAndRenderArea(pastedBounds)
@@ -563,7 +640,11 @@ class DrawingCanvasController(
             imageMap[it.id] = it
             imageOrder.add(it.id)
         }
-        spatialIndex.reset(currentStrokes)
+        val rebuiltStrokes = currentStrokes
+        strokeOrderTombstones = 0
+        strokePathCache.clear()
+        spatialIndex.reset(rebuiltStrokes)
+        displayListEngine.rebuild(rebuiltStrokes)
         tileEngine.invalidateAll()
         tileCacheVersion++
         pageCount++
@@ -622,7 +703,11 @@ class DrawingCanvasController(
             imageMap[it.id] = it
             imageOrder.add(it.id)
         }
-        spatialIndex.reset(currentStrokes)
+        val rebuiltStrokes = currentStrokes
+        strokeOrderTombstones = 0
+        strokePathCache.clear()
+        spatialIndex.reset(rebuiltStrokes)
+        displayListEngine.rebuild(rebuiltStrokes)
         tileEngine.invalidateAll()
         tileCacheVersion++
         pageCount++
@@ -666,7 +751,11 @@ class DrawingCanvasController(
             imageMap[it.id] = it
             imageOrder.add(it.id)
         }
-        spatialIndex.reset(currentStrokes)
+        val rebuiltStrokes = currentStrokes
+        strokeOrderTombstones = 0
+        strokePathCache.clear()
+        spatialIndex.reset(rebuiltStrokes)
+        displayListEngine.rebuild(rebuiltStrokes)
         tileEngine.invalidateAll()
         tileCacheVersion++
         pageCount--
@@ -718,7 +807,11 @@ class DrawingCanvasController(
             imageMap[it.id] = it
             imageOrder.add(it.id)
         }
-        spatialIndex.reset(currentStrokes)
+        val rebuiltStrokes = currentStrokes
+        strokeOrderTombstones = 0
+        strokePathCache.clear()
+        spatialIndex.reset(rebuiltStrokes)
+        displayListEngine.rebuild(rebuiltStrokes)
         tileEngine.invalidateAll()
         tileCacheVersion++
         isDirty = true
@@ -741,6 +834,7 @@ class DrawingCanvasController(
     fun release() {
         pdfBitmapCache.clear()
         tileEngine.clear()
+        displayListEngine.clear()
         imageCache.clear()
     }
 }

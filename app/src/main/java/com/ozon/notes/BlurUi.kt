@@ -9,9 +9,13 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -72,6 +76,32 @@ fun Modifier.advancedUiBlur(
                 this.blurredEdgeTreatment(BlurredEdgeTreatment(shape))
             }
         )
+}
+
+/**
+ * Applies the exact same hardware blur as [androidx.compose.ui.draw.blur] but reads the animated
+ * progress inside the graphics layer block. Compose then updates only the layer instead of
+ * recomposing the whole screen on every animation frame.
+ *
+ * @param progress fraction of [maxRadius] to apply, read without recomposition
+ * @param maxRadius blur radius at progress = 1
+ */
+fun Modifier.animatedBlur(
+    progress: () -> Float,
+    maxRadius: Dp = 20.dp,
+    enabled: Boolean = true
+): Modifier {
+    if (!enabled) return this
+    return this.graphicsLayer {
+        val radiusPx = (maxRadius.toPx() * progress()).coerceAtLeast(0f)
+        renderEffect = if (radiusPx > 0f) {
+            BlurEffect(radiusPx, radiusPx, TileMode.Clamp)
+        } else {
+            null
+        }
+        shape = RectangleShape
+        clip = radiusPx > 0f
+    }
 }
 
 /**

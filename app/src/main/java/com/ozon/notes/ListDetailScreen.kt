@@ -21,6 +21,10 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -130,6 +134,8 @@ import android.content.Context
 import androidx.compose.ui.platform.LocalContext
 import dev.chrisbanes.haze.rememberHazeState
 
+private const val POSTER_FETCH_CONCURRENCY = 4
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ListDetailScreen(
@@ -211,33 +217,58 @@ fun ListDetailScreen(
 
     val attemptedPosterFetches = remember(listId) { mutableSetOf<String>() }
     LaunchedEffect(entries, moviePostersEnabled, currentList?.type, listId) {
-        if (moviePostersEnabled && currentList?.type == ListType.RATING) {
-            val entriesNeedingPoster = entries.filter { entry ->
-                val isSubEntry = !entry.parentId.isNullOrBlank()
-                val targetParent = if (isSubEntry) entries.find { it.id == entry.parentId } else null
-                val hasPoster = !entry.tmdbPosterPath.isNullOrBlank() || (targetParent != null && !targetParent.tmdbPosterPath.isNullOrBlank())
-                !hasPoster && (entry.isCurrentlyWatching || entry.parentId.isNullOrBlank()) && !attemptedPosterFetches.contains(entry.id) && entry.title.isNotBlank()
+        if (!moviePostersEnabled || currentList?.type != ListType.RATING) return@LaunchedEffect
+
+        val entriesById = entries.associateBy { it.id }
+        val searchTargets = LinkedHashMap<String, ListEntry>()
+
+        for (entry in entries) {
+            val isSubEntry = !entry.parentId.isNullOrBlank()
+            val targetParent = if (isSubEntry) entriesById[entry.parentId] else null
+            val hasPoster = !entry.tmdbPosterPath.isNullOrBlank() ||
+                (targetParent != null && !targetParent.tmdbPosterPath.isNullOrBlank())
+
+            val eligible = !hasPoster &&
+                (entry.isCurrentlyWatching || entry.parentId.isNullOrBlank()) &&
+                entry.title.isNotBlank() &&
+                attemptedPosterFetches.add(entry.id)
+            if (!eligible) continue
+
+            val entryToSearch = if (isSubEntry) {
+                entriesById[entry.parentId] ?: entry
+            } else {
+                entry
             }
-            entriesNeedingPoster.forEach { targetEntry ->
-                attemptedPosterFetches.add(targetEntry.id)
-                val isSubEntry = !targetEntry.parentId.isNullOrBlank()
-                val entryToSearch = if (isSubEntry) {
-                    entries.find { it.id == targetEntry.parentId } ?: targetEntry
-                } else {
-                    targetEntry
-                }
-                if (!attemptedPosterFetches.contains(entryToSearch.id)) {
-                    attemptedPosterFetches.add(entryToSearch.id)
-                }
-                val results = checklistViewModel.searchTmdb(entryToSearch.title)
-                val bestMatch = results.find { it.posterPath != null }
-                if (bestMatch != null) {
-                    val updatedEntry = entryToSearch.copy(tmdbPosterPath = bestMatch.posterPath)
-                    checklistViewModel.onEvent(NoteEvent.SaveEntry(updatedEntry))
-                    if (previewEntry?.id == updatedEntry.id) {
-                        previewEntry = updatedEntry
+            if (attemptedPosterFetches.add(entryToSearch.id)) {
+                searchTargets[entryToSearch.id] = entryToSearch
+            }
+        }
+
+        if (searchTargets.isEmpty()) return@LaunchedEffect
+
+        // Fetch a few posters at a time instead of scanning + awaiting every entry serially.
+        val updatedEntries = coroutineScope {
+            searchTargets.values
+                .chunked(POSTER_FETCH_CONCURRENCY)
+                .map { chunk ->
+                    async(Dispatchers.IO) {
+                        chunk.mapNotNull { entryToSearch ->
+                            val results = checklistViewModel.searchTmdb(entryToSearch.title)
+                            val bestMatch = results.find { it.posterPath != null }
+                                ?: return@mapNotNull null
+                            entryToSearch.copy(tmdbPosterPath = bestMatch.posterPath)
+                        }
                     }
                 }
+                .awaitAll()
+                .flatten()
+        }
+
+        if (updatedEntries.isNotEmpty()) {
+            checklistViewModel.onEvent(NoteEvent.SaveEntries(updatedEntries))
+            val updatedById = updatedEntries.associateBy { it.id }
+            previewEntry?.let { current ->
+                updatedById[current.id]?.let { previewEntry = it }
             }
         }
     }

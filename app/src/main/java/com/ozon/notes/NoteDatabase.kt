@@ -315,6 +315,9 @@ interface EntryTagCrossRefDao {
     @Query("DELETE FROM entry_tag_cross_ref WHERE entryId = :entryId")
     suspend fun deleteByEntryId(entryId: String)
 
+    @Query("DELETE FROM entry_tag_cross_ref WHERE entryId IN (:entryIds)")
+    suspend fun deleteByEntryIds(entryIds: List<String>)
+
     @Query("SELECT * FROM entry_tag_cross_ref")
     fun getAllCrossRefs(): Flow<List<EntryTagCrossRef>>
 
@@ -335,6 +338,9 @@ interface DeletedItemDao {
 
     @Query("DELETE FROM deleted_items WHERE id = :id AND type = :type")
     suspend fun deleteDeletedItem(id: String, type: String)
+
+    @Query("DELETE FROM deleted_items WHERE id IN (:ids) AND type = :type")
+    suspend fun deleteDeletedItems(ids: List<String>, type: String)
 
     @Query("DELETE FROM deleted_items WHERE deletedAt < :cutoffTime")
     suspend fun pruneDeletedItems(cutoffTime: Long)
