@@ -11,7 +11,6 @@
 /build
 app/build
 app/release
-app/build.gradle.kts
 app/proguard-rules.pro
 /captures
 .externalNativeBuild
