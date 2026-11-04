@@ -78,6 +78,7 @@ private fun MobileNavHost(
     rescheduleEntryId: String? = null
 ) {
     val navController = rememberNavController()
+    val mobileCombinedView by settingsViewModel.mobileCombinedViewState.collectAsStateWithLifecycle()
 
     LaunchedEffect(initialListId, rescheduleEntryId) {
         if (initialListId != null) {
@@ -105,7 +106,8 @@ private fun MobileNavHost(
                     else navController.navigate("addEdit/$noteId")
                 },
                 onListClick = { listId -> navController.navigate("listDetail/$listId") },
-                onSettingsClick = { navController.navigate("settings") }
+                onSettingsClick = { navController.navigate("settings") },
+                showAllCategories = mobileCombinedView
             )
         }
         composable("settings") {

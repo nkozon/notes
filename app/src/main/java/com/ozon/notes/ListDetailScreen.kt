@@ -234,7 +234,7 @@ fun ListDetailScreen(
                 (targetParent != null && !targetParent.tmdbPosterPath.isNullOrBlank())
 
             val eligible = !hasPoster &&
-                (entry.isCurrentlyWatching || entry.parentId.isNullOrBlank()) &&
+                (entry.isCurrentlyWatching || entry.isPaused || entry.parentId.isNullOrBlank()) &&
                 entry.title.isNotBlank() &&
                 attemptedPosterFetches.add(entry.id)
             if (!eligible) continue
@@ -718,16 +718,21 @@ fun ListDetailScreen(
             val isRatingList = currentList.type == ListType.RATING
             val isUpcomingMoveToBottom = isUpcomingList && checklistBehavior == ChecklistBehavior.MOVE_TO_BOTTOM
 
-            var isCurrentlyWatchingCollapsed by remember { mutableStateOf(false) }
+            var isCurrentlyWatchingCollapsed by remember(listId) { mutableStateOf(false) }
+            var isPausedCollapsed by remember(listId) { mutableStateOf(true) }
             val currentlyWatchingEntries = remember(entries, isRatingList) {
-                if (isRatingList) entries.filter { it.isCurrentlyWatching } else emptyList()
+                if (isRatingList) entries.filter { it.isCurrentlyWatching && !it.isPaused } else emptyList()
+            }
+
+            val pausedEntries = remember(entries, isRatingList) {
+                if (isRatingList) entries.filter { it.isPaused } else emptyList()
             }
 
             val hierarchicalEntries = remember(entries, expandedEntries, checklistBehavior, currentList.type, searchQuery) {
                 if (currentList.type == ListType.UPCOMING) {
                     emptyList() // We handle UPCOMING separately below
                 } else {
-                    val entriesToInclude = if (currentList.type == ListType.RATING) entries.filter { !it.isCurrentlyWatching } else entries
+                    val entriesToInclude = if (currentList.type == ListType.RATING) entries.filter { !it.isCurrentlyWatching && !it.isPaused } else entries
                     val fullList = mutableListOf<HierarchicalEntry>()
                     val entriesByParent = entriesToInclude.groupBy { it.parentId }
                     
@@ -794,8 +799,8 @@ fun ListDetailScreen(
                         val uncheckedCount = totalCount - checkedCount
                         "$uncheckedCount entries, $checkedCount checked"
                     } else if (currentList.type == ListType.RATING) {
-                        val watchingCount = entries.count { it.isCurrentlyWatching }
-                        val parentCount = entries.count { it.parentId.isNullOrBlank() && !it.isCurrentlyWatching }
+                        val watchingCount = entries.count { it.isCurrentlyWatching && !it.isPaused }
+                        val parentCount = entries.count { it.parentId.isNullOrBlank() && !it.isCurrentlyWatching && !it.isPaused }
                         val sectionName = currentList.getEffectiveCurrentSectionName()
                         val watchingShort = when {
                             sectionName.contains("read", ignoreCase = true) -> "reading"
@@ -803,7 +808,7 @@ fun ListDetailScreen(
                             sectionName.contains("listen", ignoreCase = true) -> "listening"
                             else -> "watching"
                         }
-                        "$parentCount entries${if (watchingCount > 0) ", $watchingCount $watchingShort" else ""}"
+                        "$parentCount entries${if (watchingCount > 0) ", $watchingCount $watchingShort" else ""}${if (pausedEntries.isNotEmpty()) ", ${pausedEntries.size} paused" else ""}"
                     } else {
                         val rootCount = totalCount - subEntryCount
                         "$rootCount entries${if (subEntryCount > 0) ", $subEntryCount sub" else ""}"
@@ -971,100 +976,130 @@ fun ListDetailScreen(
                         }
                     }
                 } else {
-                    // CURRENTLY WATCHING / READING / PLAYING SECTION (RATING LISTS)
-                    if (isRatingList && currentlyWatchingEntries.isNotEmpty()) {
-                        item(key = "currently_watching_header") {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { isCurrentlyWatchingCollapsed = !isCurrentlyWatchingCollapsed }
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                val sectionName = currentList.getEffectiveCurrentSectionName()
-                                val sectionIcon = when {
-                                    sectionName.contains("read", ignoreCase = true) || sectionName.contains("book", ignoreCase = true) -> Icons.AutoMirrored.Rounded.MenuBook
-                                    sectionName.contains("play", ignoreCase = true) || sectionName.contains("game", ignoreCase = true) -> Icons.Rounded.SportsEsports
-                                    sectionName.contains("listen", ignoreCase = true) || sectionName.contains("music", ignoreCase = true) || sectionName.contains("podcast", ignoreCase = true) -> Icons.Rounded.Headphones
-                                    else -> Icons.Rounded.PlayCircle
-                                }
-                                Icon(
-                                    imageVector = sectionIcon,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    text = "$sectionName (${currentlyWatchingEntries.size})",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Icon(
-                                    imageVector = if (isCurrentlyWatchingCollapsed) Icons.Rounded.ExpandMore else Icons.Rounded.ExpandLess,
-                                    contentDescription = if (isCurrentlyWatchingCollapsed) "Expand" else "Collapse",
-                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-
-                        if (!isCurrentlyWatchingCollapsed) {
-                            itemsIndexed(
-                                items = currentlyWatchingEntries,
-                                key = { _, item -> "cw_${item.id}" }
-                            ) { index, entry ->
-                                val isFirstItem = index == 0
-                                val isLastItem = index == currentlyWatchingEntries.size - 1
-                                val topRadius = if (isFirstItem) 28.dp else 4.dp
-                                val bottomRadius = if (isLastItem) 28.dp else 4.dp
-                                val topRadiusAnimated by animateDpAsState(targetValue = topRadius, label = "cwTopRadius")
-                                val bottomRadiusAnimated by animateDpAsState(targetValue = bottomRadius, label = "cwBottomRadius")
-                                val shape = RoundedCornerShape(topRadiusAnimated, topRadiusAnimated, bottomRadiusAnimated, bottomRadiusAnimated)
-
-                                Box(modifier = Modifier.animateItem()) {
-                                    CurrentlyWatchingItem(
-                                        entry = entry,
-                                        allTags = allTags,
-                                        allEntries = entries,
-                                        currentList = currentList,
-                                        moviePostersEnabled = moviePostersEnabled,
-                                        onEdit = { editingEntry = it },
-                                        onDelete = { entryToDelete = it },
-                                        onIncrement = { item ->
-                                            val next = (item.currentProgress ?: 0) + 1
-                                            if (item.totalProgress != null && next >= item.totalProgress) {
-                                                checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(
-                                                    isCurrentlyWatching = false,
-                                                    currentProgress = null,
-                                                    totalProgress = null,
-                                                    progressUnit = null
-                                                )))
-                                            } else {
-                                                checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(currentProgress = next)))
+                    // Active and paused progress groups (rating lists)
+                    listOf(false to currentlyWatchingEntries, true to pausedEntries).forEach { (paused, groupEntries) ->
+                        val isCollapsed = if (paused) isPausedCollapsed else isCurrentlyWatchingCollapsed
+                        val groupKey = if (paused) "paused" else "currently_watching"
+                        if (isRatingList && groupEntries.isNotEmpty()) {
+                            item(key = "${groupKey}_section") {
+                                Surface(
+                                    shape = RoundedCornerShape(28.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                ) {
+                                    Column {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    if (paused) isPausedCollapsed = !isPausedCollapsed
+                                                    else isCurrentlyWatchingCollapsed = !isCurrentlyWatchingCollapsed
+                                                }
+                                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            val sectionName = if (paused) "Paused" else currentList.getEffectiveCurrentSectionName()
+                                            val sectionIcon = when {
+                                                paused -> Icons.Rounded.PauseCircle
+                                                sectionName.contains("read", ignoreCase = true) || sectionName.contains("book", ignoreCase = true) -> Icons.AutoMirrored.Rounded.MenuBook
+                                                sectionName.contains("play", ignoreCase = true) || sectionName.contains("game", ignoreCase = true) -> Icons.Rounded.SportsEsports
+                                                sectionName.contains("listen", ignoreCase = true) || sectionName.contains("music", ignoreCase = true) || sectionName.contains("podcast", ignoreCase = true) -> Icons.Rounded.Headphones
+                                                else -> Icons.Rounded.PlayCircle
                                             }
-                                        },
-                                        onDecrement = { item ->
-                                            val prev = ((item.currentProgress ?: 0) - 1).coerceAtLeast(0)
-                                            checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(currentProgress = prev)))
-                                        },
-                                        onFinish = { item ->
-                                            checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(
-                                                isCurrentlyWatching = false,
-                                                currentProgress = null,
-                                                totalProgress = null,
-                                                progressUnit = null
-                                            )))
-                                        },
-                                        onLongClick = { previewEntry = entry },
-                                        shape = shape
-                                    )
-                                }
-                            }
+                                            Icon(
+                                                imageVector = sectionIcon,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                            Spacer(Modifier.width(8.dp))
+                                            Text(
+                                                text = "$sectionName (${groupEntries.size})",
+                                                style = MaterialTheme.typography.labelLarge,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            Icon(
+                                                imageVector = if (isCollapsed) Icons.Rounded.ExpandMore else Icons.Rounded.ExpandLess,
+                                                contentDescription = if (isCollapsed) "Expand" else "Collapse",
+                                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                        AnimatedVisibility(
+                                            visible = !isCollapsed,
+                                            enter = expandVertically(animationSpec = tween(250)) + fadeIn(animationSpec = tween(180)),
+                                            exit = shrinkVertically(animationSpec = tween(250)) + fadeOut(animationSpec = tween(180))
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
+                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                groupEntries.forEachIndexed { index, entry ->
+                                                    val isFirstItem = index == 0
+                                                    val isLastItem = index == groupEntries.size - 1
+                                                    val topRadius = if (isFirstItem) 28.dp else 4.dp
+                                                    val bottomRadius = if (isLastItem) 28.dp else 4.dp
+                                                    val topRadiusAnimated by animateDpAsState(targetValue = topRadius, label = "cwTopRadius")
+                                                    val bottomRadiusAnimated by animateDpAsState(targetValue = bottomRadius, label = "cwBottomRadius")
+                                                    val shape = RoundedCornerShape(topRadiusAnimated, topRadiusAnimated, bottomRadiusAnimated, bottomRadiusAnimated)
 
-                            item(key = "cw_spacing") {
-                                Spacer(Modifier.height(8.dp))
+                                                    key(entry.id) {
+                                                        CurrentlyWatchingItem(
+                                                            entry = entry,
+                                                            allTags = allTags,
+                                                            allEntries = entries,
+                                                            currentList = currentList,
+                                                            moviePostersEnabled = moviePostersEnabled,
+                                                            onEdit = { editingEntry = it },
+                                                            onDelete = { entryToDelete = it },
+                                                            onIncrement = { item ->
+                                                                val next = (item.currentProgress ?: 0) + 1
+                                                                if (item.totalProgress != null && next >= item.totalProgress) {
+                                                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(
+                                                                        isCurrentlyWatching = false,
+                                                                        isPaused = false,
+                                                                        currentProgress = null,
+                                                                        totalProgress = null,
+                                                                        progressUnit = null
+                                                                    )))
+                                                                } else {
+                                                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(currentProgress = next)))
+                                                                }
+                                                            },
+                                                            onDecrement = { item ->
+                                                                val prev = ((item.currentProgress ?: 0) - 1).coerceAtLeast(0)
+                                                                checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(currentProgress = prev)))
+                                                            },
+                                                            onTogglePaused = { item ->
+                                                                checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(
+                                                                    isPaused = !item.isPaused,
+                                                                    isCurrentlyWatching = item.isPaused
+                                                                )))
+                                                            },
+                                                            onPrimaryAction = { item ->
+                                                                val updatedEntry = if (item.isPaused) {
+                                                                    item.copy(isPaused = false, isCurrentlyWatching = true)
+                                                                } else {
+                                                                    item.copy(
+                                                                        isCurrentlyWatching = false,
+                                                                        currentProgress = null,
+                                                                        totalProgress = null,
+                                                                        progressUnit = null
+                                                                    )
+                                                                }
+                                                                checklistViewModel.onEvent(NoteEvent.SaveEntry(updatedEntry))
+                                                            },
+                                                            onLongClick = { previewEntry = entry },
+                                                            shape = shape
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1304,8 +1339,8 @@ fun ListDetailScreen(
             allTags = allTags,
             allEntries = entries,
             onDismiss = { showAddEntryDialog = false },
-            onConfirm = { title, rating, tagIds, linkedId, dueDate, remindMe, isCurrentlyWatching, currentProgress, totalProgress, progressUnit ->
-                val existingSameNameEntry = if (currentList.type == ListType.RATING && isCurrentlyWatching) {
+            onConfirm = { title, rating, tagIds, linkedId, dueDate, remindMe, isCurrentlyWatching, isPaused, currentProgress, totalProgress, progressUnit ->
+                val existingSameNameEntry = if (currentList.type == ListType.RATING && (isCurrentlyWatching || isPaused)) {
                     entries.find { it.parentId == null && it.title.trim().equals(title.trim(), ignoreCase = true) }
                 } else null
 
@@ -1317,7 +1352,8 @@ fun ListDetailScreen(
                         linkedEntryId = linkedId ?: existingSameNameEntry.linkedEntryId,
                         dueDate = dueDate ?: existingSameNameEntry.dueDate,
                         remindMe = if (dueDate != null) remindMe else existingSameNameEntry.remindMe,
-                        isCurrentlyWatching = true,
+                        isCurrentlyWatching = isCurrentlyWatching,
+                        isPaused = isPaused,
                         currentProgress = currentProgress ?: existingSameNameEntry.currentProgress,
                         totalProgress = totalProgress ?: existingSameNameEntry.totalProgress,
                         progressUnit = progressUnit ?: existingSameNameEntry.progressUnit
@@ -1334,6 +1370,7 @@ fun ListDetailScreen(
                             dueDate = dueDate,
                             remindMe = remindMe,
                             isCurrentlyWatching = isCurrentlyWatching,
+                            isPaused = isPaused,
                             currentProgress = currentProgress,
                             totalProgress = totalProgress,
                             progressUnit = progressUnit
@@ -1355,9 +1392,9 @@ fun ListDetailScreen(
             allTags = allTags,
             allEntries = entries,
             onDismiss = { parentForNewSubentry = null },
-            onConfirm = { title, rating, tagIds, linkedId, dueDate, remindMe, isCurrentlyWatching, currentProgress, totalProgress, progressUnit ->
+            onConfirm = { title, rating, tagIds, linkedId, dueDate, remindMe, isCurrentlyWatching, isPaused, currentProgress, totalProgress, progressUnit ->
                 parentForNewSubentry?.let { parent ->
-                    val existingSameNameSubentry = if (currentList.type == ListType.RATING && isCurrentlyWatching) {
+                    val existingSameNameSubentry = if (currentList.type == ListType.RATING && (isCurrentlyWatching || isPaused)) {
                         entries.find { it.parentId == parent.id && it.title.trim().equals(title.trim(), ignoreCase = true) }
                     } else null
 
@@ -1369,7 +1406,8 @@ fun ListDetailScreen(
                             linkedEntryId = linkedId ?: existingSameNameSubentry.linkedEntryId,
                             dueDate = dueDate ?: existingSameNameSubentry.dueDate,
                             remindMe = if (dueDate != null) remindMe else existingSameNameSubentry.remindMe,
-                            isCurrentlyWatching = true,
+                            isCurrentlyWatching = isCurrentlyWatching,
+                            isPaused = isPaused,
                             currentProgress = currentProgress ?: existingSameNameSubentry.currentProgress,
                             totalProgress = totalProgress ?: existingSameNameSubentry.totalProgress,
                             progressUnit = progressUnit ?: existingSameNameSubentry.progressUnit
@@ -1387,6 +1425,7 @@ fun ListDetailScreen(
                                 dueDate = dueDate,
                                 remindMe = remindMe,
                                 isCurrentlyWatching = isCurrentlyWatching,
+                                isPaused = isPaused,
                                 currentProgress = currentProgress,
                                 totalProgress = totalProgress,
                                 progressUnit = progressUnit
@@ -1410,7 +1449,7 @@ fun ListDetailScreen(
             allTags = allTags,
             allEntries = entries,
             onDismiss = { editingEntry = null },
-            onConfirm = { title, rating, tagIds, linkedId, dueDate, remindMe, isCurrentlyWatching, currentProgress, totalProgress, progressUnit ->
+            onConfirm = { title, rating, tagIds, linkedId, dueDate, remindMe, isCurrentlyWatching, isPaused, currentProgress, totalProgress, progressUnit ->
                 editingEntry?.let {
                     checklistViewModel.onEvent(NoteEvent.SaveEntry(
                         it.copy(
@@ -1421,6 +1460,7 @@ fun ListDetailScreen(
                             dueDate = dueDate,
                             remindMe = remindMe,
                             isCurrentlyWatching = isCurrentlyWatching,
+                            isPaused = isPaused,
                             currentProgress = currentProgress,
                             totalProgress = totalProgress,
                             progressUnit = progressUnit
@@ -1696,7 +1736,7 @@ fun ListDetailScreen(
                                     }
 
                                     val progressText = entry.getProgressLabel(defaultUnit = "episodes")
-                                    if (entry.isCurrentlyWatching || progressText.isNotBlank()) {
+                                    if (entry.isCurrentlyWatching || entry.isPaused || progressText.isNotBlank()) {
                                         val sectionName = currentList.getEffectiveCurrentSectionName()
                                         val sectionIcon = when {
                                             sectionName.contains("read", ignoreCase = true) || sectionName.contains("book", ignoreCase = true) -> Icons.AutoMirrored.Rounded.MenuBook
@@ -2007,7 +2047,7 @@ fun ListDetailScreen(
                                     }
 
                                     val progressText = entry.getProgressLabel(defaultUnit = "episodes")
-                                    if (entry.isCurrentlyWatching || progressText.isNotBlank()) {
+                                    if (entry.isCurrentlyWatching || entry.isPaused || progressText.isNotBlank()) {
                                         val sectionName = currentList.getEffectiveCurrentSectionName()
                                         val sectionIcon = when {
                                             sectionName.contains("read", ignoreCase = true) || sectionName.contains("book", ignoreCase = true) -> Icons.AutoMirrored.Rounded.MenuBook
@@ -2449,7 +2489,8 @@ private fun CurrentlyWatchingItem(
     onDelete: (ListEntry) -> Unit,
     onIncrement: (ListEntry) -> Unit,
     onDecrement: (ListEntry) -> Unit,
-    onFinish: (ListEntry) -> Unit,
+    onPrimaryAction: (ListEntry) -> Unit,
+    onTogglePaused: (ListEntry) -> Unit,
     onLongClick: () -> Unit,
     shape: Shape = RoundedCornerShape(24.dp)
 ) {
@@ -2465,7 +2506,7 @@ private fun CurrentlyWatchingItem(
                     false
                 }
                 SwipeToDismissBoxValue.StartToEnd -> {
-                    onFinish(entry)
+                    onTogglePaused(entry)
                     false
                 }
                 else -> false
@@ -2489,7 +2530,7 @@ private fun CurrentlyWatchingItem(
             }
             val icon = when (direction) {
                 SwipeToDismissBoxValue.EndToStart -> Icons.Rounded.Delete
-                SwipeToDismissBoxValue.StartToEnd -> Icons.Rounded.Check
+                SwipeToDismissBoxValue.StartToEnd -> if (entry.isPaused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause
                 else -> null
             }
 
@@ -2512,7 +2553,7 @@ private fun CurrentlyWatchingItem(
                             tint = if (direction == SwipeToDismissBoxValue.EndToStart) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                         )
                         Text(
-                            text = if (direction == SwipeToDismissBoxValue.EndToStart) "Delete" else "Finish",
+                            text = if (direction == SwipeToDismissBoxValue.EndToStart) "Delete" else if (entry.isPaused) "Unpause" else "Pause",
                             style = MaterialTheme.typography.labelSmall,
                             color = if (direction == SwipeToDismissBoxValue.EndToStart) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                         )
@@ -2531,7 +2572,7 @@ private fun CurrentlyWatchingItem(
                     ),
                 shape = shape,
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                 )
             ) {
                 Row(
@@ -2541,53 +2582,56 @@ private fun CurrentlyWatchingItem(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Poster Artwork or Category Icon (fallback to parent entry's poster)
-                    val effectivePosterPath = remember(entry.tmdbPosterPath, parentEntry?.tmdbPosterPath) {
-                        entry.tmdbPosterPath ?: parentEntry?.tmdbPosterPath
-                    }
-                    val fullPosterUrl = remember(effectivePosterPath) {
-                        val path = effectivePosterPath
-                        when {
-                            path.isNullOrBlank() -> null
-                            path.startsWith("http") -> path
-                            else -> TmdbConfig.IMAGE_BASE_URL + path
+                    if (!entry.isPaused) {
+                        // Poster Artwork or Category Icon (fallback to parent entry's poster)
+                        val effectivePosterPath = remember(entry.tmdbPosterPath, parentEntry?.tmdbPosterPath) {
+                            entry.tmdbPosterPath ?: parentEntry?.tmdbPosterPath
                         }
-                    }
-
-                    if (moviePostersEnabled && !fullPosterUrl.isNullOrBlank()) {
-                        AsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current)
-                                .data(fullPosterUrl)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .size(width = 48.dp, height = 72.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                        )
-                    } else {
-                        val sectionName = currentList.getEffectiveCurrentSectionName()
-                        val sectionIcon = when {
-                            sectionName.contains("read", ignoreCase = true) || sectionName.contains("book", ignoreCase = true) -> Icons.AutoMirrored.Rounded.MenuBook
-                            sectionName.contains("play", ignoreCase = true) || sectionName.contains("game", ignoreCase = true) -> Icons.Rounded.SportsEsports
-                            sectionName.contains("listen", ignoreCase = true) || sectionName.contains("music", ignoreCase = true) || sectionName.contains("podcast", ignoreCase = true) -> Icons.Rounded.Headphones
-                            else -> Icons.Rounded.PlayCircle
-                        }
-                        Surface(
-                            modifier = Modifier.size(width = 48.dp, height = 72.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceContainerHighest
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = sectionIcon,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(28.dp)
-                                )
+                        val fullPosterUrl = remember(effectivePosterPath) {
+                            val path = effectivePosterPath
+                            when {
+                                path.isNullOrBlank() -> null
+                                path.startsWith("http") -> path
+                                else -> TmdbConfig.IMAGE_BASE_URL + path
                             }
                         }
+
+                        if (moviePostersEnabled && !fullPosterUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(fullPosterUrl)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(width = 48.dp, height = 72.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                            )
+                        } else {
+                            val sectionName = currentList.getEffectiveCurrentSectionName()
+                            val sectionIcon = when {
+                                sectionName.contains("read", ignoreCase = true) || sectionName.contains("book", ignoreCase = true) -> Icons.AutoMirrored.Rounded.MenuBook
+                                sectionName.contains("play", ignoreCase = true) || sectionName.contains("game", ignoreCase = true) -> Icons.Rounded.SportsEsports
+                                sectionName.contains("listen", ignoreCase = true) || sectionName.contains("music", ignoreCase = true) || sectionName.contains("podcast", ignoreCase = true) -> Icons.Rounded.Headphones
+                                else -> Icons.Rounded.PlayCircle
+                            }
+                            Surface(
+                                modifier = Modifier.size(width = 48.dp, height = 72.dp),
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerHighest
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = sectionIcon,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                            }
+                        }
+
                     }
 
                     // Middle Info
@@ -2608,21 +2652,7 @@ private fun CurrentlyWatchingItem(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f, fill = false)
                             )
-                            if (effectiveRating > 0f) {
-                                val ratingText = formatRating(effectiveRating)
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                                ) {
-                                    Text(
-                                        text = "★ $ratingText",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
+
                         }
 
                         if (parentEntry != null) {
@@ -2636,17 +2666,19 @@ private fun CurrentlyWatchingItem(
                         }
 
                         val progressText = entry.getProgressLabel(defaultUnit = "episodes")
-                        if (progressText.isNotBlank()) {
+                        if (progressText.isNotBlank() || effectiveRating > 0f) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                Text(
-                                    text = progressText,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.SemiBold
-                                )
+                                if (progressText.isNotBlank()) {
+                                    Text(
+                                        text = progressText,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
                                 if (entry.currentProgress != null && entry.totalProgress != null && entry.totalProgress > 0) {
                                     Text(
                                         text = "• ${entry.currentProgress}/${entry.totalProgress}",
@@ -2654,10 +2686,19 @@ private fun CurrentlyWatchingItem(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                     )
                                 }
+                                if (effectiveRating > 0f) {
+                                    val ratingText = formatRating(effectiveRating)
+                                    Text(
+                                        text = if (progressText.isNotBlank()) "• $ratingText/10" else "$ratingText/10",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
                         }
 
-                        if (entry.totalProgress != null && entry.totalProgress > 0) {
+                        if (!entry.isPaused && entry.totalProgress != null && entry.totalProgress > 0) {
                             val progress = ((entry.currentProgress ?: 0).toFloat() / entry.totalProgress.toFloat()).coerceIn(0f, 1f)
                             LinearProgressIndicator(
                                 progress = { progress },
@@ -2702,32 +2743,34 @@ private fun CurrentlyWatchingItem(
                         horizontalAlignment = Alignment.End,
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            IconButton(
-                                onClick = { onDecrement(entry) },
-                                modifier = Modifier.size(32.dp)
+                        if (!entry.isPaused) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
-                                Icon(Icons.Rounded.Remove, contentDescription = "Decrease Progress", modifier = Modifier.size(16.dp))
-                            }
-                            FilledTonalIconButton(
-                                onClick = { onIncrement(entry) },
-                                modifier = Modifier.size(32.dp),
-                                shape = CircleShape
-                            ) {
-                                Icon(Icons.Rounded.Add, contentDescription = "Increase Progress", modifier = Modifier.size(16.dp))
+                                IconButton(
+                                    onClick = { onDecrement(entry) },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(Icons.Rounded.Remove, contentDescription = "Decrease Progress", modifier = Modifier.size(16.dp))
+                                }
+                                FilledTonalIconButton(
+                                    onClick = { onIncrement(entry) },
+                                    modifier = Modifier.size(32.dp),
+                                    shape = CircleShape
+                                ) {
+                                    Icon(Icons.Rounded.Add, contentDescription = "Increase Progress", modifier = Modifier.size(16.dp))
+                                }
                             }
                         }
 
                         FilledTonalButton(
-                            onClick = { onFinish(entry) },
+                            onClick = { onPrimaryAction(entry) },
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                             modifier = Modifier.height(28.dp),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text("Finish", style = MaterialTheme.typography.labelSmall)
+                            Text(if (entry.isPaused) "Unpause" else "Finish", style = MaterialTheme.typography.labelSmall)
                         }
                     }
                 }
@@ -3255,6 +3298,7 @@ fun EntryDialog(
         dueDate: Long?,
         remindMe: Boolean,
         isCurrentlyWatching: Boolean,
+        isPaused: Boolean,
         currentProgress: Int?,
         totalProgress: Int?,
         progressUnit: String?
@@ -3278,6 +3322,7 @@ fun EntryDialog(
     var remindMe by remember { mutableStateOf(entry?.remindMe ?: false) }
 
     var isCurrentlyWatching by remember { mutableStateOf(entry?.isCurrentlyWatching ?: false) }
+    var isPaused by remember { mutableStateOf(entry?.isPaused ?: false) }
     var currentProgressText by remember { mutableStateOf(entry?.currentProgress?.toString() ?: "") }
     var totalProgressText by remember { mutableStateOf(entry?.totalProgress?.toString() ?: "") }
     var progressUnit by remember { mutableStateOf(entry?.progressUnit ?: "episodes") }
@@ -3363,10 +3408,11 @@ fun EntryDialog(
                                         linkedEntryId,
                                         dueDate,
                                         remindMe,
-                                        isCurrentlyWatching,
+                                        isCurrentlyWatching && !isPaused,
+                                        isPaused,
                                         currentProgressText.toIntOrNull(),
                                         totalProgressText.toIntOrNull(),
-                                        progressUnit.takeIf { isCurrentlyWatching && it.isNotBlank() }
+                                        progressUnit.takeIf { (isCurrentlyWatching || isPaused) && it.isNotBlank() }
                                     )
                                 }
                             },
@@ -3499,7 +3545,7 @@ fun EntryDialog(
                     // Currently Watching / Reading / Playing Tracker Card
                     Surface(
                         shape = RoundedCornerShape(16.dp),
-                        color = if (isCurrentlyWatching) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant,
+                        color = if (isCurrentlyWatching || isPaused) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -3514,12 +3560,27 @@ fun EntryDialog(
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Switch(
-                                    checked = isCurrentlyWatching,
-                                    onCheckedChange = { isCurrentlyWatching = it }
+                                    checked = isCurrentlyWatching || isPaused,
+                                    onCheckedChange = {
+                                        isCurrentlyWatching = it
+                                        isPaused = false
+                                    }
                                 )
                             }
 
-                            if (isCurrentlyWatching) {
+                            if (isCurrentlyWatching || isPaused) {
+                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    FilterChip(
+                                        selected = !isPaused,
+                                        onClick = { isCurrentlyWatching = true; isPaused = false },
+                                        label = { Text(currentSectionName) }
+                                    )
+                                    FilterChip(
+                                        selected = isPaused,
+                                        onClick = { isCurrentlyWatching = false; isPaused = true },
+                                        label = { Text("Paused") }
+                                    )
+                                }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)

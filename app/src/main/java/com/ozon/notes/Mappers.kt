@@ -74,7 +74,8 @@ fun NoteListEntityWithCounts.toDomain(): NoteListWithCounts {
         entryCount = entryCount,
         subEntryCount = subEntryCount,
         checkedCount = checkedCount,
-        watchingCount = watchingCount
+        watchingCount = watchingCount,
+        pausedCount = pausedCount
     )
 }
 
@@ -109,6 +110,7 @@ fun ListEntryEntity.toDomain(tagIds: List<String>): ListEntry {
         dueDate = dueDate,
         remindMe = remindMe,
         isCurrentlyWatching = isCurrentlyWatching,
+        isPaused = isPaused,
         currentProgress = currentProgress,
         totalProgress = totalProgress,
         progressUnit = progressUnit
@@ -135,6 +137,7 @@ fun ListEntry.toEntity(): ListEntryEntity {
         dueDate = dueDate,
         remindMe = remindMe,
         isCurrentlyWatching = isCurrentlyWatching,
+        isPaused = isPaused,
         currentProgress = currentProgress,
         totalProgress = totalProgress,
         progressUnit = progressUnit

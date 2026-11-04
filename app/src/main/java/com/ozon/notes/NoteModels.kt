@@ -141,7 +141,8 @@ data class NoteListWithCounts(
     val entryCount: Int,
     val subEntryCount: Int,
     val checkedCount: Int = 0,
-    val watchingCount: Int = 0
+    val watchingCount: Int = 0,
+    val pausedCount: Int = 0
 )
 
 @androidx.compose.runtime.Immutable
@@ -172,6 +173,7 @@ data class ListEntry(
     val dueDate: Long? = null,
     val remindMe: Boolean = false,
     val isCurrentlyWatching: Boolean = false,
+    val isPaused: Boolean = false,
     val currentProgress: Int? = null,
     val totalProgress: Int? = null,
     val progressUnit: String? = null

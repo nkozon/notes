@@ -28,6 +28,7 @@ fun MainScreenTabsScreen(
     viewModel: SettingsViewModel,
     onNavigateUp: () -> Unit
 ) {
+    val mobileCombinedView by viewModel.mobileCombinedViewState.collectAsStateWithLifecycle()
     val hideUncreatedTabs by viewModel.hideUncreatedTabsState.collectAsStateWithLifecycle()
     val showTabLabels by viewModel.showTabLabelsState.collectAsStateWithLifecycle()
     val tabOrder by viewModel.tabOrderState.collectAsStateWithLifecycle()
@@ -80,6 +81,36 @@ fun MainScreenTabsScreen(
                     .animateContentSize(animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing)),
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
+                SettingsSection(title = "Mobile Main Screen") {
+                    SettingsItemContainer(index = 0, total = 1) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Show all notes and lists",
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                                Text(
+                                    text = "Replace tab buttons with one screen showing all your notes and lists, like tablet mode",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = mobileCombinedView,
+                                onCheckedChange = {
+                                    viewModel.onEvent(NoteEvent.UpdateMobileCombinedView(it))
+                                }
+                            )
+                        }
+                    }
+                }
+
                 // Tab Visibility Section
                 SettingsSection(title = "Tab Visibility") {
                     SettingsItemContainer(index = 0, total = 2) {

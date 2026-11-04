@@ -173,7 +173,7 @@ fun SettingsScreen(
                             Column {
                                 Text("Main Screen Tabs", style = MaterialTheme.typography.titleMedium)
                                 Text(
-                                    text = "Configure visibility, labels, and tab order",
+                                    text = "Mobile layout, tab visibility, labels, and order",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

@@ -40,6 +40,7 @@ sealed interface NoteEvent {
     data class UpdateShowListsTab(val show: Boolean) : NoteEvent
     data class UpdateLastSelectedTab(val tab: MainTab) : NoteEvent
     data class UpdateHideUncreatedTabs(val hide: Boolean) : NoteEvent
+    data class UpdateMobileCombinedView(val enabled: Boolean) : NoteEvent
     data class UpdateShowTabLabels(val show: Boolean) : NoteEvent
     data class UpdateTabOrder(val order: List<MainTab>) : NoteEvent
     data class UpdateLastBackupTime(val time: Long) : NoteEvent

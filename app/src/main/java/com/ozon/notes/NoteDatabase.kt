@@ -76,6 +76,7 @@ data class ListEntryEntity(
     val dueDate: Long? = null,
     val remindMe: Boolean = false,
     val isCurrentlyWatching: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val isPaused: Boolean = false,
     val currentProgress: Int? = null,
     val totalProgress: Int? = null,
     val progressUnit: String? = null
@@ -142,7 +143,8 @@ data class NoteListEntityWithCounts(
     val entryCount: Int,
     val subEntryCount: Int,
     val checkedCount: Int,
-    val watchingCount: Int = 0
+    val watchingCount: Int = 0,
+    val pausedCount: Int = 0
 )
 
 data class ListEntryWithTags(
@@ -221,10 +223,11 @@ interface ListDao {
     @Query("""
         SELECT 
             l.*, 
-            (SELECT COUNT(*) FROM list_entries e WHERE e.listId = l.id AND e.parentId IS NULL AND e.isCurrentlyWatching = 0) as entryCount,
+            (SELECT COUNT(*) FROM list_entries e WHERE e.listId = l.id AND e.parentId IS NULL AND e.isCurrentlyWatching = 0 AND e.isPaused = 0) as entryCount,
             (SELECT COUNT(*) FROM list_entries e WHERE e.listId = l.id AND e.parentId IS NOT NULL) as subEntryCount,
             (SELECT COUNT(*) FROM list_entries e WHERE e.listId = l.id AND e.isChecked = 1) as checkedCount,
-            (SELECT COUNT(*) FROM list_entries e WHERE e.listId = l.id AND e.isCurrentlyWatching = 1) as watchingCount
+            (SELECT COUNT(*) FROM list_entries e WHERE e.listId = l.id AND e.isCurrentlyWatching = 1 AND e.isPaused = 0) as watchingCount,
+            (SELECT COUNT(*) FROM list_entries e WHERE e.listId = l.id AND e.isPaused = 1) as pausedCount
         FROM note_lists l
         ORDER BY l.isPinned DESC, l.timestamp DESC
     """)
@@ -353,7 +356,7 @@ interface DeletedItemDao {
 
 @Database(
     entities = [NoteEntity::class, NoteListEntity::class, ListEntryEntity::class, TagEntity::class, EntryTagCrossRef::class, DeletedItemEntity::class],
-    version = 25, 
+    version = 26,
     exportSchema = false
 )
 abstract class NoteDatabase : RoomDatabase() {
@@ -364,6 +367,13 @@ abstract class NoteDatabase : RoomDatabase() {
     abstract fun deletedItemDao(): DeletedItemDao
 
     companion object {
+        val MIGRATION_25_26 = object : androidx.room.migration.Migration(25, 26) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                // Existing entries retain their current state and progress.
+                db.execSQL("ALTER TABLE `list_entries` ADD COLUMN `isPaused` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         val MIGRATION_24_25 = object : androidx.room.migration.Migration(24, 25) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `notes` ADD COLUMN `isContentHidden` INTEGER NOT NULL DEFAULT 0")

@@ -411,7 +411,8 @@ fun ListCard(
     modifier: Modifier = Modifier,
     shape: Shape = CardDefaults.shape,
     isSelected: Boolean = false,
-    watchingCount: Int = 0
+    watchingCount: Int = 0,
+    pausedCount: Int = 0
 ) {
     Card(
         modifier = modifier
@@ -479,7 +480,7 @@ fun ListCard(
                                     sectionName.contains("listen", ignoreCase = true) -> "listening"
                                     else -> "watching"
                                 }
-                                "$entryCount entries${if (watchingCount > 0) ", $watchingCount $watchingShort" else ""}"
+                                "$entryCount entries${if (watchingCount > 0) ", $watchingCount $watchingShort" else ""}${if (pausedCount > 0) ", $pausedCount paused" else ""}"
                             },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary

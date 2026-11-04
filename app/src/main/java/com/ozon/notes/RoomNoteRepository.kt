@@ -1133,6 +1133,13 @@ class RoomNoteRepository(
         _hideUncreatedTabs.value = hide
     }
 
+    private val _mobileCombinedView = MutableStateFlow(prefs.getBoolean("mobile_combined_view", false))
+    override fun getMobileCombinedView(): StateFlow<Boolean> = _mobileCombinedView.asStateFlow()
+    override suspend fun setMobileCombinedView(enabled: Boolean) {
+        prefs.edit().putBoolean("mobile_combined_view", enabled).apply()
+        _mobileCombinedView.value = enabled
+    }
+
     private val _showTabLabels = MutableStateFlow(prefs.getBoolean("show_tab_labels", true))
     override fun getShowTabLabels(): StateFlow<Boolean> = _showTabLabels.asStateFlow()
     override suspend fun setShowTabLabels(show: Boolean) {
