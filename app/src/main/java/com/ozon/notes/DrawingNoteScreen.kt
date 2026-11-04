@@ -568,12 +568,10 @@ fun DrawingNoteScreen(
             SystemBarGradients(
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(if (isNormalTablet) Modifier.statusBarsPadding() else Modifier)
                     .zIndex(1f),
                 color = Color(0xFFF9F9F9),
-                showTop = true,
-                showBottom = true,
-                bottomHeight = 60.dp
+                showTop = !isNormalTablet,
+                showBottom = true
             )
 
             // Top Bar

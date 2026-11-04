@@ -5,8 +5,16 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.BlurEffect
@@ -26,9 +34,29 @@ import dev.chrisbanes.haze.blur.HazeBlurStyle
 import dev.chrisbanes.haze.blur.HazeColorEffect
 import dev.chrisbanes.haze.blur.hazeBlur
 import dev.chrisbanes.haze.hazeSource
+import kotlinx.coroutines.isActive
 
 val LocalAdvancedUiEnabled = compositionLocalOf { false }
 val LocalHazeState = compositionLocalOf<HazeState?> { null }
+
+private val liveBlurSourceUsers = mutableStateMapOf<HazeState, Int>()
+
+/** Keeps cross-window blur captures current, including changes in descendant graphics layers. */
+@Composable
+fun LiveBlurSourceUpdates(hazeState: HazeState?, enabled: Boolean) {
+    DisposableEffect(hazeState, enabled) {
+        if (enabled && hazeState != null) {
+            liveBlurSourceUsers[hazeState] = (liveBlurSourceUsers[hazeState] ?: 0) + 1
+        }
+        onDispose {
+            if (enabled && hazeState != null) {
+                val remaining = (liveBlurSourceUsers[hazeState] ?: 1) - 1
+                if (remaining > 0) liveBlurSourceUsers[hazeState] = remaining
+                else liveBlurSourceUsers.remove(hazeState)
+            }
+        }
+    }
+}
 
 /**
  * Marks a composable as a source for Haze blur effects if Advanced UI is enabled.
@@ -39,14 +67,33 @@ fun Modifier.advancedUiSource(
     enabled: Boolean = true
 ): Modifier {
     if (!enabled || hazeState == null) return this
-    return this.hazeSource(hazeState)
+    return this.composed {
+        if ((liveBlurSourceUsers[hazeState] ?: 0) > 0) {
+            val frame = remember { mutableLongStateOf(0L) }
+            LaunchedEffect(hazeState) {
+                while (isActive) {
+                    withFrameNanos { frame.longValue = it }
+                }
+            }
+            // Read in drawing, so refreshing the capture doesn't recompose the screen.
+            // Wrap hazeSource so each refresh re-records the input, not just its child layer.
+            Modifier.drawWithContent {
+                frame.longValue
+                drawContent()
+            }
+        } else {
+            Modifier
+        }
+    }.hazeSource(hazeState)
 }
 
 /**
  * Applies native hardware-accelerated blur of what's behind this surface when Advanced UI is enabled,
- * optionally with a tint of the dynamic theme color.
+ * optionally with a tint of the dynamic theme color. An opaque base behind the captured input
+ * prevents sharp content from showing through transparent areas of the blurred backdrop.
  * If disabled or hazeState is null, returns unchanged Modifier with zero blur or layer overhead.
  */
+@Composable
 fun Modifier.advancedUiBlur(
     hazeState: HazeState?,
     shape: Shape = CircleShape,
@@ -57,7 +104,9 @@ fun Modifier.advancedUiBlur(
 ): Modifier {
     if (!enabled || hazeState == null || blurRadius <= 0.01.dp) return this
     val effectiveRadius = blurRadius.coerceAtLeast(0.dp)
-    val hasOpaqueBackground = backgroundColor.isSpecified && backgroundColor != Color.Transparent && backgroundColor.alpha > 0.01f
+    val hasBackgroundColor = backgroundColor.isSpecified && backgroundColor.alpha > 0.01f
+    val opaqueBackground = (if (hasBackgroundColor) backgroundColor else MaterialTheme.colorScheme.background)
+        .copy(alpha = 1f)
     return this
         .clip(shape)
         .hazeBlur(
@@ -65,14 +114,15 @@ fun Modifier.advancedUiBlur(
             style = HazeBlurStyle {
                 this.blurRadius(effectiveRadius)
                 this.noiseFactor(0f)
-                this.backgroundColor(if (hasOpaqueBackground) backgroundColor else Color.Transparent)
-                // Never apply tint to transparent surfaces to prevent discoloration
-                if (hasOpaqueBackground && tint != null && tint.isSpecified && tint != Color.Transparent && tint.alpha > 0.01f) {
+                this.backgroundColor(opaqueBackground)
+                // Preserve the existing tint treatment for explicitly colored blur surfaces.
+                if (hasBackgroundColor && tint != null && tint.isSpecified && tint != Color.Transparent && tint.alpha > 0.01f) {
                     this.colorEffects(listOf(HazeColorEffect.tint(tint)))
                 } else {
                     this.colorEffects(emptyList())
                 }
-                this.fallbackColorEffect(null)
+                this.fallbackColorEffect(HazeColorEffect.tint(opaqueBackground))
+                this.alpha(1f)
                 this.blurredEdgeTreatment(BlurredEdgeTreatment(shape))
             }
         )

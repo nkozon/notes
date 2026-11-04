@@ -88,6 +88,11 @@ import kotlinx.coroutines.launch
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -4232,7 +4237,12 @@ fun TagFilterDropdown(
 ) {
     var expanded by remember { mutableStateOf(false) }
     var showManageTagsDialog by remember { mutableStateOf(false) }
-    
+    val hazeState = LocalHazeState.current
+    val useBlur = LocalAdvancedUiEnabled.current && hazeState != null
+    LiveBlurSourceUpdates(hazeState, enabled = expanded && useBlur)
+    val menuShape = RoundedCornerShape(28.dp)
+    val menuColor = MaterialTheme.colorScheme.surfaceContainerHigh
+
     Box {
         IconButton(onClick = { expanded = true }) {
             Icon(
@@ -4244,145 +4254,141 @@ fun TagFilterDropdown(
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
-            modifier = Modifier.width(280.dp),
-            shape = RoundedCornerShape(24.dp),
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier
+                .width(280.dp)
+                .advancedUiBlur(
+                    hazeState = hazeState,
+                    shape = menuShape,
+                    backgroundColor = MaterialTheme.colorScheme.background,
+                    enabled = useBlur
+                )
+                .background(
+                    advancedUiSurfaceColor(originalColor = menuColor, enabled = useBlur),
+                    menuShape
+                ),
+            shape = menuShape,
+            containerColor = Color.Transparent,
             tonalElevation = 0.dp
         ) {
-            Column(modifier = Modifier.padding(horizontal = 8.dp)) {
-                // Mode Toggle Header
+            SingleChoiceSegmentedButtonRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+            ) {
+                listOf(TagFilterMode.OR to "OR", TagFilterMode.AND to "AND").forEachIndexed { index, (mode, label) ->
+                    SegmentedButton(
+                        selected = filterMode == mode,
+                        onClick = { onModeToggle(mode) },
+                        shape = SegmentedButtonDefaults.itemShape(index = index, count = 2),
+                        colors = SegmentedButtonDefaults.colors(
+                            activeContainerColor = MaterialTheme.colorScheme.primary,
+                            activeContentColor = MaterialTheme.colorScheme.onPrimary,
+                            activeBorderColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Text(label)
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+
+            allTags.forEachIndexed { index, tag ->
+                val isSelected = tag.id in selectedTagIds
+                val itemShape = when {
+                    isSelected -> CircleShape
+                    allTags.size == 1 -> RoundedCornerShape(16.dp)
+                    index == 0 -> RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
+                    index == allTags.lastIndex -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 16.dp, bottomEnd = 16.dp)
+                    else -> RoundedCornerShape(4.dp)
+                }
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = tag.name,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
+                        )
+                    },
+                    onClick = { onTagToggle(tag.id) },
+                    leadingIcon = {
+                        Checkbox(
+                            checked = isSelected,
+                            onCheckedChange = null,
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = MaterialTheme.colorScheme.onPrimary,
+                                uncheckedColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                checkmarkColor = MaterialTheme.colorScheme.primary
+                            ),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    },
+                    modifier = Modifier
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                        .fillMaxWidth()
+                        .clip(itemShape)
+                        .background(
+                            if (isSelected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.55f),
+                            itemShape
+                        )
+                        .semantics {
+                            role = Role.Checkbox
+                            toggleableState = if (isSelected) ToggleableState.On else ToggleableState.Off
+                        },
+                    colors = MenuDefaults.itemColors(
+                        textColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                    )
+                )
+            }
+
+            if (allTags.isEmpty()) {
+                Text(
+                    "No tags available",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    textAlign = TextAlign.Center
+                )
+            }
+
+            if (selectedTagIds.isNotEmpty()) {
+                DropdownMenuItem(
+                    text = { Text("Clear all filters") },
+                    onClick = onClearAll,
+                    leadingIcon = { Icon(Icons.Rounded.Clear, contentDescription = null) },
+                    colors = MenuDefaults.itemColors(
+                        textColor = MaterialTheme.colorScheme.error,
+                        leadingIconColor = MaterialTheme.colorScheme.error
+                    ),
+                    modifier = Modifier.padding(horizontal = 8.dp).clip(MaterialTheme.shapes.small)
+                )
+            }
+            if (allTags.isNotEmpty()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
-                        .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(24.dp))
-                        .padding(4.dp)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.End
                 ) {
-                    listOf(TagFilterMode.OR to "OR", TagFilterMode.AND to "AND").forEach { (mode, label) ->
-                        val isSelected = filterMode == mode
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .clip(CircleShape)
-                                .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
-                                .clickable { onModeToggle(mode) },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = label,
-                                style = MaterialTheme.typography.labelLarge.copy(
-                                    fontFamily = if (isSelected) MaterialTheme.typography.titleMedium.fontFamily else MaterialTheme.typography.labelLarge.fontFamily
-                                ),
-                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    allTags.forEachIndexed { index, tag ->
-                        val isSelected = selectedTagIds.contains(tag.id)
-                        val shape = if (isSelected) {
-                            CircleShape
-                        } else {
-                            when {
-                                allTags.size == 1 -> RoundedCornerShape(16.dp)
-                                index == 0 -> RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
-                                index == allTags.size - 1 -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 16.dp, bottomEnd = 16.dp)
-                                else -> RoundedCornerShape(4.dp)
-                            }
-                        }
-
-                        Surface(
-                            onClick = { onTagToggle(tag.id) },
-                            shape = shape,
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
-                            contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Checkbox(
-                                    checked = isSelected,
-                                    onCheckedChange = null,
-                                    colors = CheckboxDefaults.colors(
-                                        checkedColor = Color.Transparent,
-                                        uncheckedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                        checkmarkColor = MaterialTheme.colorScheme.onPrimary
-                                    ),
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(Modifier.width(12.dp))
-                                Text(
-                                    text = tag.name,
-                                    style = MaterialTheme.typography.bodyLarge.copy(
-                                        fontFamily = if (isSelected) MaterialTheme.typography.titleMedium.fontFamily else MaterialTheme.typography.bodyLarge.fontFamily
-                                    ),
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                )
-                            }
-                        }
-                    }
-                }
-                
-                if (allTags.isEmpty()) {
-                    Text(
-                        "No tags available",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                        textAlign = TextAlign.Center
-                    )
-                }
-
-                if (selectedTagIds.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Surface(
-                        onClick = {
-                            onClearAll()
-                        },
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f),
-                        contentColor = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Rounded.Clear, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(12.dp))
-                            Text("Clear all filters", style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
-                }
-
-                if (allTags.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Surface(
+                    Button(
                         onClick = {
                             expanded = false
                             showManageTagsDialog = true
                         },
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        contentColor = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.fillMaxWidth()
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        ),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.AutoMirrored.Rounded.Sort, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(12.dp))
-                            Text("Manage Tags", style = MaterialTheme.typography.bodyMedium)
-                        }
+                        Icon(
+                            Icons.AutoMirrored.Rounded.Sort,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Manage tags")
                     }
                 }
             }

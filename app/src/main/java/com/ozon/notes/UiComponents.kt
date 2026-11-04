@@ -60,6 +60,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 
 @Composable
 fun CircleIconButton(
@@ -127,6 +129,20 @@ fun SortDropdown(
     iconOnly: Boolean = false
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val hazeState = LocalHazeState.current
+    val useBlur = LocalAdvancedUiEnabled.current && hazeState != null
+    LiveBlurSourceUpdates(hazeState, enabled = expanded && useBlur)
+    val menuShape = RoundedCornerShape(28.dp)
+    val menuColor = MaterialTheme.colorScheme.surfaceContainerHigh
+    val titleOptions = availableOrders.filter {
+        it != ListSortOrder.TAG_ALPHABETICAL && it != ListSortOrder.TAG_REVERSE_ALPHABETICAL
+    }
+    val tagOptions = availableOrders.filter {
+        it == ListSortOrder.TAG_ALPHABETICAL || it == ListSortOrder.TAG_REVERSE_ALPHABETICAL
+    }
+    var selectedGroup by remember(expanded, selectedOrder, availableOrders) {
+        mutableStateOf(if (selectedOrder in tagOptions || titleOptions.isEmpty()) 1 else 0)
+    }
 
     Box(modifier = modifier) {
         if (iconOnly) {
@@ -173,130 +189,99 @@ fun SortDropdown(
         DropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
-            modifier = Modifier.width(280.dp),
-            shape = RoundedCornerShape(24.dp),
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier
+                .width(280.dp)
+                .advancedUiBlur(
+                    hazeState = hazeState,
+                    shape = menuShape,
+                    backgroundColor = MaterialTheme.colorScheme.background,
+                    enabled = useBlur
+                )
+                .background(
+                    advancedUiSurfaceColor(originalColor = menuColor, enabled = useBlur),
+                    menuShape
+                ),
+            shape = menuShape,
+            // The menu modifier draws the blurred surface inside this native popup.
+            containerColor = Color.Transparent,
             tonalElevation = 0.dp
         ) {
-            var selectedGroup by remember { 
-                mutableStateOf(
-                    if (selectedOrder == ListSortOrder.TAG_ALPHABETICAL || selectedOrder == ListSortOrder.TAG_REVERSE_ALPHABETICAL) 1 else 0
-                ) 
+            if (titleOptions.isNotEmpty() && tagOptions.isNotEmpty()) {
+                SingleChoiceSegmentedButtonRow(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    listOf("Entries", "Tags").forEachIndexed { index, label ->
+                        SegmentedButton(
+                            selected = selectedGroup == index,
+                            icon = {},
+                            onClick = { selectedGroup = index },
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = 2),
+                            colors = SegmentedButtonDefaults.colors(
+                                activeContainerColor = MaterialTheme.colorScheme.primary,
+                                activeContentColor = MaterialTheme.colorScheme.onPrimary,
+                                activeBorderColor = MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Text(label)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
             }
 
-            val titleOptions = availableOrders.filter { it != ListSortOrder.TAG_ALPHABETICAL && it != ListSortOrder.TAG_REVERSE_ALPHABETICAL }
-            val tagOptions = availableOrders.filter { it == ListSortOrder.TAG_ALPHABETICAL || it == ListSortOrder.TAG_REVERSE_ALPHABETICAL }
-            val hasTagsGroup = tagOptions.isNotEmpty()
-
-            // DropdownMenu adds 8.dp vertical padding by default. 
-            // We add horizontal padding only to achieve a perfectly symmetrical 8.dp border.
-            Column(modifier = Modifier.padding(horizontal = 8.dp)) {
-                // Header Selector (only if both groups exist)
-                if (hasTagsGroup) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .background(MaterialTheme.colorScheme.surfaceContainer, RoundedCornerShape(24.dp))
-                            .padding(4.dp)
-                    ) {
-                        listOf("Title", "Tags").forEachIndexed { index, title ->
-                            val isSelected = selectedGroup == index
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .clip(CircleShape)
-                                    .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
-                                    .clickable { selectedGroup = index },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = title,
-                                    style = MaterialTheme.typography.labelLarge.copy(
-                                        fontFamily = if (isSelected) MaterialTheme.typography.titleMedium.fontFamily else MaterialTheme.typography.labelLarge.fontFamily
-                                    ),
-                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
+            val options = if (selectedGroup == 1) tagOptions else titleOptions
+            options.forEachIndexed { index, order ->
+                val isSelected = selectedOrder == order
+                val itemShape = when {
+                    isSelected -> CircleShape
+                    options.size == 1 -> RoundedCornerShape(16.dp)
+                    index == 0 -> RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
+                    index == options.lastIndex -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 16.dp, bottomEnd = 16.dp)
+                    else -> RoundedCornerShape(4.dp)
                 }
-
-                // Options with animation
-                AnimatedContent(
-                    targetState = selectedGroup,
-                    transitionSpec = {
-                        if (targetState > initialState) {
-                            slideInHorizontally { it } + fadeIn() togetherWith slideOutHorizontally { -it } + fadeOut()
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = when (order) {
+                                ListSortOrder.ALPHABETICAL, ListSortOrder.TAG_ALPHABETICAL -> "Alphabetical"
+                                ListSortOrder.REVERSE_ALPHABETICAL, ListSortOrder.TAG_REVERSE_ALPHABETICAL -> "Reverse alphabetical"
+                                ListSortOrder.RATING_LOW_TO_HIGH -> "Increasing score"
+                                ListSortOrder.RATING_HIGH_TO_LOW -> "Decreasing score"
+                                ListSortOrder.NEWEST -> "Newest first"
+                                ListSortOrder.OLDEST -> "Oldest first"
+                            },
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
+                        )
+                    },
+                    onClick = {
+                        onOrderSelected(order)
+                        expanded = false
+                    },
+                    leadingIcon = {
+                        if (isSelected) {
+                            Icon(Icons.Rounded.Check, contentDescription = null)
                         } else {
-                            slideInHorizontally { -it } + fadeIn() togetherWith slideOutHorizontally { it } + fadeOut()
+                            Spacer(Modifier.size(24.dp))
                         }
                     },
-                    label = "SortOptions"
-                ) { groupIndex ->
-                    val filteredOptions = if (groupIndex == 0) titleOptions else tagOptions
-
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        filteredOptions.forEachIndexed { index, order ->
-                            val isSelected = selectedOrder == order
-                            val shape = if (isSelected) {
-                                CircleShape
-                            } else {
-                                when {
-                                    filteredOptions.size == 1 -> RoundedCornerShape(16.dp)
-                                    index == 0 -> RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
-                                    index == filteredOptions.size - 1 -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 16.dp, bottomEnd = 16.dp)
-                                    else -> RoundedCornerShape(4.dp)
-                                }
-                            }
-
-                            Surface(
-                                onClick = {
-                                    onOrderSelected(order)
-                                    expanded = false
-                                },
-                                shape = shape,
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
-                                contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = when(order) {
-                                            ListSortOrder.ALPHABETICAL -> "Alphabetical"
-                                            ListSortOrder.REVERSE_ALPHABETICAL -> "Reverse alphabetical"
-                                            ListSortOrder.TAG_ALPHABETICAL -> "Alphabetical"
-                                            ListSortOrder.TAG_REVERSE_ALPHABETICAL -> "Reverse alphabetical"
-                                            ListSortOrder.RATING_LOW_TO_HIGH -> "Increasing score"
-                                            ListSortOrder.RATING_HIGH_TO_LOW -> "Decreasing score"
-                                            ListSortOrder.NEWEST -> "Newest first"
-                                            ListSortOrder.OLDEST -> "Oldest first"
-                                        },
-                                        style = MaterialTheme.typography.bodyLarge.copy(
-                                            fontFamily = if (isSelected) MaterialTheme.typography.titleMedium.fontFamily else MaterialTheme.typography.bodyLarge.fontFamily
-                                        ),
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                                    )
-                                    Text(
-                                        text = order.toShortLabel(),
-                                        style = MaterialTheme.typography.labelLarge.copy(
-                                            fontFamily = if (isSelected) MaterialTheme.typography.titleMedium.fontFamily else MaterialTheme.typography.labelLarge.fontFamily
-                                        ),
-                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
+                    modifier = Modifier
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                        .fillMaxWidth()
+                        .clip(itemShape)
+                        .background(
+                            if (isSelected) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.55f),
+                            itemShape
+                        )
+                        .semantics { selected = isSelected },
+                    colors = MenuDefaults.itemColors(
+                        textColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                        leadingIconColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                )
             }
         }
     }
@@ -873,7 +858,6 @@ fun SystemBarGradients(
     showBottomBlur: Boolean = showBottom,
     topAlpha: () -> Float = { 1f },
     bottomAlpha: () -> Float = { 1f },
-    bottomHeight: Dp? = null,
     blurRadius: Dp = 10.dp
 ) {
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -885,7 +869,8 @@ fun SystemBarGradients(
         // Status Bar Gradient
         if (showTop) {
             val effTopAlpha = topAlpha()
-            val topHeight = statusBarHeight * 3f
+            // Fade through the shared 64 dp header below the status bar.
+            val topHeight = statusBarHeight + 64.dp
 
             if (showTopBlur && advancedUi && hazeState != null) {
                 Box(
@@ -923,7 +908,9 @@ fun SystemBarGradients(
         // Navigation Bar Gradient
         if (showBottom) {
             val effBottomAlpha = bottomAlpha()
-            val effBottomHeight = bottomHeight ?: maxOf(navigationBarHeight * 5f, 160.dp)
+            // Match the top of ListDetailScreen's search box on every screen:
+            // 56 dp search box + 6 dp bottom padding + 16 dp Scaffold FAB spacing.
+            val effBottomHeight = navigationBarHeight + 56.dp + 6.dp + 16.dp
 
             if (showBottomBlur && advancedUi && hazeState != null) {
                 Box(
@@ -970,7 +957,6 @@ fun SystemBarGradients(
     showBottomBlur: Boolean = showBottom,
     topAlpha: Float,
     bottomAlpha: Float = 1f,
-    bottomHeight: Dp? = null,
     blurRadius: Dp = 10.dp
 ) {
     SystemBarGradients(
@@ -982,7 +968,6 @@ fun SystemBarGradients(
         showBottomBlur = showBottomBlur,
         topAlpha = { topAlpha },
         bottomAlpha = { bottomAlpha },
-        bottomHeight = bottomHeight,
         blurRadius = blurRadius
     )
 }

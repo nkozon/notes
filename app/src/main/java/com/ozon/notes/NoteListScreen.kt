@@ -1339,7 +1339,6 @@ fun NoteListScreen(
 
             SystemBarGradients(
                 modifier = Modifier.zIndex(1f),
-                showTopBlur = false,
                 topAlpha = { topAlpha }
             )
 
@@ -2146,22 +2145,45 @@ private fun CreateTypeButton(
     icon: ImageVector,
     onClick: () -> Unit
 ) {
-    FilledTonalButton(
-        onClick = onClick,
-        shape = CircleShape,
-        modifier = Modifier.height(40.dp),
-        contentPadding = PaddingValues(horizontal = 14.dp)
+    val hazeState = LocalHazeState.current
+    val useBlur = LocalAdvancedUiEnabled.current && hazeState != null
+
+    Box(
+        modifier = Modifier.minimumInteractiveComponentSize(),
+        contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp)
-        )
-        Spacer(Modifier.width(6.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge
-        )
+        // Reserve the touch spacing outside the visual surface so blur and fill share bounds.
+        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
+            FilledTonalButton(
+                onClick = onClick,
+                shape = CircleShape,
+                modifier = Modifier
+                    .height(40.dp)
+                    .advancedUiBlur(
+                        hazeState = hazeState,
+                        shape = CircleShape,
+                        enabled = useBlur
+                    ),
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = advancedUiSurfaceColor(
+                        originalColor = MaterialTheme.colorScheme.secondaryContainer,
+                        enabled = useBlur
+                    )
+                ),
+                contentPadding = PaddingValues(horizontal = 14.dp)
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelLarge
+                )
+            }
+        }
     }
 }
 
