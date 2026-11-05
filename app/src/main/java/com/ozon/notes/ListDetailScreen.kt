@@ -96,10 +96,6 @@ import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.platform.LocalDensity
@@ -312,8 +308,6 @@ fun ListDetailScreen(
         keyboardController?.hide()
     }
 
-    var isHeaderVisible by remember { mutableStateOf(true) }
-
     val isAtTop by remember {
         derivedStateOf {
             listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= 10
@@ -327,34 +321,6 @@ fun ListDetailScreen(
         }
     }
 
-    LaunchedEffect(isAtTop) {
-        if (isAtTop) {
-            isHeaderVisible = true
-        }
-    }
-
-    val nestedScrollConnection = remember {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                val delta = available.y
-                if (delta < -8f) {
-                    isHeaderVisible = false
-                } else if (delta > 8f) {
-                    isHeaderVisible = true
-                }
-                return Offset.Zero
-            }
-        }
-    }
-
-    val showHeader = isSearchActive || isAtTop || isHeaderVisible
-
-    val headerAlpha by animateFloatAsState(
-        targetValue = if (showHeader) 1f else 0f,
-        animationSpec = tween(durationMillis = 200),
-        label = "headerAlpha"
-    )
-
     val pillBackgroundAlpha by animateFloatAsState(
         targetValue = if (isAtTop) 0f else 1f,
         animationSpec = tween(durationMillis = 200),
@@ -366,8 +332,6 @@ fun ListDetailScreen(
         animationSpec = tween(durationMillis = 200),
         label = "backButtonContentColor"
     )
-
-    val showTitle = isAtTop || isHeaderVisible || isSearchActive
 
     val titleContentColor by animateColorAsState(
         targetValue = if (isAtTop) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer,
@@ -397,13 +361,6 @@ fun ListDetailScreen(
         label = "bottomFadeAlpha"
     )
 
-    val isBottomBarCollapsed = !isHeaderVisible && !isAtTop && !isSearchActive && !isInlineAdding
-
-    val bottomBarCollapseProgress by animateFloatAsState(
-        targetValue = if (isBottomBarCollapsed) 1f else 0f,
-        animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
-        label = "bottomBarCollapseProgress"
-    )
 
     val availableSortOrders = remember(currentList?.type) {
         ListSortOrder.entries.filter { order ->
@@ -431,8 +388,7 @@ fun ListDetailScreen(
 
     CompositionLocalProvider(LocalHazeState provides hazeState) {
         Scaffold(
-            modifier = Modifier.nestedScroll(nestedScrollConnection),
-            containerColor = Color.Transparent,
+                containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             floatingActionButtonPosition = androidx.compose.material3.FabPosition.Center,
             topBar = {
@@ -474,40 +430,24 @@ fun ListDetailScreen(
                                 )
                             }
 
-                            AnimatedVisibility(
-                                visible = showTitle,
-                                enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
-                                        scaleIn(initialScale = 0.8f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
-                                        expandHorizontally(
-                                            expandFrom = Alignment.Start,
-                                            animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
-                                        ),
-                                exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
-                                       scaleOut(targetScale = 0.8f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
-                                       shrinkHorizontally(
-                                           shrinkTowards = Alignment.Start,
-                                           animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
-                                       )
+                            Box(
+                                modifier = Modifier
+                                    .padding(start = 2.dp, end = 12.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { showRenameListDialog = true },
+                                contentAlignment = Alignment.CenterStart
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .padding(start = 2.dp, end = 12.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable { showRenameListDialog = true },
-                                    contentAlignment = Alignment.CenterStart
-                                ) {
-                                    Text(
-                                        text = currentList.title,
-                                        style = MaterialTheme.typography.titleLarge.copy(
-                                            fontWeight = FontWeight.SemiBold
-                                        ),
-                                        color = titleContentColor,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                                    )
-                                }
+                                Text(
+                                    text = currentList.title,
+                                    style = MaterialTheme.typography.titleLarge.copy(
+                                        fontWeight = FontWeight.SemiBold
+                                    ),
+                                    color = titleContentColor,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                )
                             }
                         }
                     }
@@ -523,11 +463,8 @@ fun ListDetailScreen(
                     .zIndex(3f),
                 contentAlignment = Alignment.Center
             ) {
-                val fullSearchWidth = (maxWidth - 56.dp - 12.dp).coerceAtLeast(56.dp)
-                val currentSearchWidth = lerp(fullSearchWidth, 56.dp, bottomBarCollapseProgress)
+                val currentSearchWidth = (maxWidth - 56.dp - 12.dp - 48.dp).coerceAtLeast(56.dp)
                 val rowWidth = currentSearchWidth + 12.dp + 56.dp
-                val contentAlpha = (1f - bottomBarCollapseProgress * 2.5f).coerceIn(0f, 1f)
-                val searchEndPadding = lerp(4.dp, 16.dp, bottomBarCollapseProgress)
 
                 Row(
                     modifier = Modifier.width(rowWidth),
@@ -553,7 +490,7 @@ fun ListDetailScreen(
                         tonalElevation = if (advancedUi) 0.dp else 3.dp,
                         shadowElevation = if (advancedUi) 0.dp else 3.dp
                     ) {
-                        if (isSearchActive && bottomBarCollapseProgress < 0.3f) {
+                        if (isSearchActive) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxSize()
@@ -613,13 +550,13 @@ fun ListDetailScreen(
                                     dummyFocusRequester.requestFocus()
                                 }
                             }
-                        } else if (!isSearchActive) {
+                        } else {
                             Row(
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .clip(CircleShape)
                                     .clickable { isSearchActive = true }
-                                    .padding(start = 16.dp, end = searchEndPadding),
+                                    .padding(start = 16.dp, end = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
@@ -627,51 +564,37 @@ fun ListDetailScreen(
                                     contentDescription = "Search",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                                if (bottomBarCollapseProgress < 0.6f) {
-                                    Row(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .graphicsLayer { alpha = contentAlpha },
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Text(
-                                            text = if (searchQuery.isNotEmpty()) searchQuery else "Search",
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            color = if (searchQuery.isNotEmpty()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.weight(1f),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        SortDropdown(
-                                            selectedOrder = sortOrder,
-                                            onOrderSelected = { checklistViewModel.onEvent(NoteEvent.UpdateListSortOrder(it)) },
-                                            availableOrders = availableSortOrders,
-                                            iconOnly = true
-                                        )
-                                        TagFilterDropdown(
-                                            selectedTagIds = selectedFilterTagIds,
-                                            allTags = allTags,
-                                            filterMode = tagFilterMode,
-                                            onTagToggle = { checklistViewModel.onEvent(NoteEvent.ToggleFilterTag(it)) },
-                                            onModeToggle = { checklistViewModel.onEvent(NoteEvent.UpdateTagFilterMode(it)) },
-                                            onClearAll = { checklistViewModel.onEvent(NoteEvent.ClearFilterTags) },
-                                            onReorderTags = { checklistViewModel.onEvent(NoteEvent.ReorderTags(listId, it)) },
-                                            onDeleteTag = { checklistViewModel.onEvent(NoteEvent.DeleteTag(it)) }
-                                        )
-                                    }
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Text(
+                                        text = if (searchQuery.isNotEmpty()) searchQuery else "Search",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = if (searchQuery.isNotEmpty()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.weight(1f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    SortDropdown(
+                                        selectedOrder = sortOrder,
+                                        onOrderSelected = { checklistViewModel.onEvent(NoteEvent.UpdateListSortOrder(it)) },
+                                        availableOrders = availableSortOrders,
+                                        iconOnly = true
+                                    )
+                                    TagFilterDropdown(
+                                        selectedTagIds = selectedFilterTagIds,
+                                        allTags = allTags,
+                                        filterMode = tagFilterMode,
+                                        onTagToggle = { checklistViewModel.onEvent(NoteEvent.ToggleFilterTag(it)) },
+                                        onModeToggle = { checklistViewModel.onEvent(NoteEvent.UpdateTagFilterMode(it)) },
+                                        onClearAll = { checklistViewModel.onEvent(NoteEvent.ClearFilterTags) },
+                                        onReorderTags = { checklistViewModel.onEvent(NoteEvent.ReorderTags(listId, it)) },
+                                        onDeleteTag = { checklistViewModel.onEvent(NoteEvent.DeleteTag(it)) }
+                                    )
                                 }
-                            }
-                        } else {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Search,
-                                    contentDescription = "Search",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
                             }
                         }
                     }
@@ -992,7 +915,10 @@ fun ListDetailScreen(
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .clickable {
+                                                .clickable(
+                                                    interactionSource = remember { MutableInteractionSource() },
+                                                    indication = null
+                                                ) {
                                                     if (paused) isPausedCollapsed = !isPausedCollapsed
                                                     else isCurrentlyWatchingCollapsed = !isCurrentlyWatchingCollapsed
                                                 }

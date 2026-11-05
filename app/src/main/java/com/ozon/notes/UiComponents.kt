@@ -56,9 +56,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
@@ -515,89 +513,30 @@ fun ListCard(
 
 class ScrollAwareHeaderState(
     val isAtTop: State<Boolean>,
-    val headerAlpha: State<Float>,
     val nestedScrollConnection: NestedScrollConnection
 )
 
 @Composable
 fun rememberScrollAwareHeaderState(scrollState: ScrollState): ScrollAwareHeaderState {
-    val isAtTop = remember {
+    val isAtTop = remember(scrollState) {
         derivedStateOf { scrollState.value <= 10 }
     }
-    var isHeaderVisible by remember { mutableStateOf(true) }
-
-    LaunchedEffect(isAtTop.value) {
-        if (isAtTop.value) {
-            isHeaderVisible = true
-        }
-    }
-
-    val nestedScrollConnection = remember {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                val delta = available.y
-                if (delta < -8f) {
-                    isHeaderVisible = false
-                } else if (delta > 8f) {
-                    isHeaderVisible = true
-                }
-                return Offset.Zero
-            }
-        }
-    }
-
-    val showHeader = isAtTop.value || isHeaderVisible
-
-    val headerAlpha = animateFloatAsState(
-        targetValue = if (showHeader) 1f else 0f,
-        animationSpec = tween(durationMillis = 200),
-        label = "headerAlpha"
-    )
-
-    return remember(isAtTop, headerAlpha, nestedScrollConnection) {
-        ScrollAwareHeaderState(isAtTop, headerAlpha, nestedScrollConnection)
+    val nestedScrollConnection = remember { object : NestedScrollConnection {} }
+    return remember(isAtTop, nestedScrollConnection) {
+        ScrollAwareHeaderState(isAtTop, nestedScrollConnection)
     }
 }
 
 @Composable
 fun rememberScrollAwareHeaderState(lazyListState: LazyListState): ScrollAwareHeaderState {
-    val isAtTop = remember {
+    val isAtTop = remember(lazyListState) {
         derivedStateOf {
             lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset <= 10
         }
     }
-    var isHeaderVisible by remember { mutableStateOf(true) }
-
-    LaunchedEffect(isAtTop.value) {
-        if (isAtTop.value) {
-            isHeaderVisible = true
-        }
-    }
-
-    val nestedScrollConnection = remember {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                val delta = available.y
-                if (delta < -8f) {
-                    isHeaderVisible = false
-                } else if (delta > 8f) {
-                    isHeaderVisible = true
-                }
-                return Offset.Zero
-            }
-        }
-    }
-
-    val showHeader = isAtTop.value || isHeaderVisible
-
-    val headerAlpha = animateFloatAsState(
-        targetValue = if (showHeader) 1f else 0f,
-        animationSpec = tween(durationMillis = 200),
-        label = "headerAlpha"
-    )
-
-    return remember(isAtTop, headerAlpha, nestedScrollConnection) {
-        ScrollAwareHeaderState(isAtTop, headerAlpha, nestedScrollConnection)
+    val nestedScrollConnection = remember { object : NestedScrollConnection {} }
+    return remember(isAtTop, nestedScrollConnection) {
+        ScrollAwareHeaderState(isAtTop, nestedScrollConnection)
     }
 }
 
@@ -610,7 +549,6 @@ fun SettingsTopAppBar(
     actions: @Composable RowScope.() -> Unit = {}
 ) {
     val isAtTop by headerState.isAtTop
-    val headerAlpha by headerState.headerAlpha
 
     val pillBackgroundAlpha by animateFloatAsState(
         targetValue = if (isAtTop) 0f else 1f,
@@ -623,8 +561,6 @@ fun SettingsTopAppBar(
         animationSpec = tween(durationMillis = 200),
         label = "backButtonContentColor"
     )
-
-    val showTitle = isAtTop || headerAlpha > 0.5f
 
     val titleContentColor by animateColorAsState(
         targetValue = if (isAtTop) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer,
@@ -683,38 +619,22 @@ fun SettingsTopAppBar(
                     )
                 }
 
-                AnimatedVisibility(
-                    visible = showTitle,
-                    enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
-                            scaleIn(initialScale = 0.8f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
-                            expandHorizontally(
-                                expandFrom = Alignment.Start,
-                                animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
-                            ),
-                    exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
-                           scaleOut(targetScale = 0.8f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
-                           shrinkHorizontally(
-                               shrinkTowards = Alignment.Start,
-                               animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
-                           )
+                Box(
+                    modifier = Modifier
+                        .padding(start = 2.dp, end = 14.dp),
+                    contentAlignment = Alignment.CenterStart
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .padding(start = 2.dp, end = 14.dp),
-                        contentAlignment = Alignment.CenterStart
-                    ) {
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontWeight = FontWeight.SemiBold
-                            ),
-                            color = titleContentColor,
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                        )
-                    }
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = titleContentColor,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                    )
                 }
             }
         }

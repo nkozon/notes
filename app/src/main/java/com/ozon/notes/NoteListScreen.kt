@@ -5,6 +5,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateDpAsState
@@ -21,13 +22,10 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
-import androidx.compose.ui.input.nestedscroll.NestedScrollSource
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.layout
-import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.lerp
@@ -367,7 +365,6 @@ fun NoteListScreen(
     var isSearchActive by remember { mutableStateOf(false) }
     var isCreateMenuOpen by rememberSaveable { mutableStateOf(false) }
     var isTopCreateMenuExpanded by rememberSaveable { mutableStateOf(false) }
-    var isScrollingDown by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(showAllCategories) {
         if (showAllCategories) {
@@ -388,7 +385,6 @@ fun NoteListScreen(
             isCreateMenuOpen = false
         } else if (isSearchActive) {
             isSearchActive = false
-            isScrollingDown = false
             notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
             focusManager.clearFocus()
             keyboardController?.hide()
@@ -400,30 +396,6 @@ fun NoteListScreen(
     val isAtTop by remember {
         derivedStateOf {
             gridState.firstVisibleItemIndex == 0 && gridState.firstVisibleItemScrollOffset <= 10
-        }
-    }
-
-    LaunchedEffect(isAtTop) {
-        if (isAtTop) {
-            isScrollingDown = false
-        }
-    }
-
-    LaunchedEffect(selectedTab) {
-        isScrollingDown = false
-    }
-
-    val nestedScrollConnection = remember {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                val delta = available.y
-                if (delta < -8f) {
-                    isScrollingDown = true
-                } else if (delta > 8f) {
-                    isScrollingDown = false
-                }
-                return Offset.Zero
-            }
         }
     }
 
@@ -445,7 +417,7 @@ fun NoteListScreen(
     val hasContent = notes.isNotEmpty() || listsWithCounts.isNotEmpty()
     val hasTabBar = hasContent && !showAllCategories && (showNotesTab || showListsTab)
     val topHeaderHeight = when {
-        showAllCategories -> headerHeight + createActionsHeight
+        showAllCategories -> headerHeight + if (isTabletUi) createActionsHeight else 0.dp
         hasTabBar -> headerHeight + 50.dp + 8.dp
         else -> headerHeight
     }
@@ -501,6 +473,61 @@ fun NoteListScreen(
         }
     }
 
+    val createButtons: @Composable () -> Unit = {
+        val buttonCount = (if (showNotesTab) 3 else 0) + (if (showListsTab) 3 else 0)
+        fun buttonShape(index: Int): androidx.compose.ui.graphics.Shape {
+            if (isTabletUi) return CircleShape
+            val firstRow = index < 3
+            val lastRow = index >= buttonCount - 3
+            val firstColumn = index % 3 == 0
+            val lastColumn = index % 3 == 2
+            return RoundedCornerShape(
+                topStart = if (firstRow && firstColumn) 20.dp else 4.dp,
+                topEnd = if (firstRow && lastColumn) 20.dp else 4.dp,
+                bottomEnd = if (lastRow && lastColumn) 20.dp else 4.dp,
+                bottomStart = if (lastRow && firstColumn) 20.dp else 4.dp
+            )
+        }
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            maxItemsInEachRow = if (isTabletUi) Int.MAX_VALUE else 3
+        ) {
+            if (showNotesTab) {
+                CreateTypeButton("Text", Icons.Rounded.Description, menuItem = !isTabletUi, shape = buttonShape(0), modifier = if (isTabletUi) Modifier else Modifier.weight(1f)) {
+                    isTopCreateMenuExpanded = false
+                    onAddClick(notesViewModel.createNewNote())
+                }
+                CreateTypeButton("Drawing", Icons.Rounded.Brush, menuItem = !isTabletUi, shape = buttonShape(1), modifier = if (isTabletUi) Modifier else Modifier.weight(1f)) {
+                    isTopCreateMenuExpanded = false
+                    showDrawingTypeDialog = true
+                }
+                CreateTypeButton("PDF", Icons.Rounded.PictureAsPdf, menuItem = !isTabletUi, shape = buttonShape(2), modifier = if (isTabletUi) Modifier else Modifier.weight(1f)) {
+                    isTopCreateMenuExpanded = false
+                    pdfPickerLauncher.launch(arrayOf("application/pdf"))
+                }
+            }
+            if (showListsTab) {
+                CreateTypeButton("Checklist", Icons.AutoMirrored.Rounded.List, menuItem = !isTabletUi, shape = buttonShape(if (showNotesTab) 3 else 0), modifier = if (isTabletUi) Modifier else Modifier.weight(1f)) {
+                    isTopCreateMenuExpanded = false
+                    initialListType = ListType.CHECKLIST
+                    showCreateListDialog = true
+                }
+                CreateTypeButton("Rating", Icons.Rounded.Star, menuItem = !isTabletUi, shape = buttonShape(if (showNotesTab) 4 else 1), modifier = if (isTabletUi) Modifier else Modifier.weight(1f)) {
+                    isTopCreateMenuExpanded = false
+                    initialListType = ListType.RATING
+                    showCreateListDialog = true
+                }
+                CreateTypeButton("Upcoming", Icons.Rounded.Event, menuItem = !isTabletUi, shape = buttonShape(if (showNotesTab) 5 else 2), modifier = if (isTabletUi) Modifier else Modifier.weight(1f)) {
+                    isTopCreateMenuExpanded = false
+                    initialListType = ListType.UPCOMING
+                    showCreateListDialog = true
+                }
+            }
+        }
+    }
+
     CompositionLocalProvider(LocalHazeState provides hazeState) {
         if (isTabletUi && isSidePanelCollapsed) {
             CollapsedSidePanel(
@@ -523,16 +550,8 @@ fun NoteListScreen(
         @Suppress("UnusedMaterial3ScaffoldPaddingParameter")
         Scaffold(
             containerColor = Color.Transparent,
-        modifier = Modifier.nestedScroll(nestedScrollConnection),
         floatingActionButton = {
             val haptics = LocalHapticFeedback.current
-            val isBottomBarCollapsed = isScrollingDown && !isAtTop && !isSearchActive && !isCreateMenuOpen
-
-            val collapseProgress by animateFloatAsState(
-                targetValue = if (isBottomBarCollapsed) 1f else 0f,
-                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing),
-                label = "bottomBarCollapseProgress"
-            )
             val fabRotation by animateFloatAsState(
                 targetValue = if (isCreateMenuOpen) 135f else 0f,
                 animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
@@ -612,11 +631,8 @@ fun NoteListScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     val fabSpace = if (showAllCategories) 0.dp else 56.dp + 12.dp
-                    val fullSearchWidth = (maxWidth - fabSpace).coerceAtLeast(56.dp)
-                    val currentSearchWidth = lerp(fullSearchWidth, 56.dp, collapseProgress)
+                    val currentSearchWidth = (maxWidth - fabSpace - 48.dp).coerceAtLeast(56.dp)
                     val rowWidth = currentSearchWidth + fabSpace
-                    val contentAlpha = (1f - collapseProgress * 2.5f).coerceIn(0f, 1f)
-                    val searchEndPadding = lerp(4.dp, 16.dp, collapseProgress)
 
                     Row(
                         modifier = Modifier.width(rowWidth),
@@ -642,7 +658,7 @@ fun NoteListScreen(
                             tonalElevation = if (advancedUi) 0.dp else 3.dp,
                             shadowElevation = if (advancedUi) 0.dp else 3.dp
                         ) {
-                            if (isSearchActive && collapseProgress < 0.3f) {
+                            if (isSearchActive) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -652,7 +668,6 @@ fun NoteListScreen(
                                     CircleIconButton(
                                         onClick = { 
                                             isSearchActive = false
-                                            isScrollingDown = false
                                             notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
                                             focusManager.clearFocus()
                                             keyboardController?.hide()
@@ -696,7 +711,7 @@ fun NoteListScreen(
                                         dummyFocusRequester.requestFocus()
                                     }
                                 }
-                            } else if (!isSearchActive) {
+                            } else {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxSize()
@@ -705,7 +720,7 @@ fun NoteListScreen(
                                             if (isCreateMenuOpen) isCreateMenuOpen = false
                                             isSearchActive = true 
                                         }
-                                        .padding(start = 16.dp, end = searchEndPadding),
+                                        .padding(start = 16.dp, end = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
@@ -713,52 +728,38 @@ fun NoteListScreen(
                                         contentDescription = "Search",
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
-                                    if (collapseProgress < 0.6f) {
-                                        Row(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .graphicsLayer { alpha = contentAlpha },
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            Text(
-                                                text = if (searchQuery.isNotEmpty()) searchQuery else if (showAllCategories) "Search notes and lists..." else if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) "Search notes..." else "Search lists...",
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = if (searchQuery.isNotEmpty()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.weight(1f),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                            if (searchQuery.isNotEmpty()) {
-                                                IconButton(
-                                                    onClick = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Rounded.Clear,
-                                                        contentDescription = "Clear",
-                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                }
+                                    Row(
+                                        modifier = Modifier
+                                            .weight(1f),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Text(
+                                            text = if (searchQuery.isNotEmpty()) searchQuery else if (showAllCategories) "Search notes and lists..." else if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) "Search notes..." else "Search lists...",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = if (searchQuery.isNotEmpty()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.weight(1f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        if (searchQuery.isNotEmpty()) {
+                                            IconButton(
+                                                onClick = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.Clear,
+                                                    contentDescription = "Clear",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
                                             }
-                                            SortDropdown(
-                                                selectedOrder = currentSortOrder,
-                                                onOrderSelected = onSortOrderSelected,
-                                                availableOrders = availableSortOrders,
-                                                iconOnly = true
-                                            )
                                         }
+                                        SortDropdown(
+                                            selectedOrder = currentSortOrder,
+                                            onOrderSelected = onSortOrderSelected,
+                                            availableOrders = availableSortOrders,
+                                            iconOnly = true
+                                        )
                                     }
-                                }
-                            } else {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Search,
-                                        contentDescription = "Search",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
                                 }
                             }
                         }
@@ -768,7 +769,6 @@ fun NoteListScreen(
                             onClick = {
                                 if (isSearchActive) {
                                     isSearchActive = false
-                                    isScrollingDown = false
                                     focusManager.clearFocus()
                                     keyboardController?.hide()
                                 }
@@ -813,7 +813,8 @@ fun NoteListScreen(
         floatingActionButtonPosition = androidx.compose.material3.FabPosition.Center,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = { 
-            Box(modifier = Modifier.fillMaxWidth().zIndex(3f)) {
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth().zIndex(3f)) {
+                val createMenuWidth = (maxWidth - 32.dp).coerceAtLeast(112.dp)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -939,6 +940,14 @@ fun NoteListScreen(
                                         contentColor = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
+                                if (showAllCategories && !isTabletUi) {
+                                    ExpandableCreateMenu(
+                                        expanded = isTopCreateMenuExpanded,
+                                        onToggle = { isTopCreateMenuExpanded = !isTopCreateMenuExpanded },
+                                        menuWidth = createMenuWidth,
+                                        content = createButtons
+                                    )
+                                }
                                 CircleIconButton(
                                     onClick = onSettingsClick,
                                     icon = Icons.Rounded.Settings,
@@ -955,76 +964,15 @@ fun NoteListScreen(
                         }
                     )
 
-                    if (showAllCategories) {
+                    if (showAllCategories && isTabletUi) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .onSizeChanged { createActionsHeight = with(density) { it.height.toDp() } }
                                 .padding(horizontal = 16.dp, vertical = 4.dp)
                         ) {
-                            val createButtons: @Composable () -> Unit = {
-                                val buttonCount = (if (showNotesTab) 3 else 0) + (if (showListsTab) 3 else 0)
-                                fun buttonShape(index: Int): androidx.compose.ui.graphics.Shape {
-                                    if (isTabletUi) return CircleShape
-                                    val firstRow = index < 3
-                                    val lastRow = index >= buttonCount - 3
-                                    val firstColumn = index % 3 == 0
-                                    val lastColumn = index % 3 == 2
-                                    return RoundedCornerShape(
-                                        topStart = if (firstRow && firstColumn) 20.dp else 4.dp,
-                                        topEnd = if (firstRow && lastColumn) 20.dp else 4.dp,
-                                        bottomEnd = if (lastRow && lastColumn) 20.dp else 4.dp,
-                                        bottomStart = if (lastRow && firstColumn) 20.dp else 4.dp
-                                    )
-                                }
-                                FlowRow(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                                    maxItemsInEachRow = if (isTabletUi) Int.MAX_VALUE else 3
-                                ) {
-                                    if (showNotesTab) {
-                                        CreateTypeButton("Text", Icons.Rounded.Description, menuItem = !isTabletUi, shape = buttonShape(0), modifier = if (isTabletUi) Modifier else Modifier.weight(1f)) {
-                                            isTopCreateMenuExpanded = false
-                                            onAddClick(notesViewModel.createNewNote())
-                                        }
-                                        CreateTypeButton("Drawing", Icons.Rounded.Brush, menuItem = !isTabletUi, shape = buttonShape(1), modifier = if (isTabletUi) Modifier else Modifier.weight(1f)) {
-                                            isTopCreateMenuExpanded = false
-                                            showDrawingTypeDialog = true
-                                        }
-                                        CreateTypeButton("PDF", Icons.Rounded.PictureAsPdf, menuItem = !isTabletUi, shape = buttonShape(2), modifier = if (isTabletUi) Modifier else Modifier.weight(1f)) {
-                                            isTopCreateMenuExpanded = false
-                                            pdfPickerLauncher.launch(arrayOf("application/pdf"))
-                                        }
-                                    }
-                                    if (showListsTab) {
-                                        CreateTypeButton("Checklist", Icons.AutoMirrored.Rounded.List, menuItem = !isTabletUi, shape = buttonShape(if (showNotesTab) 3 else 0), modifier = if (isTabletUi) Modifier else Modifier.weight(1f)) {
-                                            isTopCreateMenuExpanded = false
-                                            initialListType = ListType.CHECKLIST
-                                            showCreateListDialog = true
-                                        }
-                                        CreateTypeButton("Rating", Icons.Rounded.Star, menuItem = !isTabletUi, shape = buttonShape(if (showNotesTab) 4 else 1), modifier = if (isTabletUi) Modifier else Modifier.weight(1f)) {
-                                            isTopCreateMenuExpanded = false
-                                            initialListType = ListType.RATING
-                                            showCreateListDialog = true
-                                        }
-                                        CreateTypeButton("Upcoming", Icons.Rounded.Event, menuItem = !isTabletUi, shape = buttonShape(if (showNotesTab) 5 else 2), modifier = if (isTabletUi) Modifier else Modifier.weight(1f)) {
-                                            isTopCreateMenuExpanded = false
-                                            initialListType = ListType.UPCOMING
-                                            showCreateListDialog = true
-                                        }
-                                    }
-                                }
-                            }
-                            if (isTabletUi) {
-                                createButtons()
-                            } else {
-                                ExpandableCreateMenu(
-                                    expanded = isTopCreateMenuExpanded,
-                                    onToggle = { isTopCreateMenuExpanded = !isTopCreateMenuExpanded },
-                                    content = createButtons
-                                )
-                            }
+
+                            createButtons()
                         }
                     }
 
@@ -2185,11 +2133,29 @@ private fun CategoryHeader(
 private fun ExpandableCreateMenu(
     expanded: Boolean,
     onToggle: () -> Unit,
+    menuWidth: androidx.compose.ui.unit.Dp,
     content: @Composable () -> Unit
 ) {
     val hazeState = LocalHazeState.current
     val useBlur = LocalAdvancedUiEnabled.current && hazeState != null
     val density = LocalDensity.current
+    val windowWidth = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.width
+    var anchorRight by remember { mutableFloatStateOf(0f) }
+    val popupPositionProvider = remember(density) {
+        object : androidx.compose.ui.window.PopupPositionProvider {
+            override fun calculatePosition(
+                anchorBounds: androidx.compose.ui.unit.IntRect,
+                windowSize: androidx.compose.ui.unit.IntSize,
+                layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+                popupContentSize: androidx.compose.ui.unit.IntSize
+            ): androidx.compose.ui.unit.IntOffset {
+                return androidx.compose.ui.unit.IntOffset(
+                    x = (windowSize.width - popupContentSize.width) / 2,
+                    y = anchorBounds.top + with(density) { 4.dp.roundToPx() }
+                )
+            }
+        }
+    }
     val visibility = remember { androidx.compose.animation.core.MutableTransitionState(false) }
     visibility.targetState = expanded
     val surfaceColor = advancedUiSurfaceColor(
@@ -2198,11 +2164,13 @@ private fun ExpandableCreateMenu(
     )
 
     // The anchor always reserves the same space; the menu opens in an overlay.
-    BoxWithConstraints(
-        modifier = Modifier.fillMaxWidth().height(56.dp),
-        contentAlignment = Alignment.CenterStart
+    Box(
+        modifier = Modifier
+            .width(112.dp)
+            .height(56.dp)
+            .onGloballyPositioned { anchorRight = it.boundsInWindow().right },
+        contentAlignment = Alignment.CenterEnd
     ) {
-        val menuWidth = maxWidth
         val header: @Composable (androidx.compose.ui.unit.Dp) -> Unit = { headerWidth ->
             Row(
                 modifier = Modifier
@@ -2228,64 +2196,89 @@ private fun ExpandableCreateMenu(
             contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
             modifier = Modifier
                 .width(112.dp)
+                .graphicsLayer { alpha = if (visibility.currentState || visibility.targetState) 0f else 1f }
                 .advancedUiBlur(hazeState = hazeState, shape = CircleShape, enabled = useBlur)
         ) {
             header(112.dp)
         }
         if (visibility.currentState || visibility.targetState) {
             androidx.compose.ui.window.Popup(
-                alignment = Alignment.TopStart,
-                offset = with(density) { androidx.compose.ui.unit.IntOffset(0, 4.dp.roundToPx()) },
+                popupPositionProvider = popupPositionProvider,
                 onDismissRequest = { if (expanded) onToggle() },
                 properties = androidx.compose.ui.window.PopupProperties(focusable = true)
             ) {
                 AnimatedVisibility(
                     visibleState = visibility,
-                    enter = fadeIn(animationSpec = tween(150)),
-                    exit = fadeOut(animationSpec = tween(durationMillis = 1, delayMillis = 250))
+                    enter = androidx.compose.animation.EnterTransition.None,
+                    exit = fadeOut(animationSpec = tween(durationMillis = 1, delayMillis = 700))
                 ) {
-                    var menuExpanded by remember { mutableStateOf(false) }
+                    val morph = remember { Animatable(0f) }
                     LaunchedEffect(expanded) {
-                        if (expanded) withFrameNanos { }
-                        menuExpanded = expanded
+                        morph.animateTo(
+                            targetValue = if (expanded) 1f else 0f,
+                            animationSpec = spring(dampingRatio = 0.85f, stiffness = 400f)
+                        )
                     }
-                    val progress by animateFloatAsState(
-                        targetValue = if (menuExpanded) 1f else 0f,
-                        animationSpec = tween(250, easing = FastOutSlowInEasing),
-                        label = "createMenuMorph"
-                    )
+                    val progress = morph.value
                     val shape = RoundedCornerShape(24.dp)
-                    Surface(
-                        shape = shape,
-                        color = Color.Transparent,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                        modifier = Modifier
-                            .clip(shape)
-                            .advancedUiBlur(hazeState = hazeState, shape = shape, enabled = useBlur)
-                            .background(surfaceColor, shape)
-                            .layout { measurable, constraints ->
-                                val fullWidth = with(density) { menuWidth.roundToPx() }
-                                val placeable = measurable.measure(
-                                    constraints.copy(
-                                        minWidth = fullWidth,
-                                        maxWidth = fullWidth,
-                                        minHeight = 0,
-                                        maxHeight = androidx.compose.ui.unit.Constraints.Infinity
-                                    )
-                                )
-                                val collapsedWidth = with(density) { 112.dp.roundToPx() }
-                                val collapsedHeight = with(density) { 48.dp.roundToPx() }
-                                val width = (collapsedWidth + (placeable.width - collapsedWidth) * progress).roundToInt()
-                                val height = (collapsedHeight + (placeable.height - collapsedHeight) * progress).roundToInt()
-                                layout(width, height) { placeable.place(0, 0) }
-                            }
+                    // Keep popup bounds fixed horizontally; animate only the surface inside.
+                    Box(
+                        modifier = Modifier.requiredWidth(menuWidth),
+                        contentAlignment = Alignment.TopEnd
                     ) {
-                        Column(modifier = Modifier.width(menuWidth)) {
-                            header(112.dp + (menuWidth - 112.dp) * progress)
-                            Box(
-                                modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
-                            ) {
-                                content()
+                        Surface(
+                            shape = shape,
+                            color = Color.Transparent,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier
+                                .graphicsLayer {
+                                    val menuRight = (windowWidth + with(density) { menuWidth.toPx() }) / 2f
+                                    translationX = (anchorRight - menuRight) * (1f - progress)
+                                    transformOrigin = TransformOrigin(1f, 0f)
+                                }
+                                .clip(shape)
+                                .advancedUiBlur(hazeState = hazeState, shape = shape, enabled = useBlur)
+                                .background(surfaceColor, shape)
+                                .layout { measurable, constraints ->
+                                    val fullWidth = with(density) { menuWidth.roundToPx() }
+                                    val placeable = measurable.measure(
+                                        constraints.copy(
+                                            minWidth = fullWidth,
+                                            maxWidth = fullWidth,
+                                            minHeight = 0,
+                                            maxHeight = androidx.compose.ui.unit.Constraints.Infinity
+                                        )
+                                    )
+                                    val collapsedWidth = with(density) { 112.dp.roundToPx() }
+                                    val collapsedHeight = with(density) { 48.dp.roundToPx() }
+                                    val width = (collapsedWidth + (placeable.width - collapsedWidth) * progress).roundToInt()
+                                    val height = (collapsedHeight + (placeable.height - collapsedHeight) * progress).roundToInt()
+                                    layout(width, height) { placeable.place(width - placeable.width, 0) }
+                                }
+                        ) {
+                            Column(modifier = Modifier.width(menuWidth)) {
+                                Box(modifier = Modifier.fillMaxWidth()) {
+                                    Box(
+                                        modifier = Modifier.graphicsLayer {
+                                            translationX = with(density) { (menuWidth - 112.dp).toPx() } * (1f - progress)
+                                        }
+                                    ) {
+                                        header(112.dp)
+                                    }
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .graphicsLayer {
+                                            val fullWidth = with(density) { menuWidth.toPx() }
+                                            val collapsedWidth = with(density) { 112.dp.toPx() }
+                                            scaleX = (collapsedWidth + (fullWidth - collapsedWidth) * progress) / fullWidth
+                                            scaleY = progress.coerceAtLeast(0f)
+                                            transformOrigin = TransformOrigin(1f, 0f)
+                                        }
+                                        .padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
+                                ) {
+                                    content()
+                                }
                             }
                         }
                     }
