@@ -26,8 +26,6 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.boundsInWindow
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.lerp
 import kotlin.math.roundToInt
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -79,7 +77,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontStyle
@@ -353,7 +350,6 @@ fun NoteListScreen(
 
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
-    val density = LocalDensity.current
     val dummyFocusRequester = remember { FocusRequester() }
 
     var noteToDelete by remember { mutableStateOf<Note?>(null) }
@@ -364,24 +360,14 @@ fun NoteListScreen(
     var showDrawingTypeDialog by remember { mutableStateOf(false) }
     var isSearchActive by remember { mutableStateOf(false) }
     var isCreateMenuOpen by rememberSaveable { mutableStateOf(false) }
-    var isTopCreateMenuExpanded by rememberSaveable { mutableStateOf(false) }
-
-    LaunchedEffect(showAllCategories) {
-        if (showAllCategories) {
-            isCreateMenuOpen = false
-        }
-    }
-
     val menuProgress = animateFloatAsState(
         targetValue = if (isCreateMenuOpen) 1f else 0f,
         animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
         label = "menuProgress"
     )
 
-    BackHandler(enabled = isCreateMenuOpen || isTopCreateMenuExpanded || isSearchActive) {
-        if (isTopCreateMenuExpanded) {
-            isTopCreateMenuExpanded = false
-        } else if (isCreateMenuOpen) {
+    BackHandler(enabled = isCreateMenuOpen || isSearchActive) {
+        if (isCreateMenuOpen) {
             isCreateMenuOpen = false
         } else if (isSearchActive) {
             isSearchActive = false
@@ -413,11 +399,10 @@ fun NoteListScreen(
 
     val topPadding = if (isTabletUi) 0.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val headerHeight = 64.dp
-    var createActionsHeight by remember { mutableStateOf(0.dp) }
     val hasContent = notes.isNotEmpty() || listsWithCounts.isNotEmpty()
     val hasTabBar = hasContent && !showAllCategories && (showNotesTab || showListsTab)
     val topHeaderHeight = when {
-        showAllCategories -> headerHeight + if (isTabletUi) createActionsHeight else 0.dp
+        showAllCategories -> headerHeight
         hasTabBar -> headerHeight + 50.dp + 8.dp
         else -> headerHeight
     }
@@ -469,61 +454,6 @@ fun NoteListScreen(
                 MainTab.CHECKLISTS -> showListsTab && (!hideUncreatedTabs || listsWithCounts.any { it.list.type == ListType.CHECKLIST } || selectedTab == MainTab.CHECKLISTS)
                 MainTab.RATINGS -> showListsTab && (!hideUncreatedTabs || listsWithCounts.any { it.list.type == ListType.RATING } || selectedTab == MainTab.RATINGS)
                 MainTab.UPCOMING -> showListsTab && (!hideUncreatedTabs || listsWithCounts.any { it.list.type == ListType.UPCOMING } || selectedTab == MainTab.UPCOMING)
-            }
-        }
-    }
-
-    val createButtons: @Composable () -> Unit = {
-        val buttonCount = (if (showNotesTab) 3 else 0) + (if (showListsTab) 3 else 0)
-        fun buttonShape(index: Int): androidx.compose.ui.graphics.Shape {
-            if (isTabletUi) return CircleShape
-            val firstRow = index < 3
-            val lastRow = index >= buttonCount - 3
-            val firstColumn = index % 3 == 0
-            val lastColumn = index % 3 == 2
-            return RoundedCornerShape(
-                topStart = if (firstRow && firstColumn) 20.dp else 4.dp,
-                topEnd = if (firstRow && lastColumn) 20.dp else 4.dp,
-                bottomEnd = if (lastRow && lastColumn) 20.dp else 4.dp,
-                bottomStart = if (lastRow && firstColumn) 20.dp else 4.dp
-            )
-        }
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-            maxItemsInEachRow = if (isTabletUi) Int.MAX_VALUE else 3
-        ) {
-            if (showNotesTab) {
-                CreateTypeButton("Text", Icons.Rounded.Description, menuItem = !isTabletUi, shape = buttonShape(0), modifier = if (isTabletUi) Modifier else Modifier.weight(1f)) {
-                    isTopCreateMenuExpanded = false
-                    onAddClick(notesViewModel.createNewNote())
-                }
-                CreateTypeButton("Drawing", Icons.Rounded.Brush, menuItem = !isTabletUi, shape = buttonShape(1), modifier = if (isTabletUi) Modifier else Modifier.weight(1f)) {
-                    isTopCreateMenuExpanded = false
-                    showDrawingTypeDialog = true
-                }
-                CreateTypeButton("PDF", Icons.Rounded.PictureAsPdf, menuItem = !isTabletUi, shape = buttonShape(2), modifier = if (isTabletUi) Modifier else Modifier.weight(1f)) {
-                    isTopCreateMenuExpanded = false
-                    pdfPickerLauncher.launch(arrayOf("application/pdf"))
-                }
-            }
-            if (showListsTab) {
-                CreateTypeButton("Checklist", Icons.AutoMirrored.Rounded.List, menuItem = !isTabletUi, shape = buttonShape(if (showNotesTab) 3 else 0), modifier = if (isTabletUi) Modifier else Modifier.weight(1f)) {
-                    isTopCreateMenuExpanded = false
-                    initialListType = ListType.CHECKLIST
-                    showCreateListDialog = true
-                }
-                CreateTypeButton("Rating", Icons.Rounded.Star, menuItem = !isTabletUi, shape = buttonShape(if (showNotesTab) 4 else 1), modifier = if (isTabletUi) Modifier else Modifier.weight(1f)) {
-                    isTopCreateMenuExpanded = false
-                    initialListType = ListType.RATING
-                    showCreateListDialog = true
-                }
-                CreateTypeButton("Upcoming", Icons.Rounded.Event, menuItem = !isTabletUi, shape = buttonShape(if (showNotesTab) 5 else 2), modifier = if (isTabletUi) Modifier else Modifier.weight(1f)) {
-                    isTopCreateMenuExpanded = false
-                    initialListType = ListType.UPCOMING
-                    showCreateListDialog = true
-                }
             }
         }
     }
@@ -585,7 +515,7 @@ fun NoteListScreen(
                     .padding(bottom = 6.dp)
                     .zIndex(3f)
             ) {
-                if (!showAllCategories && menuProgress.value > 0.001f) {
+                if (!isSearchActive && menuProgress.value > 0.001f) {
                     Column(
                         horizontalAlignment = Alignment.End,
                         modifier = Modifier
@@ -604,11 +534,9 @@ fun NoteListScreen(
                             },
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        createOptions.forEachIndexed { index, option ->
+                        createOptions.forEach { option ->
                             CreateOptionItem(
                                 option = option,
-                                isFirst = index == 0,
-                                isLast = index == createOptions.size - 1,
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
@@ -630,26 +558,39 @@ fun NoteListScreen(
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    val fabSpace = if (showAllCategories) 0.dp else 56.dp + 12.dp
-                    val currentSearchWidth = (maxWidth - fabSpace - 48.dp).coerceAtLeast(56.dp)
-                    val rowWidth = currentSearchWidth + fabSpace
+                    val collapsedSearchWidth = if (isTabletUi) {
+                        minOf(TabletSearchWidth, (maxWidth - 68.dp).coerceAtLeast(56.dp))
+                    } else {
+                        (maxWidth - 68.dp - 48.dp).coerceAtLeast(56.dp)
+                    }
+                    val rowWidth by animateDpAsState(
+                        targetValue = if (isSearchActive) maxWidth else collapsedSearchWidth + 68.dp,
+                        animationSpec = tween(250, easing = FastOutSlowInEasing),
+                        label = "searchRowWidth"
+                    )
+                    val searchCornerRadius by animateDpAsState(
+                        targetValue = if (isSearchActive) 20.dp else 28.dp,
+                        animationSpec = tween(250, easing = FastOutSlowInEasing),
+                        label = "searchCornerRadius"
+                    )
+                    val searchShape = RoundedCornerShape(searchCornerRadius)
 
                     Row(
                         modifier = Modifier.width(rowWidth),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.Start
                     ) {
                         Surface(
                             modifier = Modifier
-                                .width(currentSearchWidth)
+                                .weight(1f)
                                 .height(56.dp)
                                 .advancedUiBlur(
                                     hazeState = hazeState,
-                                    shape = CircleShape,
+                                    shape = searchShape,
                                     tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                                     enabled = advancedUi
                                 ),
-                            shape = CircleShape,
+                            shape = searchShape,
                             color = advancedUiSurfaceColor(
                                 originalColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                                 tint = MaterialTheme.colorScheme.primary,
@@ -735,7 +676,7 @@ fun NoteListScreen(
                                     ) {
                                         Spacer(modifier = Modifier.width(12.dp))
                                         Text(
-                                            text = if (searchQuery.isNotEmpty()) searchQuery else if (showAllCategories) "Search notes and lists..." else if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) "Search notes..." else "Search lists...",
+                                            text = if (searchQuery.isNotEmpty()) searchQuery else if (isTabletUi) "Search" else if (showAllCategories) "Search notes and lists..." else if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) "Search notes..." else "Search lists...",
                                             style = MaterialTheme.typography.bodyLarge,
                                             color = if (searchQuery.isNotEmpty()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier.weight(1f),
@@ -764,47 +705,56 @@ fun NoteListScreen(
                             }
                         }
 
-                        if (!showAllCategories) {
-                        FloatingActionButton(
-                            onClick = {
-                                if (isSearchActive) {
-                                    isSearchActive = false
-                                    focusManager.clearFocus()
-                                    keyboardController?.hide()
-                                }
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                isCreateMenuOpen = !isCreateMenuOpen
-                            },
-                            shape = CircleShape,
-                            modifier = Modifier
-                                .size(56.dp)
-                                .advancedUiBlur(
-                                    hazeState = hazeState,
-                                    shape = CircleShape,
-                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                    enabled = advancedUi
-                                ),
-                            containerColor = advancedUiSurfaceColor(
-                                originalColor = fabContainerColor,
-                                tint = MaterialTheme.colorScheme.primary,
-                                enabled = advancedUi
-                            ),
-                            contentColor = fabContentColor,
-                            elevation = if (advancedUi) FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp) else FloatingActionButtonDefaults.elevation(
-                                defaultElevation = if (isCreateMenuOpen) 6.dp else 4.dp,
-                                pressedElevation = 8.dp
-                            )
+                        AnimatedVisibility(
+                            visible = !isSearchActive,
+                            enter = expandHorizontally(animationSpec = tween(250, easing = FastOutSlowInEasing)) +
+                                fadeIn(animationSpec = tween(250)),
+                            exit = shrinkHorizontally(animationSpec = tween(250, easing = FastOutSlowInEasing)) +
+                                fadeOut(animationSpec = tween(250))
                         ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Add,
-                                contentDescription = if (isCreateMenuOpen) "Close create menu" else "Create new item",
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .graphicsLayer {
-                                        rotationZ = fabRotation
-                                    }
-                            )
-                        }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Spacer(Modifier.width(12.dp))
+                                FloatingActionButton(
+                                    onClick = {
+                                        if (isSearchActive) {
+                                            isSearchActive = false
+                                            focusManager.clearFocus()
+                                            keyboardController?.hide()
+                                        }
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        isCreateMenuOpen = !isCreateMenuOpen
+                                    },
+                                    shape = CircleShape,
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .advancedUiBlur(
+                                            hazeState = hazeState,
+                                            shape = CircleShape,
+                                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                            enabled = advancedUi
+                                        ),
+                                    containerColor = advancedUiSurfaceColor(
+                                        originalColor = fabContainerColor,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        enabled = advancedUi
+                                    ),
+                                    contentColor = fabContentColor,
+                                    elevation = if (advancedUi) FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp) else FloatingActionButtonDefaults.elevation(
+                                        defaultElevation = if (isCreateMenuOpen) 6.dp else 4.dp,
+                                        pressedElevation = 8.dp
+                                    )
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Add,
+                                        contentDescription = if (isCreateMenuOpen) "Close create menu" else "Create new item",
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .graphicsLayer {
+                                                rotationZ = fabRotation
+                                            }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -814,15 +764,9 @@ fun NoteListScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = { 
             BoxWithConstraints(modifier = Modifier.fillMaxWidth().zIndex(3f)) {
-                val createMenuWidth = (maxWidth - 32.dp).coerceAtLeast(112.dp)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .animatedBlur(
-                            progress = { menuProgress.value },
-                            maxRadius = 20.dp,
-                            enabled = advancedUi
-                        )
                 ) {
                     TopAppBar(
                         title = {
@@ -940,14 +884,6 @@ fun NoteListScreen(
                                         contentColor = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
-                                if (showAllCategories && !isTabletUi) {
-                                    ExpandableCreateMenu(
-                                        expanded = isTopCreateMenuExpanded,
-                                        onToggle = { isTopCreateMenuExpanded = !isTopCreateMenuExpanded },
-                                        menuWidth = createMenuWidth,
-                                        content = createButtons
-                                    )
-                                }
                                 CircleIconButton(
                                     onClick = onSettingsClick,
                                     icon = Icons.Rounded.Settings,
@@ -963,18 +899,6 @@ fun NoteListScreen(
                             }
                         }
                     )
-
-                    if (showAllCategories && isTabletUi) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .onSizeChanged { createActionsHeight = with(density) { it.height.toDp() } }
-                                .padding(horizontal = 16.dp, vertical = 4.dp)
-                        ) {
-
-                            createButtons()
-                        }
-                    }
 
                 if (hasTabBar) {
                     Box(
@@ -1069,11 +993,6 @@ fun NoteListScreen(
                 verticalItemSpacing = 0.dp,
                 modifier = Modifier
                     .fillMaxSize()
-                    .animatedBlur(
-                        progress = { menuProgress.value },
-                        maxRadius = 20.dp,
-                        enabled = advancedUi
-                    )
                     .advancedUiSource(hazeState, advancedUi)
             ) {
                 if (showAllCategories) {
@@ -1215,7 +1134,7 @@ fun NoteListScreen(
                             EmptyTabState(
                                 icon = if (selectedTab == MainTab.TEXT) Icons.Rounded.Description else Icons.Rounded.Brush,
                                 message = if (searchQuery.isNotEmpty()) "No notes found" else "No notes yet",
-                                subMessage = if (searchQuery.isNotEmpty()) "Try searching with a different keyword" else if (selectedTab == MainTab.TEXT) "Tap a button above to create a new text note" else "Tap a button above to create a new drawing or import a PDF"
+                                subMessage = if (searchQuery.isNotEmpty()) "Try searching with a different keyword" else if (selectedTab == MainTab.TEXT) "Tap + to create a new text note" else "Tap + to create a new drawing or import a PDF"
                             )
                         }
                     } else {
@@ -1272,9 +1191,9 @@ fun NoteListScreen(
                                 },
                                 message = if (searchQuery.isNotEmpty()) "No lists found" else "No lists yet",
                                 subMessage = if (searchQuery.isNotEmpty()) "Try searching with a different keyword" else when (selectedTab) {
-                                    MainTab.CHECKLISTS -> "Tap the button above to create a new checklist"
-                                    MainTab.RATINGS -> "Tap the button above to create a new rating list"
-                                    else -> "Tap the button above to create a new upcoming list"
+                                    MainTab.CHECKLISTS -> "Tap + to create a new checklist"
+                                    MainTab.RATINGS -> "Tap + to create a new rating list"
+                                    else -> "Tap + to create a new upcoming list"
                                 }
                             )
                         }
@@ -2130,229 +2049,6 @@ private fun CategoryHeader(
 }
 
 @Composable
-private fun ExpandableCreateMenu(
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    menuWidth: androidx.compose.ui.unit.Dp,
-    content: @Composable () -> Unit
-) {
-    val hazeState = LocalHazeState.current
-    val useBlur = LocalAdvancedUiEnabled.current && hazeState != null
-    val density = LocalDensity.current
-    val windowWidth = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.width
-    var anchorRight by remember { mutableFloatStateOf(0f) }
-    val popupPositionProvider = remember(density) {
-        object : androidx.compose.ui.window.PopupPositionProvider {
-            override fun calculatePosition(
-                anchorBounds: androidx.compose.ui.unit.IntRect,
-                windowSize: androidx.compose.ui.unit.IntSize,
-                layoutDirection: androidx.compose.ui.unit.LayoutDirection,
-                popupContentSize: androidx.compose.ui.unit.IntSize
-            ): androidx.compose.ui.unit.IntOffset {
-                return androidx.compose.ui.unit.IntOffset(
-                    x = (windowSize.width - popupContentSize.width) / 2,
-                    y = anchorBounds.top + with(density) { 4.dp.roundToPx() }
-                )
-            }
-        }
-    }
-    val visibility = remember { androidx.compose.animation.core.MutableTransitionState(false) }
-    visibility.targetState = expanded
-    val surfaceColor = advancedUiSurfaceColor(
-        originalColor = MaterialTheme.colorScheme.secondaryContainer,
-        enabled = useBlur
-    )
-
-    // The anchor always reserves the same space; the menu opens in an overlay.
-    Box(
-        modifier = Modifier
-            .width(112.dp)
-            .height(56.dp)
-            .onGloballyPositioned { anchorRight = it.boundsInWindow().right },
-        contentAlignment = Alignment.CenterEnd
-    ) {
-        val header: @Composable (androidx.compose.ui.unit.Dp) -> Unit = { headerWidth ->
-            Row(
-                modifier = Modifier
-                    .width(headerWidth)
-                    .height(48.dp)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onToggle
-                    )
-                    .padding(horizontal = 20.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Rounded.Add, contentDescription = null, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("New", style = MaterialTheme.typography.titleMedium)
-
-            }
-        }
-        Surface(
-            shape = CircleShape,
-            color = surfaceColor,
-            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-            modifier = Modifier
-                .width(112.dp)
-                .graphicsLayer { alpha = if (visibility.currentState || visibility.targetState) 0f else 1f }
-                .advancedUiBlur(hazeState = hazeState, shape = CircleShape, enabled = useBlur)
-        ) {
-            header(112.dp)
-        }
-        if (visibility.currentState || visibility.targetState) {
-            androidx.compose.ui.window.Popup(
-                popupPositionProvider = popupPositionProvider,
-                onDismissRequest = { if (expanded) onToggle() },
-                properties = androidx.compose.ui.window.PopupProperties(focusable = true)
-            ) {
-                AnimatedVisibility(
-                    visibleState = visibility,
-                    enter = androidx.compose.animation.EnterTransition.None,
-                    exit = fadeOut(animationSpec = tween(durationMillis = 1, delayMillis = 700))
-                ) {
-                    val morph = remember { Animatable(0f) }
-                    LaunchedEffect(expanded) {
-                        morph.animateTo(
-                            targetValue = if (expanded) 1f else 0f,
-                            animationSpec = spring(dampingRatio = 0.85f, stiffness = 400f)
-                        )
-                    }
-                    val progress = morph.value
-                    val shape = RoundedCornerShape(24.dp)
-                    // Keep popup bounds fixed horizontally; animate only the surface inside.
-                    Box(
-                        modifier = Modifier.requiredWidth(menuWidth),
-                        contentAlignment = Alignment.TopEnd
-                    ) {
-                        Surface(
-                            shape = shape,
-                            color = Color.Transparent,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier
-                                .graphicsLayer {
-                                    val menuRight = (windowWidth + with(density) { menuWidth.toPx() }) / 2f
-                                    translationX = (anchorRight - menuRight) * (1f - progress)
-                                    transformOrigin = TransformOrigin(1f, 0f)
-                                }
-                                .clip(shape)
-                                .advancedUiBlur(hazeState = hazeState, shape = shape, enabled = useBlur)
-                                .background(surfaceColor, shape)
-                                .layout { measurable, constraints ->
-                                    val fullWidth = with(density) { menuWidth.roundToPx() }
-                                    val placeable = measurable.measure(
-                                        constraints.copy(
-                                            minWidth = fullWidth,
-                                            maxWidth = fullWidth,
-                                            minHeight = 0,
-                                            maxHeight = androidx.compose.ui.unit.Constraints.Infinity
-                                        )
-                                    )
-                                    val collapsedWidth = with(density) { 112.dp.roundToPx() }
-                                    val collapsedHeight = with(density) { 48.dp.roundToPx() }
-                                    val width = (collapsedWidth + (placeable.width - collapsedWidth) * progress).roundToInt()
-                                    val height = (collapsedHeight + (placeable.height - collapsedHeight) * progress).roundToInt()
-                                    layout(width, height) { placeable.place(width - placeable.width, 0) }
-                                }
-                        ) {
-                            Column(modifier = Modifier.width(menuWidth)) {
-                                Box(modifier = Modifier.fillMaxWidth()) {
-                                    Box(
-                                        modifier = Modifier.graphicsLayer {
-                                            translationX = with(density) { (menuWidth - 112.dp).toPx() } * (1f - progress)
-                                        }
-                                    ) {
-                                        header(112.dp)
-                                    }
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .graphicsLayer {
-                                            val fullWidth = with(density) { menuWidth.toPx() }
-                                            val collapsedWidth = with(density) { 112.dp.toPx() }
-                                            scaleX = (collapsedWidth + (fullWidth - collapsedWidth) * progress) / fullWidth
-                                            scaleY = progress.coerceAtLeast(0f)
-                                            transformOrigin = TransformOrigin(1f, 0f)
-                                        }
-                                        .padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
-                                ) {
-                                    content()
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CreateTypeButton(
-    label: String,
-    icon: ImageVector,
-    menuItem: Boolean = false,
-    shape: androidx.compose.ui.graphics.Shape = CircleShape,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    val hazeState = LocalHazeState.current
-    val useBlur = !menuItem && LocalAdvancedUiEnabled.current && hazeState != null
-
-
-    Box(
-        modifier = modifier.minimumInteractiveComponentSize(),
-        contentAlignment = Alignment.Center
-    ) {
-        // Reserve the touch spacing outside the visual surface so blur and fill share bounds.
-        CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
-            FilledTonalButton(
-                onClick = onClick,
-                shape = shape,
-                modifier = Modifier
-                    .height(if (menuItem) 64.dp else 40.dp)
-                    .then(if (menuItem) Modifier.fillMaxWidth() else Modifier)
-                    .advancedUiBlur(
-                        hazeState = hazeState,
-                        shape = shape,
-                        enabled = useBlur
-                    ),
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = advancedUiSurfaceColor(
-                        originalColor = if (menuItem) MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.25f) else MaterialTheme.colorScheme.secondaryContainer,
-                        enabled = useBlur
-                    ),
-                    contentColor = if (menuItem) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer
-                ),
-                contentPadding = PaddingValues(horizontal = if (menuItem) 8.dp else 14.dp)
-            ) {
-                if (menuItem) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(20.dp))
-                        Text(text = label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
-                    }
-                } else {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = label,
-                        style = MaterialTheme.typography.labelLarge
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun CategoryListCard(
     listWithCounts: NoteListWithCounts,
     activeRoute: DetailRoute?,
@@ -2843,30 +2539,10 @@ private data class CreateOption(
 @Composable
 private fun CreateOptionItem(
     option: CreateOption,
-    isFirst: Boolean,
-    isLast: Boolean,
     modifier: Modifier = Modifier
 ) {
     val haptics = LocalHapticFeedback.current
-    var isPressed by remember { mutableStateOf(false) }
-
-    val targetTopRadius = if (isPressed) 32.dp else if (isFirst) 28.dp else 4.dp
-    val targetBottomRadius = if (isPressed) 32.dp else if (isLast) 28.dp else 4.dp
-
-    val topRadius by animateDpAsState(
-        targetValue = targetTopRadius,
-        animationSpec = spring(stiffness = Spring.StiffnessMedium),
-        label = "createOptionTopCorner"
-    )
-    val bottomRadius by animateDpAsState(
-        targetValue = targetBottomRadius,
-        animationSpec = spring(stiffness = Spring.StiffnessMedium),
-        label = "createOptionBottomCorner"
-    )
-
-    val shape = remember(topRadius, bottomRadius) {
-        RoundedCornerShape(topRadius, topRadius, bottomRadius, bottomRadius)
-    }
+    val shape = CircleShape
 
     val advancedUi = LocalAdvancedUiEnabled.current
     val hazeState = LocalHazeState.current

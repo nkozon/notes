@@ -10,7 +10,7 @@ import android.content.Context
 interface NoteRepository {
     fun getAllNotes(): Flow<List<Note>>
     suspend fun getNoteById(id: String): Note?
-    suspend fun saveNote(note: Note)
+    suspend fun saveNote(note: Note, regenerateThumbnail: Boolean = true)
     suspend fun togglePinNote(noteId: String)
     suspend fun toggleHideNoteContent(noteId: String)
     suspend fun deleteNote(noteId: String)

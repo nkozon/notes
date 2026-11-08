@@ -101,7 +101,7 @@ class RoomNoteRepository(
     }
 
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-    override suspend fun saveNote(note: Note) {
+    override suspend fun saveNote(note: Note, regenerateThumbnail: Boolean) {
         withContext(Dispatchers.IO) {
             val content = note.content
             val html = note.contentHtml
@@ -126,12 +126,15 @@ class RoomNoteRepository(
                 content.take(300)
             } else null
 
-            database.noteDao().upsertNote(note.toEntity().copy(
+            database.noteDao().upsertNote(note.toEntity(includeDrawingData = false).copy(
                 content = "",
                 contentHtml = null,
                 drawingData = null,
                 previewText = preview,
-                previewImage = if (note.type == NoteType.DRAWING) generateThumbnail(note) else null
+                previewImage = if (note.type == NoteType.DRAWING) {
+                    if (regenerateThumbnail) generateThumbnail(note)
+                    else database.noteDao().getNoteById(note.id)?.previewImage ?: generateThumbnail(note)
+                } else null
             ))
             database.deletedItemDao().deleteDeletedItem(note.id, "NOTE")
         }
@@ -617,7 +620,7 @@ class RoomNoteRepository(
             val preview = if (note.type == NoteType.TEXT) note.content.take(300) else null
             val previewImage = if (note.type == NoteType.DRAWING) generateThumbnail(note.copy(drawingData = drawingDataToSave)) else null
             
-            note.toEntity().copy(
+            note.toEntity(includeDrawingData = false).copy(
                 content = "",
                 contentHtml = null,
                 drawingData = null,
@@ -765,7 +768,7 @@ class RoomNoteRepository(
             val preview = if (note.type == NoteType.TEXT) note.content.take(300) else null
             val previewImage = if (note.type == NoteType.DRAWING) generateThumbnail(note.copy(drawingData = drawingDataToSave)) else null
             
-            note.toEntity().copy(
+            note.toEntity(includeDrawingData = false).copy(
                 content = "",
                 contentHtml = null,
                 drawingData = null,
@@ -868,7 +871,7 @@ class RoomNoteRepository(
             val preview = if (note.type == NoteType.TEXT) note.content.take(300) else null
             val previewImage = if (note.type == NoteType.DRAWING) generateThumbnail(note.copy(drawingData = drawingDataToSave)) else null
 
-            note.toEntity().copy(
+            note.toEntity(includeDrawingData = false).copy(
                 content = "",
                 contentHtml = null,
                 drawingData = null,

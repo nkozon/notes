@@ -12,6 +12,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.ensureActive
+import java.io.Closeable
+import java.util.concurrent.atomic.AtomicBoolean
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -98,7 +102,10 @@ class PdfBitmapCacheManager(
  * available and otherwise schedules a background decode. When the decode finishes [revision]
  * changes, which lets draw scopes refresh without recomposing the screen.
  */
-class DrawingImageCache(private val context: Context) {
+class DrawingImageCache(context: Context) : Closeable {
+    private val context = context.applicationContext
+    private val closed = AtomicBoolean(false)
+    private val lifecycleLock = Any()
     private val decodeDispatcher = Executors.newFixedThreadPool(MAX_CONCURRENT_DECODES) { runnable ->
         Thread(runnable, "drawing-image-decode").apply { isDaemon = true }
     }.asCoroutineDispatcher()
@@ -128,6 +135,7 @@ class DrawingImageCache(private val context: Context) {
         private set
 
     fun get(path: String): Bitmap? {
+        if (closed.get()) return null
         val cached = memoryCache.get(path)
         if (cached != null && !cached.isRecycled) return cached
         requestDecode(path)
@@ -140,7 +148,7 @@ class DrawingImageCache(private val context: Context) {
     }
 
     private fun requestDecode(path: String) {
-        if (path.isBlank()) return
+        if (closed.get() || path.isBlank()) return
         val cached = memoryCache.get(path)
         if (cached != null && !cached.isRecycled) return
         if (path in failed) return
@@ -154,9 +162,12 @@ class DrawingImageCache(private val context: Context) {
                     if (generation.get() == expectedGeneration) failed.add(path)
                     return@launch
                 }
-                if (generation.get() != expectedGeneration || bitmap.isRecycled) return@launch
-                memoryCache.put(path, bitmap)
-                revision++
+                scope.ensureActive()
+                synchronized(lifecycleLock) {
+                    if (closed.get() || generation.get() != expectedGeneration || bitmap.isRecycled) return@launch
+                    memoryCache.put(path, bitmap)
+                    revision++
+                }
             } finally {
                 decoding.remove(path)
             }
@@ -206,10 +217,19 @@ class DrawingImageCache(private val context: Context) {
     }
 
     fun clear() {
-        generation.incrementAndGet()
-        memoryCache.evictAll()
-        decoding.clear()
-        failed.clear()
+        synchronized(lifecycleLock) {
+            generation.incrementAndGet()
+            memoryCache.evictAll()
+            decoding.clear()
+            failed.clear()
+        }
+    }
+
+    override fun close() {
+        if (!closed.compareAndSet(false, true)) return
+        scope.cancel()
+        decodeDispatcher.close()
+        clear()
     }
 
     private companion object {

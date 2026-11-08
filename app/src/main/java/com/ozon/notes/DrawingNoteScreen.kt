@@ -227,43 +227,34 @@ fun DrawingNoteScreen(
                     visibleIndices.forEach { i ->
                         kotlinx.coroutines.yield()
 
-                        val targetQuality = (controller.canvasScale * 1.3f).coerceIn(0.7f, 2.2f)
-                        val currentQuality = controller.pdfBitmapCache.scales[i] ?: 0f
-
-                        val needsHigherQuality = targetQuality > currentQuality * 1.15f
-                        val needsLowerQuality = currentQuality > targetQuality * 2.5f
-
-                        val existingBitmap = controller.pdfBitmapCache.get(i)
-                        if (existingBitmap == null || needsHigherQuality || needsLowerQuality) {
-                            var page: PdfRenderer.Page? = null
-                            try {
-                                page = synchronized(renderer) { renderer.openPage(i) }
-
-                                val maxDim = 2048f
-                                val safetyScale = minOf(maxDim / page.width, maxDim / page.height).coerceAtMost(1.0f)
-                                val finalQuality = (targetQuality * safetyScale).coerceAtLeast(0.1f)
-
-                                val bw = (page.width * finalQuality).toInt()
-                                val bh = (page.height * finalQuality).toInt()
-
-                                if (bw > 0 && bh > 0) {
-                                    val bitmap = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
-                                    bitmap.eraseColor(android.graphics.Color.WHITE)
-                                    synchronized(renderer) { page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY) }
-
-                                    withContext(Dispatchers.Main) {
-                                        controller.pdfBitmapCache.put(i, bitmap, finalQuality)
-                                    }
+                        var page: PdfRenderer.Page? = null
+                        var unpublishedBitmap: Bitmap? = null
+                        try {
+                            page = synchronized(renderer) { renderer.openPage(i) }
+                            val finalQuality = com.ozon.notes.drawing.render.PdfRenderQuality.scale(
+                                page.width, page.height, controller.canvasScale
+                            )
+                            val cached = controller.pdfBitmapCache.get(i)
+                            val cachedScale = if (cached != null) controller.pdfBitmapCache.scales[i] else null
+                            if (com.ozon.notes.drawing.render.PdfRenderQuality.needsRender(cachedScale, finalQuality)) {
+                                val bw = (page.width * finalQuality).toInt().coerceIn(1, 2048)
+                                val bh = (page.height * finalQuality).toInt().coerceIn(1, 2048)
+                                val bitmap = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
+                                unpublishedBitmap = bitmap
+                                bitmap.eraseColor(android.graphics.Color.WHITE)
+                                synchronized(renderer) { page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY) }
+                                withContext(Dispatchers.Main) {
+                                    controller.pdfBitmapCache.put(i, bitmap, finalQuality)
+                                    unpublishedBitmap = null
                                 }
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            } finally {
-                                page?.let { p -> synchronized(renderer) { p.close() } }
                             }
-                        } else {
-                            withContext(Dispatchers.Main) {
-                                controller.pdfBitmapCache.markAccessed(i)
-                            }
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        } finally {
+                            unpublishedBitmap?.recycle()
+                            page?.let { p -> synchronized(renderer) { p.close() } }
                         }
                     }
                 }
@@ -294,8 +285,10 @@ fun DrawingNoteScreen(
                 isPinned = controller.isPinned,
                 isContentHidden = controller.isContentHidden,
                 drawingData = controller.buildExportData()
-            )
+            ),
+            regenerateThumbnail = controller.isThumbnailDirty
         ))
+        controller.isThumbnailDirty = false
     }
 
     // Auto-save every 30 seconds if dirty

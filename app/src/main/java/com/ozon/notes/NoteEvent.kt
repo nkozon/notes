@@ -1,7 +1,7 @@
 package com.ozon.notes
 
 sealed interface NoteEvent {
-    data class SaveNote(val note: Note) : NoteEvent
+    data class SaveNote(val note: Note, val regenerateThumbnail: Boolean = true) : NoteEvent
     data class TogglePinNote(val noteId: String) : NoteEvent
     data class ToggleHideNoteContent(val noteId: String) : NoteEvent
     data class DeleteNote(val noteId: String) : NoteEvent

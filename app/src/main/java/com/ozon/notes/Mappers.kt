@@ -38,7 +38,7 @@ fun NoteEntity.toDomain(includeDrawingData: Boolean = false): Note {
     )
 }
 
-fun Note.toEntity(): NoteEntity {
+fun Note.toEntity(includeDrawingData: Boolean = true): NoteEntity {
     return NoteEntity(
         id = id,
         title = title,
@@ -47,7 +47,7 @@ fun Note.toEntity(): NoteEntity {
         previewText = previewText,
         previewImage = previewImage,
         type = type.name,
-        drawingData = drawingData?.let { json.encodeToString(it) },
+        drawingData = if (includeDrawingData) drawingData?.let { json.encodeToString(it) } else null,
         timestamp = timestamp,
         isPinned = isPinned,
         isContentHidden = isContentHidden

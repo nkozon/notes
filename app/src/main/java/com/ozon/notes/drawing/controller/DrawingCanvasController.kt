@@ -71,6 +71,7 @@ class DrawingCanvasController(
     var viewportLoaded by mutableStateOf(false)
 
     // --- Save & Dirty State ---
+    var isThumbnailDirty = true
     var isDirty by mutableStateOf(false)
     var lastSavedTime by mutableLongStateOf(System.currentTimeMillis())
     var wasSaved by mutableStateOf(false)
@@ -199,6 +200,7 @@ class DrawingCanvasController(
 
             tileEngine.invalidateAll()
             tileCacheVersion++
+            isThumbnailDirty = note.previewImage == null
             isDirty = false
         } finally {
             isDrawingLoading = false
@@ -222,6 +224,7 @@ class DrawingCanvasController(
         invalidateAndRenderArea(paddedBounds)
 
         historyManager.pushAction(DrawingAction.Add(strokes = listOf(stroke)))
+        isThumbnailDirty = true
         isDirty = true
     }
 
@@ -242,6 +245,7 @@ class DrawingCanvasController(
         displayListEngine.onStrokesRemoved(removedIds)
         noteStrokeOrderRemovals(removedIds.size)
         invalidateAndRenderArea(area)
+        isThumbnailDirty = true
         isDirty = true
     }
 
@@ -288,6 +292,7 @@ class DrawingCanvasController(
         historyManager.pushAction(DrawingAction.Add(images = listOf(image)))
         selectedImageIds = setOf(image.id)
         selectedStrokeIds = emptySet()
+        isThumbnailDirty = true
         isDirty = true
     }
 
@@ -466,6 +471,7 @@ class DrawingCanvasController(
 
         tileEngine.invalidateAll()
         tileCacheVersion++
+        isThumbnailDirty = true
         isDirty = true
     }
 
@@ -489,6 +495,7 @@ class DrawingCanvasController(
         val sBounds = DrawingGeometry.getBounds(newStrokes, emptyList())
         invalidateAndRenderArea(sBounds)
         historyManager.pushAction(DrawingAction.Transform(oldStrokes = oldStrokes, newStrokes = newStrokes, sharesPoints = true))
+        isThumbnailDirty = true
         isDirty = true
     }
 
@@ -504,6 +511,7 @@ class DrawingCanvasController(
         val sBounds = DrawingGeometry.getBounds(newStrokes, emptyList())
         invalidateAndRenderArea(sBounds)
         historyManager.pushAction(DrawingAction.Transform(oldStrokes = oldStrokes, newStrokes = newStrokes, sharesPoints = true))
+        isThumbnailDirty = true
         isDirty = true
     }
 
@@ -532,6 +540,7 @@ class DrawingCanvasController(
         historyManager.pushAction(DrawingAction.Add(strokes = newStrokes, images = newImages))
         selectedStrokeIds = newStrokes.map { it.id }.toSet()
         selectedImageIds = newImages.map { it.id }.toSet()
+        isThumbnailDirty = true
         isDirty = true
         return newStrokes to newImages
     }
@@ -555,6 +564,7 @@ class DrawingCanvasController(
             invalidateAndRenderArea(removedBounds)
         }
         historyManager.pushAction(DrawingAction.Remove(strokes = removedS, images = removedI))
+        isThumbnailDirty = true
         isDirty = true
     }
 
@@ -590,6 +600,7 @@ class DrawingCanvasController(
         invalidateAndRenderArea(pastedBounds)
         historyManager.pushAction(DrawingAction.Add(strokes = pasted))
         selectedStrokeIds = pasted.map { it.id }.toSet()
+        isThumbnailDirty = true
         isDirty = true
         return pasted
     }
@@ -648,6 +659,7 @@ class DrawingCanvasController(
         tileEngine.invalidateAll()
         tileCacheVersion++
         pageCount++
+        isThumbnailDirty = true
         isDirty = true
     }
 
@@ -711,6 +723,7 @@ class DrawingCanvasController(
         tileEngine.invalidateAll()
         tileCacheVersion++
         pageCount++
+        isThumbnailDirty = true
         isDirty = true
     }
 
@@ -759,6 +772,7 @@ class DrawingCanvasController(
         tileEngine.invalidateAll()
         tileCacheVersion++
         pageCount--
+        isThumbnailDirty = true
         isDirty = true
         return true
     }
@@ -814,6 +828,7 @@ class DrawingCanvasController(
         displayListEngine.rebuild(rebuiltStrokes)
         tileEngine.invalidateAll()
         tileCacheVersion++
+        isThumbnailDirty = true
         isDirty = true
     }
 
@@ -835,6 +850,8 @@ class DrawingCanvasController(
         pdfBitmapCache.clear()
         tileEngine.clear()
         displayListEngine.clear()
-        imageCache.clear()
+        imageCache.close()
+        strokePathCache.clear()
+        historyManager.clear()
     }
 }

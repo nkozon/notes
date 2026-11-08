@@ -42,7 +42,8 @@ data class DropboxSpaceResponse(
 data class DropboxFileMetadata(
     val name: String = "",
     val size: Long = 0L,
-    val server_modified: String? = null
+    val server_modified: String? = null,
+    val content_hash: String? = null
 )
 
 enum class DropboxEntryType {

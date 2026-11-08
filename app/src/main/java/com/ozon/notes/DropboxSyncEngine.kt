@@ -64,6 +64,7 @@ class DropboxSyncEngine(
     private val dropboxClient: DropboxClient,
     private val dropboxAuthManager: DropboxAuthManager
 ) {
+    private val mediaSync = DropboxMediaSync(dropboxClient::getBackupMetadata, dropboxClient::uploadFile)
     private val syncMutex = Mutex()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -578,7 +579,7 @@ class DropboxSyncEngine(
         val preview = if (fullNote.type == NoteType.TEXT) fullNote.content.take(300) else null
         val previewImage = if (fullNote.type == NoteType.DRAWING) generateThumbnail(fullNote) else null
 
-        database.noteDao().upsertNote(fullNote.toEntity().copy(
+        database.noteDao().upsertNote(fullNote.toEntity(includeDrawingData = false).copy(
             content = "",
             contentHtml = null,
             drawingData = null,
@@ -753,7 +754,7 @@ class DropboxSyncEngine(
             drawing.images.forEach { img ->
                 val file = File(img.path)
                 if (file.exists()) {
-                    dropboxClient.uploadFile("/sync/media/${file.name}", file)
+                    mediaSync.uploadIfChanged(file)
                 }
             }
 
@@ -761,7 +762,7 @@ class DropboxSyncEngine(
             drawing.pdfInfo?.let { pdf ->
                 val file = File(pdf.localPath)
                 if (file.exists()) {
-                    dropboxClient.uploadFile("/sync/media/${file.name}", file)
+                    mediaSync.uploadIfChanged(file)
                 }
             }
         }

@@ -463,25 +463,39 @@ fun ListDetailScreen(
                     .zIndex(3f),
                 contentAlignment = Alignment.Center
             ) {
-                val currentSearchWidth = (maxWidth - 56.dp - 12.dp - 48.dp).coerceAtLeast(56.dp)
-                val rowWidth = currentSearchWidth + 12.dp + 56.dp
+                val collapsedSearchWidth = if (isTabletUi) {
+                    minOf(TabletSearchWidth, (maxWidth - 68.dp).coerceAtLeast(56.dp))
+                } else {
+                    (maxWidth - 68.dp - 48.dp).coerceAtLeast(56.dp)
+                }
+                val rowWidth by animateDpAsState(
+                    targetValue = if (isSearchActive) maxWidth else collapsedSearchWidth + 68.dp,
+                    animationSpec = tween(250, easing = FastOutSlowInEasing),
+                    label = "searchRowWidth"
+                )
+                val searchCornerRadius by animateDpAsState(
+                    targetValue = if (isSearchActive) 20.dp else 28.dp,
+                    animationSpec = tween(250, easing = FastOutSlowInEasing),
+                    label = "searchCornerRadius"
+                )
+                val searchShape = RoundedCornerShape(searchCornerRadius)
 
                 Row(
                     modifier = Modifier.width(rowWidth),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.Start
                 ) {
                     Surface(
                         modifier = Modifier
-                            .width(currentSearchWidth)
+                            .weight(1f)
                             .height(56.dp)
                             .advancedUiBlur(
                                 hazeState = hazeState,
-                                shape = CircleShape,
+                                shape = searchShape,
                                 tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                                 enabled = advancedUi
                             ),
-                        shape = CircleShape,
+                        shape = searchShape,
                         color = advancedUiSurfaceColor(
                             originalColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                             tint = MaterialTheme.colorScheme.primary,
@@ -498,7 +512,7 @@ fun ListDetailScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 CircleIconButton(
-                                    onClick = { 
+                                    onClick = {
                                         isSearchActive = false
                                         checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
                                         focusManager.clearFocus()
@@ -599,32 +613,43 @@ fun ListDetailScreen(
                         }
                     }
 
-                    FloatingActionButton(
-                        onClick = { 
-                            if (currentList.type == ListType.CHECKLIST) {
-                                isInlineAdding = true
-                            } else {
-                                showAddEntryDialog = true
-                            }
-                        },
-                        shape = CircleShape,
-                        modifier = Modifier
-                            .size(56.dp)
-                            .advancedUiBlur(
-                                hazeState = hazeState,
-                                shape = CircleShape,
-                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                enabled = advancedUi
-                            ),
-                        containerColor = advancedUiSurfaceColor(
-                            originalColor = MaterialTheme.colorScheme.primaryContainer,
-                            tint = MaterialTheme.colorScheme.primary,
-                            enabled = advancedUi
-                        ),
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        elevation = if (advancedUi) FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp) else FloatingActionButtonDefaults.elevation()
+                    AnimatedVisibility(
+                        visible = !isSearchActive,
+                        enter = expandHorizontally(animationSpec = tween(250, easing = FastOutSlowInEasing)) +
+                            fadeIn(animationSpec = tween(250)),
+                        exit = shrinkHorizontally(animationSpec = tween(250, easing = FastOutSlowInEasing)) +
+                            fadeOut(animationSpec = tween(250))
                     ) {
-                        Icon(Icons.Rounded.Add, contentDescription = "Add Entry")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Spacer(Modifier.width(12.dp))
+                            FloatingActionButton(
+                                onClick = {
+                                    if (currentList.type == ListType.CHECKLIST) {
+                                        isInlineAdding = true
+                                    } else {
+                                        showAddEntryDialog = true
+                                    }
+                                },
+                                shape = CircleShape,
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .advancedUiBlur(
+                                        hazeState = hazeState,
+                                        shape = CircleShape,
+                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                        enabled = advancedUi
+                                    ),
+                                containerColor = advancedUiSurfaceColor(
+                                    originalColor = MaterialTheme.colorScheme.primaryContainer,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    enabled = advancedUi
+                                ),
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                elevation = if (advancedUi) FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp) else FloatingActionButtonDefaults.elevation()
+                            ) {
+                                Icon(Icons.Rounded.Add, contentDescription = "Add Entry")
+                            }
+                        }
                     }
                 }
             }
@@ -643,6 +668,8 @@ fun ListDetailScreen(
 
             var isCurrentlyWatchingCollapsed by remember(listId) { mutableStateOf(false) }
             var isPausedCollapsed by remember(listId) { mutableStateOf(true) }
+            val watchingReveal = progressSectionReveal(!isCurrentlyWatchingCollapsed)
+            val pausedReveal = progressSectionReveal(!isPausedCollapsed)
             val currentlyWatchingEntries = remember(entries, isRatingList) {
                 if (isRatingList) entries.filter { it.isCurrentlyWatching && !it.isPaused } else emptyList()
             }
@@ -762,7 +789,7 @@ fun ListDetailScreen(
                     end = 16.dp, 
                     bottom = bottomPadding + 100.dp
                 ),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.spacedBy(ListDetailItemSpacing)
             ) {
                 if (entryCountText != null) {
                     item(key = "entry_count_label") {
@@ -899,130 +926,126 @@ fun ListDetailScreen(
                         }
                     }
                 } else {
-                    // Active and paused progress groups (rating lists)
+                    // Emit every progress row separately so offscreen entries remain uncomposed.
                     listOf(false to currentlyWatchingEntries, true to pausedEntries).forEach { (paused, groupEntries) ->
                         val isCollapsed = if (paused) isPausedCollapsed else isCurrentlyWatchingCollapsed
+                        val revealFraction = if (paused) pausedReveal else watchingReveal
+                        val hasVisibleRows = revealFraction > 0f
                         val groupKey = if (paused) "paused" else "currently_watching"
                         if (isRatingList && groupEntries.isNotEmpty()) {
-                            item(key = "${groupKey}_section") {
-                                Surface(
-                                    shape = RoundedCornerShape(28.dp),
-                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
+                            item(key = "${groupKey}_section", contentType = "progress_header") {
+                                ProgressSectionSurface(
+                                    isHeader = true,
+                                    connectToNext = hasVisibleRows
                                 ) {
-                                    Column {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clickable(
-                                                    interactionSource = remember { MutableInteractionSource() },
-                                                    indication = null
-                                                ) {
-                                                    if (paused) isPausedCollapsed = !isPausedCollapsed
-                                                    else isCurrentlyWatchingCollapsed = !isCurrentlyWatchingCollapsed
-                                                }
-                                                .padding(horizontal = 16.dp, vertical = 10.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            val sectionName = if (paused) "Paused" else currentList.getEffectiveCurrentSectionName()
-                                            val sectionIcon = when {
-                                                paused -> Icons.Rounded.PauseCircle
-                                                sectionName.contains("read", ignoreCase = true) || sectionName.contains("book", ignoreCase = true) -> Icons.AutoMirrored.Rounded.MenuBook
-                                                sectionName.contains("play", ignoreCase = true) || sectionName.contains("game", ignoreCase = true) -> Icons.Rounded.SportsEsports
-                                                sectionName.contains("listen", ignoreCase = true) || sectionName.contains("music", ignoreCase = true) || sectionName.contains("podcast", ignoreCase = true) -> Icons.Rounded.Headphones
-                                                else -> Icons.Rounded.PlayCircle
-                                            }
-                                            Icon(
-                                                imageVector = sectionIcon,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                            Spacer(Modifier.width(8.dp))
-                                            Text(
-                                                text = "$sectionName (${groupEntries.size})",
-                                                style = MaterialTheme.typography.labelLarge,
-                                                color = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                            Icon(
-                                                imageVector = if (isCollapsed) Icons.Rounded.ExpandMore else Icons.Rounded.ExpandLess,
-                                                contentDescription = if (isCollapsed) "Expand" else "Collapse",
-                                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-                                        AnimatedVisibility(
-                                            visible = !isCollapsed,
-                                            enter = expandVertically(animationSpec = tween(250)) + fadeIn(animationSpec = tween(180)),
-                                            exit = shrinkVertically(animationSpec = tween(250)) + fadeOut(animationSpec = tween(180))
-                                        ) {
-                                            Column(
-                                                modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
-                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = lerp(56.dp, 40.dp, revealFraction))
+                                            .clickable(
+                                                interactionSource = remember { MutableInteractionSource() },
+                                                indication = null
                                             ) {
-                                                groupEntries.forEachIndexed { index, entry ->
-                                                    val isFirstItem = index == 0
-                                                    val isLastItem = index == groupEntries.size - 1
-                                                    val topRadius = if (isFirstItem) 28.dp else 4.dp
-                                                    val bottomRadius = if (isLastItem) 28.dp else 4.dp
-                                                    val topRadiusAnimated by animateDpAsState(targetValue = topRadius, label = "cwTopRadius")
-                                                    val bottomRadiusAnimated by animateDpAsState(targetValue = bottomRadius, label = "cwBottomRadius")
-                                                    val shape = RoundedCornerShape(topRadiusAnimated, topRadiusAnimated, bottomRadiusAnimated, bottomRadiusAnimated)
-
-                                                    key(entry.id) {
-                                                        CurrentlyWatchingItem(
-                                                            entry = entry,
-                                                            allTags = allTags,
-                                                            allEntries = entries,
-                                                            currentList = currentList,
-                                                            moviePostersEnabled = moviePostersEnabled,
-                                                            onEdit = { editingEntry = it },
-                                                            onDelete = { entryToDelete = it },
-                                                            onIncrement = { item ->
-                                                                val next = (item.currentProgress ?: 0) + 1
-                                                                if (item.totalProgress != null && next >= item.totalProgress) {
-                                                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(
-                                                                        isCurrentlyWatching = false,
-                                                                        isPaused = false,
-                                                                        currentProgress = null,
-                                                                        totalProgress = null,
-                                                                        progressUnit = null
-                                                                    )))
-                                                                } else {
-                                                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(currentProgress = next)))
-                                                                }
-                                                            },
-                                                            onDecrement = { item ->
-                                                                val prev = ((item.currentProgress ?: 0) - 1).coerceAtLeast(0)
-                                                                checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(currentProgress = prev)))
-                                                            },
-                                                            onTogglePaused = { item ->
-                                                                checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(
-                                                                    isPaused = !item.isPaused,
-                                                                    isCurrentlyWatching = item.isPaused
-                                                                )))
-                                                            },
-                                                            onPrimaryAction = { item ->
-                                                                val updatedEntry = if (item.isPaused) {
-                                                                    item.copy(isPaused = false, isCurrentlyWatching = true)
-                                                                } else {
-                                                                    item.copy(
-                                                                        isCurrentlyWatching = false,
-                                                                        currentProgress = null,
-                                                                        totalProgress = null,
-                                                                        progressUnit = null
-                                                                    )
-                                                                }
-                                                                checklistViewModel.onEvent(NoteEvent.SaveEntry(updatedEntry))
-                                                            },
-                                                            onLongClick = { previewEntry = entry },
-                                                            shape = shape
+                                                if (paused) isPausedCollapsed = !isPausedCollapsed
+                                                else isCurrentlyWatchingCollapsed = !isCurrentlyWatchingCollapsed
+                                            }
+                                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        val sectionName = if (paused) "Paused" else currentList.getEffectiveCurrentSectionName()
+                                        val sectionIcon = when {
+                                            paused -> Icons.Rounded.PauseCircle
+                                            sectionName.contains("read", ignoreCase = true) || sectionName.contains("book", ignoreCase = true) -> Icons.AutoMirrored.Rounded.MenuBook
+                                            sectionName.contains("play", ignoreCase = true) || sectionName.contains("game", ignoreCase = true) -> Icons.Rounded.SportsEsports
+                                            sectionName.contains("listen", ignoreCase = true) || sectionName.contains("music", ignoreCase = true) || sectionName.contains("podcast", ignoreCase = true) -> Icons.Rounded.Headphones
+                                            else -> Icons.Rounded.PlayCircle
+                                        }
+                                        Icon(
+                                            imageVector = sectionIcon,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            text = "$sectionName (${groupEntries.size})",
+                                            style = MaterialTheme.typography.labelLarge,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Icon(
+                                            imageVector = if (isCollapsed) Icons.Rounded.ExpandMore else Icons.Rounded.ExpandLess,
+                                            contentDescription = if (isCollapsed) "Expand" else "Collapse",
+                                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            if (hasVisibleRows) {
+                                itemsIndexed(
+                                    items = groupEntries,
+                                    key = { _, entry -> entry.id },
+                                    contentType = { _, _ -> "progress_entry" }
+                                ) { index, entry ->
+                                    val topRadius = if (index == 0) 28.dp else 4.dp
+                                    val bottomRadius = if (index == groupEntries.lastIndex) 28.dp else 4.dp
+                                    val shape = RoundedCornerShape(topRadius, topRadius, bottomRadius, bottomRadius)
+                                    ProgressSectionSurface(
+                                        isHeader = false,
+                                        connectToNext = index < groupEntries.lastIndex,
+                                        revealFraction = revealFraction
+                                    ) {
+                                        Box(Modifier.padding(start = 8.dp, end = 8.dp, bottom = if (index == groupEntries.lastIndex) 8.dp else 0.dp)) {
+                                            CurrentlyWatchingItem(
+                                                entry = entry,
+                                                allTags = allTags,
+                                                allEntries = entries,
+                                                currentList = currentList,
+                                                moviePostersEnabled = moviePostersEnabled,
+                                                isOledMode = isOledMode,
+                                                onEdit = { editingEntry = it },
+                                                onDelete = { entryToDelete = it },
+                                                onIncrement = { item ->
+                                                    val next = (item.currentProgress ?: 0) + 1
+                                                    if (item.totalProgress != null && next >= item.totalProgress) {
+                                                        checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(
+                                                            isCurrentlyWatching = false,
+                                                            isPaused = false,
+                                                            currentProgress = null,
+                                                            totalProgress = null,
+                                                            progressUnit = null
+                                                        )))
+                                                    } else {
+                                                        checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(currentProgress = next)))
+                                                    }
+                                                },
+                                                onDecrement = { item ->
+                                                    val prev = ((item.currentProgress ?: 0) - 1).coerceAtLeast(0)
+                                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(currentProgress = prev)))
+                                                },
+                                                onTogglePaused = { item ->
+                                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(
+                                                        isPaused = !item.isPaused,
+                                                        isCurrentlyWatching = item.isPaused
+                                                    )))
+                                                },
+                                                onPrimaryAction = { item ->
+                                                    val updatedEntry = if (item.isPaused) {
+                                                        item.copy(isPaused = false, isCurrentlyWatching = true)
+                                                    } else {
+                                                        item.copy(
+                                                            isCurrentlyWatching = false,
+                                                            currentProgress = null,
+                                                            totalProgress = null,
+                                                            progressUnit = null
                                                         )
                                                     }
-                                                }
-                                            }
+                                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(updatedEntry))
+                                                },
+                                                onLongClick = { previewEntry = entry },
+                                                shape = shape
+                                            )
                                         }
                                     }
                                 }
@@ -2411,6 +2434,7 @@ private fun CurrentlyWatchingItem(
     allEntries: List<ListEntry>,
     currentList: NoteList,
     moviePostersEnabled: Boolean,
+    isOledMode: Boolean,
     onEdit: (ListEntry) -> Unit,
     onDelete: (ListEntry) -> Unit,
     onIncrement: (ListEntry) -> Unit,
@@ -2498,7 +2522,13 @@ private fun CurrentlyWatchingItem(
                     ),
                 shape = shape,
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                    containerColor = if (isOledMode) {
+                        androidx.compose.ui.graphics.lerp(
+                            MaterialTheme.colorScheme.surfaceContainerLow,
+                            Color.White,
+                            0.04f
+                        )
+                    } else MaterialTheme.colorScheme.surfaceContainerLow
                 )
             ) {
                 Row(
@@ -3817,7 +3847,7 @@ fun EntryDialog(
                         var showSelectionPopup by remember { mutableStateOf(false) }
 
                         Surface(
-                            onClick = { 
+                            onClick = {
                                 focusManager.clearFocus()
                                 showSelectionPopup = true 
                             },
@@ -4470,7 +4500,7 @@ fun ManageTagsDialog(
                             }
 
                             IconButton(
-                                onClick = { 
+                                onClick = {
                                     onDelete(tag.id)
                                     currentTags = currentTags.filter { it.id != tag.id }
                                 },

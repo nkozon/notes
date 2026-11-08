@@ -61,6 +61,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 
+internal val TabletSearchWidth = 208.dp
+
 @Composable
 fun CircleIconButton(
     onClick: () -> Unit,

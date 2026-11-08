@@ -231,7 +231,7 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
         when (event) {
             is NoteEvent.UpdateSearchQuery -> _searchQuery.value = event.query
             is NoteEvent.SaveNote -> viewModelScope.launch { 
-                repository.saveNote(event.note) 
+                repository.saveNote(event.note, event.regenerateThumbnail)
             }
             is NoteEvent.TogglePinNote -> viewModelScope.launch { repository.togglePinNote(event.noteId) }
             is NoteEvent.ToggleHideNoteContent -> viewModelScope.launch { repository.toggleHideNoteContent(event.noteId) }

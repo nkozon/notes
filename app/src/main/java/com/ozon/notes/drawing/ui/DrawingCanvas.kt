@@ -39,7 +39,7 @@ fun DrawingCanvas(
 ) {
     val viewConfiguration = LocalViewConfiguration.current
     val currentPathPoints = remember { mutableStateListOf<DrawingPoint>() }
-    val activeStrokePath = remember { Path() }
+    val activeStroke = remember { com.ozon.notes.drawing.render.IncrementalStrokePath() }
     val gridPath = remember { Path() }
 
     val gestureRemovedStrokes = remember { mutableStateListOf<Stroke>() }
@@ -241,6 +241,7 @@ fun DrawingCanvas(
                     gestureRemovedStrokes.clear()
                     gestureRemovedImages.clear()
                     currentPathPoints.clear()
+                    activeStroke.reset()
 
                     val startPt = DrawingPoint(worldStartPos.x, worldStartPos.y)
                     if (dragMode == DragMode.LASSO || dragMode == DragMode.DRAW) {
@@ -274,6 +275,7 @@ fun DrawingCanvas(
                                 controller.activeTransformation = null
                             }
                             currentPathPoints.clear()
+                            activeStroke.reset()
                             gestureRemovedStrokes.clear()
                             gestureRemovedImages.clear()
 
@@ -352,6 +354,7 @@ fun DrawingCanvas(
                                     }
                                 }
                                 currentPathPoints.clear()
+                                activeStroke.reset()
                             }
                             if (gestureRemovedStrokes.isNotEmpty() || gestureRemovedImages.isNotEmpty()) {
                                 controller.historyManager.pushAction(
@@ -375,6 +378,7 @@ fun DrawingCanvas(
                                     controller.activeTransformation = null
                                 }
                                 currentPathPoints.clear()
+                                activeStroke.reset()
                             }
                             break
                         }
@@ -405,6 +409,7 @@ fun DrawingCanvas(
                                     }
                                 }
                                 currentPathPoints.clear()
+                                activeStroke.reset()
                                 val curWorldPos = (change.position - controller.canvasOffset) / controller.canvasScale
                                 val pt = DrawingPoint(curWorldPos.x, curWorldPos.y)
                                 currentPathPoints.add(pt)
@@ -425,6 +430,7 @@ fun DrawingCanvas(
                                     gestureRemovedImages.clear()
                                 }
                                 currentPathPoints.clear()
+                                activeStroke.reset()
                                 val curWorldPos = (change.position - controller.canvasOffset) / controller.canvasScale
                                 val pt = DrawingPoint(curWorldPos.x, curWorldPos.y)
                                 currentPathPoints.add(pt)
@@ -533,9 +539,11 @@ fun DrawingCanvas(
                         if (dragMode == DragMode.LASSO && currentPathPoints.size > 2) {
                             controller.selectWithLasso(currentPathPoints.toList())
                             currentPathPoints.clear()
+                            activeStroke.reset()
                         }
                     }
                     currentPathPoints.clear()
+                    activeStroke.reset()
                     controller.activeDrawingTool = null
                     }
                 }
@@ -700,30 +708,10 @@ fun DrawingCanvas(
 
             // 1. Live Active Stroke
             if (currentPathPoints.isNotEmpty()) {
-                activeStrokePath.rewind()
-                val pts = currentPathPoints.toList()
-                val size = pts.size
-                if (size == 1) {
-                    activeStrokePath.moveTo(pts[0].x, pts[0].y)
-                    activeStrokePath.lineTo(pts[0].x + 0.1f, pts[0].y)
-                } else if (size == 2 || drawingTool == DrawingTool.LASSO) {
-                    for (i in 0 until size) {
-                        val p = pts[i]
-                        if (i == 0) activeStrokePath.moveTo(p.x, p.y)
-                        else activeStrokePath.lineTo(p.x, p.y)
-                    }
-                } else {
-                    activeStrokePath.moveTo(pts[0].x, pts[0].y)
-                    for (i in 1 until size - 1) {
-                        val midX = (pts[i].x + pts[i + 1].x) / 2f
-                        val midY = (pts[i].y + pts[i + 1].y) / 2f
-                        activeStrokePath.quadraticTo(pts[i].x, pts[i].y, midX, midY)
-                    }
-                    activeStrokePath.lineTo(pts[size - 1].x, pts[size - 1].y)
-                }
+                activeStroke.update(currentPathPoints, drawingTool == DrawingTool.LASSO)
                 if (drawingTool == DrawingTool.LASSO) {
                     drawPath(
-                        path = activeStrokePath,
+                        path = activeStroke.body,
                         color = Color.Blue,
                         style = DrawStroke(
                             width = 1.dp.toPx() / controller.canvasScale,
@@ -734,15 +722,14 @@ fun DrawingCanvas(
                         )
                     )
                 } else if (drawingTool != DrawingTool.HAND) {
-                    drawPath(
-                        path = activeStrokePath,
-                        color = if (drawingTool == DrawingTool.ERASER) Color.LightGray else controller.selectedPenColor,
-                        style = DrawStroke(
-                            width = if (drawingTool == DrawingTool.ERASER) controller.eraserThickness else controller.penThickness,
-                            cap = StrokeCap.Round,
-                            join = StrokeJoin.Round
-                        )
+                    val color = if (drawingTool == DrawingTool.ERASER) Color.LightGray else controller.selectedPenColor
+                    val style = DrawStroke(
+                        width = if (drawingTool == DrawingTool.ERASER) controller.eraserThickness else controller.penThickness,
+                        cap = StrokeCap.Round,
+                        join = StrokeJoin.Round
                     )
+                    drawPath(activeStroke.body, color, style = style)
+                    drawPath(activeStroke.tail, color, style = style)
                 }
             }
 
