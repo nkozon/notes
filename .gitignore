@@ -20,7 +20,7 @@ local.properties
 .kotlin
 package.json
 package-lock.json
-
+/docs
 # Log/OS Files
 *.log
 
