@@ -2,6 +2,9 @@ package com.ozon.notes
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.ExperimentalSerializationApi
@@ -376,6 +379,8 @@ class BackupEngine(
                 restoreFromLegacyJson(bufferedStream, isMerge)
             }
             true
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e("BackupEngine", "Failed to restore backup", e)
             false
@@ -392,19 +397,44 @@ class BackupEngine(
     }
 
     private suspend fun restoreFromZip(inputStream: InputStream, isMerge: Boolean) {
-        val backupData = readBackupFromZip(inputStream)
-        if (!isMerge) {
-            repository.restoreBackupData(backupData)
-        } else {
-            repository.importBackupData(backupData)
+        withBackupFromZip(inputStream) { backupData ->
+            if (!isMerge) repository.restoreBackupData(backupData)
+            else repository.importBackupData(backupData)
         }
     }
 
     /**
      * Reads and parses a modern ZIP backup archive into BackupData,
-     * extracting any media attachments to context.filesDir.
+     * returning embedded media for compatibility with callers that retain BackupData.
      */
-    suspend fun readBackupFromZip(inputStream: InputStream): BackupData = withContext(Dispatchers.IO) {
+    // Compatibility API returns self-contained data; normal restore streams media through staging.
+    suspend fun readBackupFromZip(inputStream: InputStream): BackupData = withBackupFromZip(inputStream) { data ->
+        data.copy(notes = data.notes.map { note ->
+            val drawing = note.drawingData
+            note.copy(drawingData = drawing?.copy(
+                pdfInfo = drawing.pdfInfo?.let { pdf ->
+                    pdf.copy(base64Data = pdf.base64Data ?: android.util.Base64.encodeToString(
+                        File(pdf.localPath).readBytes(), android.util.Base64.NO_WRAP))
+                },
+                images = drawing.images.map { image ->
+                    image.copy(base64Data = image.base64Data ?: android.util.Base64.encodeToString(
+                        File(image.path).readBytes(), android.util.Base64.NO_WRAP))
+                }
+            ))
+        })
+    }
+
+    internal suspend fun <T> withBackupFromZip(inputStream: InputStream, action: suspend (BackupData) -> T): T =
+        withContext(Dispatchers.IO) {
+            val mediaDirectory = java.nio.file.Files.createTempDirectory(context.cacheDir.toPath(), "restore-media-").toFile()
+            try {
+                action(parseBackupZip(inputStream, mediaDirectory))
+            } finally {
+                if (!mediaDirectory.deleteRecursively()) throw IOException("Cannot clean backup media staging")
+            }
+        }
+
+    private suspend fun parseBackupZip(inputStream: InputStream, mediaDirectory: File): BackupData {
         val restoredNotes = mutableListOf<Note>()
         val restoredLists = mutableListOf<NoteList>()
         val restoredEntries = mutableListOf<ListEntry>()
@@ -416,36 +446,43 @@ class BackupEngine(
         val noteDrawings = mutableMapOf<String, DrawingData>()
         val entryDescriptions = mutableMapOf<String, String>()
 
+        val seenPaths = mutableSetOf<String>()
+        var manifest: BackupManifest? = null
         ZipInputStream(inputStream).use { zipIn ->
             var entry: ZipEntry? = zipIn.nextEntry
             while (entry != null) {
+                currentCoroutineContext().ensureActive()
                 val name = entry.name
+                requireSafeArchivePath(name)
+                require(seenPaths.add(name)) { "Duplicate backup entry: $name" }
                 when {
+                    name == "manifest.json" -> {
+                        manifest = json.decodeFromString<BackupManifest>(readEntryText(zipIn))
+                        require(manifest.version in 1..2) { "Unsupported backup version" }
+                    }
                     name.startsWith("media/") && !entry.isDirectory -> {
                         val fileName = name.removePrefix("media/")
-                        val targetFile = File(context.filesDir, fileName)
+                        requireSafeBackupId(fileName)
+                        val targetFile = File(mediaDirectory, fileName)
                         targetFile.outputStream().use { fileOut ->
                             copyStream(zipIn, fileOut)
                         }
                     }
                     name == "tags/tags.json" -> {
                         val text = readEntryText(zipIn)
-                        val tags = try { json.decodeFromString<List<Tag>>(text) } catch (e: Exception) { emptyList() }
+                        val tags = json.decodeFromString<List<Tag>>(text)
                         restoredTags.addAll(tags)
                     }
                     name == "deletions/deletions.json" -> {
                         val text = readEntryText(zipIn)
-                        val deletions = try { json.decodeFromString<List<DeletedItem>>(text) } catch (e: Exception) { emptyList() }
+                        val deletions = json.decodeFromString<List<DeletedItem>>(text)
                         restoredDeletedItems.addAll(deletions)
                     }
                     name.startsWith("notes/") && name.endsWith(".json") -> {
                         val text = readEntryText(zipIn)
-                        try {
-                            val note = json.decodeFromString<Note>(text)
-                            restoredNotes.add(note)
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
+                        val note = json.decodeFromString<Note>(text)
+                        restoredNotes.add(note)
+
                     }
                     name.startsWith("notes/") && name.endsWith(".content") -> {
                         val noteId = name.removePrefix("notes/").removeSuffix(".content")
@@ -460,23 +497,17 @@ class BackupEngine(
                     name.startsWith("notes/") && name.endsWith(".drawing") -> {
                         val noteId = name.removePrefix("notes/").removeSuffix(".drawing")
                         val drawingText = readEntryText(zipIn)
-                        try {
-                            val drawing = json.decodeFromString<DrawingData>(drawingText)
-                            noteDrawings[noteId] = drawing
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
+                        val drawing = json.decodeFromString<DrawingData>(drawingText)
+                        noteDrawings[noteId] = drawing
+
                     }
                     name.startsWith("lists/") && name.endsWith(".json") -> {
                         val text = readEntryText(zipIn)
-                        try {
-                            val bundle = json.decodeFromString<ExportedListBundle>(text)
-                            restoredLists.add(bundle.list)
-                            restoredEntries.addAll(bundle.entries)
-                            restoredTags.addAll(bundle.tags)
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
+                        val bundle = json.decodeFromString<ExportedListBundle>(text)
+                        restoredLists.add(bundle.list)
+                        restoredEntries.addAll(bundle.entries)
+                        restoredTags.addAll(bundle.tags)
+
                     }
                     name.startsWith("lists/") && name.endsWith(".desc") -> {
                         val entryId = name.removePrefix("lists/").removeSuffix(".desc")
@@ -501,13 +532,13 @@ class BackupEngine(
             if (drawing != null) {
                 val updatedPdf = drawing.pdfInfo?.let { pdf ->
                     val fileName = pdf.localPath.removePrefix("media/").split("/").last().split("\\").last()
-                    val file = File(context.filesDir, fileName)
-                    pdf.copy(localPath = if (file.exists()) file.absolutePath else File(context.filesDir, fileName).absolutePath)
+                    val file = File(mediaDirectory, fileName)
+                    pdf.copy(localPath = file.absolutePath)
                 }
                 val updatedImages = drawing.images.map { img ->
                     val fileName = img.path.removePrefix("media/").split("/").last().split("\\").last()
-                    val file = File(context.filesDir, fileName)
-                    img.copy(path = if (file.exists()) file.absolutePath else File(context.filesDir, fileName).absolutePath)
+                    val file = File(mediaDirectory, fileName)
+                    img.copy(path = file.absolutePath)
                 }
                 drawing = drawing.copy(pdfInfo = updatedPdf, images = updatedImages)
             }
@@ -519,7 +550,14 @@ class BackupEngine(
             entry.copy(description = desc)
         }
 
-        BackupData(
+        require(manifest != null || restoredNotes.isNotEmpty() || restoredLists.isNotEmpty()) { "Not a Notes backup" }
+        manifest?.let { expected ->
+            require(expected.noteCount == finalNotes.size && expected.listCount == restoredLists.distinctBy { it.id }.size &&
+                expected.entryCount == finalEntries.size && expected.mediaCount == (mediaDirectory.listFiles()?.size ?: 0)) {
+                "Incomplete backup archive"
+            }
+        }
+        return BackupData(
             notes = finalNotes,
             lists = restoredLists.distinctBy { it.id },
             entries = finalEntries,
@@ -548,30 +586,32 @@ class BackupEngine(
         }
     }
 
-    private fun readEntryBytes(zipIn: ZipInputStream): ByteArray {
+    private suspend fun readEntryBytes(zipIn: ZipInputStream): ByteArray {
         val baos = ByteArrayOutputStream()
         val buffer = ByteArray(4096)
         var len: Int
         while (zipIn.read(buffer).also { len = it } > 0) {
+            currentCoroutineContext().ensureActive()
             baos.write(buffer, 0, len)
         }
         return baos.toByteArray()
     }
 
-    private fun readEntryText(zipIn: ZipInputStream): String {
+    private suspend fun readEntryText(zipIn: ZipInputStream): String {
         return readEntryBytes(zipIn).toString(Charsets.UTF_8)
     }
 
-    private fun copyStream(zipIn: ZipInputStream, out: OutputStream) {
+    private suspend fun copyStream(zipIn: ZipInputStream, out: OutputStream) {
         val buffer = ByteArray(4096)
         var len: Int
         while (zipIn.read(buffer).also { len = it } > 0) {
+            currentCoroutineContext().ensureActive()
             out.write(buffer, 0, len)
         }
         out.flush()
     }
 
-    private fun drainEntry(zipIn: ZipInputStream) {
+    private suspend fun drainEntry(zipIn: ZipInputStream) {
         val buffer = ByteArray(4096)
         while (zipIn.read(buffer) > 0) { /* discard */ }
     }

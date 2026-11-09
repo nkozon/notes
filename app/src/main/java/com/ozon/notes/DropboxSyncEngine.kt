@@ -5,8 +5,6 @@ import android.util.Log
 import androidx.room.withTransaction
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -65,8 +63,15 @@ class DropboxSyncEngine(
     private val dropboxAuthManager: DropboxAuthManager
 ) {
     private val mediaSync = DropboxMediaSync(dropboxClient::getBackupMetadata, dropboxClient::uploadFile)
-    private val syncMutex = Mutex()
+    private val syncSession = SyncSession()
+    private val syncMutex get() = syncSession.mutex
+    private var statusCleanupJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    /** Ends engine-owned background work when its owner is disposed. */
+    internal suspend fun close() {
+        scope.coroutineContext[Job]?.cancelAndJoin()
+    }
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -74,8 +79,7 @@ class DropboxSyncEngine(
         encodeDefaults = true
     }
 
-    private val _isSyncing = MutableStateFlow(false)
-    val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
+    val isSyncing: StateFlow<Boolean> = syncSession.isSyncing
 
     private val _syncingItems = MutableStateFlow<List<SyncItemInfo>>(emptyList())
     val syncingItems: StateFlow<List<SyncItemInfo>> = _syncingItems.asStateFlow()
@@ -106,32 +110,59 @@ class DropboxSyncEngine(
     }
 
     private fun updateSyncingItemsList() {
-        scope.launch(Dispatchers.IO) {
-            val currentMap = _syncingItems.value.associateBy { it.id }
-            val items = mutableListOf<SyncItemInfo>()
-            for (id in pendingNotesToPush) {
-                val title = database.noteDao().getNoteById(id)?.title?.ifBlank { "Untitled Note" } ?: "Note"
-                val prev = currentMap[id]
-                items.add(SyncItemInfo(id, title, "Note", prev?.status ?: "Pending", prev?.progress ?: 0f))
+        scope.launch { refreshSyncingItemsList() }
+    }
+
+    private suspend fun refreshSyncingItemsList() {
+        val currentMap = _syncingItems.value.associateBy { it.id }
+        val items = mutableListOf<SyncItemInfo>()
+        for (id in pendingNotesToPush) {
+            val title = database.noteDao().getNoteById(id)?.title?.ifBlank { "Untitled Note" } ?: "Note"
+            val prev = currentMap[id]
+            items.add(SyncItemInfo(id, title, "Note", prev?.status ?: "Pending", prev?.progress ?: 0f))
+        }
+        for (id in pendingListsToPush) {
+            val title = database.listDao().getListById(id)?.title?.ifBlank { "Untitled List" } ?: "List"
+            val prev = currentMap[id]
+            items.add(SyncItemInfo(id, title, "List", prev?.status ?: "Pending", prev?.progress ?: 0f))
+        }
+        for (id in pendingDeletedNotes) {
+            val prev = currentMap[id]
+            items.add(SyncItemInfo(id, "Note", "Deleted Note", prev?.status ?: "Pending", prev?.progress ?: 0f))
+        }
+        for (id in pendingDeletedLists) {
+            val prev = currentMap[id]
+            items.add(SyncItemInfo(id, "List", "Deleted List", prev?.status ?: "Pending", prev?.progress ?: 0f))
+        }
+        if (pendingTagsPush) {
+            val prev = currentMap["tags"]
+            items.add(SyncItemInfo("tags", "Tags taxonomy", "Tags", prev?.status ?: "Pending", prev?.progress ?: 0f))
+        }
+        _syncingItems.value = items
+    }
+
+    private fun finishSyncSession() {
+        // Schedule before releasing ownership: a later attempt cancels this job.
+        try {
+            _syncingItems.update { items ->
+                items.map { item ->
+                    if (item.status == "Syncing" || item.status == "Downloading" || item.status == "Deleting") {
+                        item.copy(status = "Pending", progress = 0f)
+                    } else item
+                }
             }
-            for (id in pendingListsToPush) {
-                val title = database.listDao().getListById(id)?.title?.ifBlank { "Untitled List" } ?: "List"
-                val prev = currentMap[id]
-                items.add(SyncItemInfo(id, title, "List", prev?.status ?: "Pending", prev?.progress ?: 0f))
+            statusCleanupJob = scope.launch {
+                delay(1200)
+                if (syncMutex.tryLock()) {
+                    try {
+                        refreshSyncingItemsList()
+                    } finally {
+                        syncMutex.unlock()
+                    }
+                }
             }
-            for (id in pendingDeletedNotes) {
-                val prev = currentMap[id]
-                items.add(SyncItemInfo(id, "Note", "Deleted Note", prev?.status ?: "Pending", prev?.progress ?: 0f))
-            }
-            for (id in pendingDeletedLists) {
-                val prev = currentMap[id]
-                items.add(SyncItemInfo(id, "List", "Deleted List", prev?.status ?: "Pending", prev?.progress ?: 0f))
-            }
-            if (pendingTagsPush) {
-                val prev = currentMap["tags"]
-                items.add(SyncItemInfo("tags", "Tags taxonomy", "Tags", prev?.status ?: "Pending", prev?.progress ?: 0f))
-            }
-            _syncingItems.value = items
+        } finally {
+            syncSession.finish()
         }
     }
 
@@ -205,7 +236,7 @@ class DropboxSyncEngine(
         }
         val listing = dropboxClient.listFolder("/sync", recursive = true).getOrNull()
         val syncFolderHasFiles = listing != null && listing.entries.any { it.type == DropboxEntryType.FILE }
-        
+
         // Also check if legacy cloud backup exists in root
         val legacyBackupMeta = if (!syncFolderHasFiles) {
             dropboxClient.getBackupMetadata("backup_latest.notesbackup").getOrNull()
@@ -289,11 +320,11 @@ class DropboxSyncEngine(
      * @param forceMobileData If true, bypasses the Wi-Fi requirement prompt on cellular.
      */
     suspend fun sync(forceMobileData: Boolean = false): SyncResult = withContext(Dispatchers.IO) {
-        if (!syncMutex.tryLock()) {
+        if (!syncSession.tryStart()) {
             Log.d("DropboxSyncEngine", "Sync is already running, skipping concurrent call.")
             return@withContext SyncResult.NoOp
         }
-        _isSyncing.value = true
+        statusCleanupJob?.cancel()
         try {
             if (!dropboxAuthManager.isLoggedIn()) {
                 return@withContext SyncResult.Error("Dropbox account not connected")
@@ -308,8 +339,8 @@ class DropboxSyncEngine(
                 val incomingSize = incomingSummary.totalBytes
 
                 // Combine incoming items into _syncingItems for UI confirmation display
-                val combined = _syncingItems.value.filter { 
-                    it.status != "Incoming Download" && it.status != "Incoming Deletion" 
+                val combined = _syncingItems.value.filter {
+                    it.status != "Incoming Download" && it.status != "Incoming Deletion"
                 }.toMutableList()
                 for (inc in incomingSummary.items) {
                     if (combined.none { it.id == inc.id }) {
@@ -347,14 +378,13 @@ class DropboxSyncEngine(
             repository.setLastDropboxBackupTime(now)
 
             SyncResult.Success("Live sync completed with Dropbox")
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e("DropboxSyncEngine", "Sync exception", e)
             SyncResult.Error(e.localizedMessage ?: "Sync failed")
         } finally {
-            _isSyncing.value = false
-            delay(1200)
-            updateSyncingItemsList()
-            syncMutex.unlock()
+            finishSyncSession()
         }
     }
 
@@ -379,23 +409,22 @@ class DropboxSyncEngine(
             return@withContext
         }
 
-        if (!syncMutex.tryLock()) {
+        if (!syncSession.tryStart()) {
             return@withContext
         }
-        _isSyncing.value = true
+        statusCleanupJob?.cancel()
         try {
-            pushPendingLocalChanges()
-            pullRemoteDelta()
+            if (pushPendingLocalChanges() is SyncResult.Error) return@withContext
+            if (pullRemoteDelta() is SyncResult.Error) return@withContext
 
             val now = System.currentTimeMillis()
             repository.setLastDropboxSyncTime(now)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e("DropboxSyncEngine", "Error executing queued sync", e)
         } finally {
-            _isSyncing.value = false
-            delay(1200)
-            updateSyncingItemsList()
-            syncMutex.unlock()
+            finishSyncSession()
         }
     }
 
@@ -547,6 +576,8 @@ class DropboxSyncEngine(
         val metaBytes = dropboxClient.downloadFileBytes("/sync/notes/$noteId.json").getOrNull() ?: return
         val note = try {
             json.decodeFromString<Note>(metaBytes.decodeToString())
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             return
         }
@@ -562,7 +593,9 @@ class DropboxSyncEngine(
         // Read drawing file if exists
         val drawingBytes = dropboxClient.downloadFileBytes("/sync/notes/$noteId.drawing").getOrNull()
         val drawingData = drawingBytes?.let {
-            try { json.decodeFromString<DrawingData>(it.decodeToString()) } catch (e: Exception) { null }
+            try { json.decodeFromString<DrawingData>(it.decodeToString()) } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) { null }
         } ?: note.drawingData
 
         val fullNote = note.copy(
@@ -595,6 +628,8 @@ class DropboxSyncEngine(
         val bytes = dropboxClient.downloadFileBytes("/sync/lists/$listId.json").getOrNull() ?: return
         val pkg = try {
             json.decodeFromString<SyncListPackage>(bytes.decodeToString())
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e("DropboxSyncEngine", "Failed to parse SyncListPackage for list $listId", e)
             return
@@ -680,6 +715,8 @@ class DropboxSyncEngine(
         val bytes = dropboxClient.downloadFileBytes("/sync/tags/tags.json").getOrNull() ?: return
         val tags = try {
             json.decodeFromString<List<Tag>>(bytes.decodeToString())
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             return
         }
@@ -831,16 +868,16 @@ class DropboxSyncEngine(
                     val downloadRes = dropboxClient.downloadFileTo("/$name", tempFile)
                     if (downloadRes.isSuccess) {
                         tempFile.inputStream().use { stream ->
-                            val backupData = backupEngine.readBackupFromZip(stream)
-                            if (isMerge) {
-                                repository.importBackupData(backupData)
-                            } else {
-                                repository.restoreBackupData(backupData)
+                            backupEngine.withBackupFromZip(stream) { backupData ->
+                                if (isMerge) repository.importBackupData(backupData)
+                                else repository.restoreBackupData(backupData)
                             }
                         }
                         return true
                     }
-                } catch (e: Exception) {
+                } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
                     Log.e("DropboxSyncEngine", "Error restoring legacy backup $name", e)
                 } finally {
                     tempFile.delete()
@@ -854,94 +891,86 @@ class DropboxSyncEngine(
      * Resolves initial sync modes (Merge, Overwrite Local, Overwrite Remote).
      */
     suspend fun resolveInitialSync(mode: InitialSyncMode): SyncResult = withContext(Dispatchers.IO) {
-        _isSyncing.value = true
+        if (!syncSession.tryStart()) return@withContext SyncResult.NoOp
+        statusCleanupJob?.cancel()
         try {
-            syncMutex.withLock {
-                if (!dropboxAuthManager.isLoggedIn()) {
-                    return@withContext SyncResult.Error("Dropbox account not connected")
+            if (!dropboxAuthManager.isLoggedIn()) {
+                return@withContext SyncResult.Error("Dropbox account not connected")
+            }
+
+            when (mode) {
+                InitialSyncMode.OVERWRITE_REMOTE -> {
+                    Log.d("DropboxSyncEngine", "Resolving Initial Sync: OVERWRITE_REMOTE")
+                    // Delete old /sync folder and legacy zip files from Dropbox
+                    dropboxClient.deletePath("/sync")
+                    for (legacyName in listOf("backup_latest.notesbackup", "latest_backup.zip", "Notes_Backup.zip")) {
+                        dropboxClient.deletePath("/$legacyName")
+                    }
+                    repository.setDropboxSyncCursor(null)
+                    pushAllLocalChanges()
+                    // Initialize cursor
+                    val listing = dropboxClient.listFolder("/sync", recursive = true).getOrNull()
+                    repository.setDropboxSyncCursor(listing?.cursor)
+
+                    val now = System.currentTimeMillis()
+                    repository.setLastDropboxSyncTime(now)
+                    repository.setLastDropboxBackupTime(now)
+                    repository.setHasPendingChanges(false)
+
+                    SyncResult.Success("Cloud overwritten with device notes & lists")
                 }
 
-                when (mode) {
-                    InitialSyncMode.OVERWRITE_REMOTE -> {
-                        Log.d("DropboxSyncEngine", "Resolving Initial Sync: OVERWRITE_REMOTE")
-                        // Delete old /sync folder and legacy zip files from Dropbox
-                        dropboxClient.deletePath("/sync")
-                        for (legacyName in listOf("backup_latest.notesbackup", "latest_backup.zip", "Notes_Backup.zip")) {
-                            dropboxClient.deletePath("/$legacyName")
-                        }
-                        repository.setDropboxSyncCursor(null)
-                        pushAllLocalChanges()
-                        // Initialize cursor
-                        val listing = dropboxClient.listFolder("/sync", recursive = true).getOrNull()
-                        repository.setDropboxSyncCursor(listing?.cursor)
-
-                        val now = System.currentTimeMillis()
-                        repository.setLastDropboxSyncTime(now)
-                        repository.setLastDropboxBackupTime(now)
-                        repository.setHasPendingChanges(false)
-
-                        SyncResult.Success("Cloud overwritten with device notes & lists")
+                InitialSyncMode.OVERWRITE_LOCAL -> {
+                    Log.d("DropboxSyncEngine", "Resolving Initial Sync: OVERWRITE_LOCAL")
+                    database.withTransaction {
+                        database.clearAllTables()
                     }
+                    repository.setDropboxSyncCursor(null)
 
-                    InitialSyncMode.OVERWRITE_LOCAL -> {
-                        Log.d("DropboxSyncEngine", "Resolving Initial Sync: OVERWRITE_LOCAL")
-                        database.withTransaction {
-                            database.clearAllTables()
-                        }
-                        repository.setDropboxSyncCursor(null)
-                        
-                        val listing = dropboxClient.listFolder("/sync", recursive = true).getOrNull()
-                        val syncFolderHasFiles = listing != null && listing.entries.any { it.type == DropboxEntryType.FILE }
-                        if (syncFolderHasFiles) {
-                            pullRemoteDelta()
-                        } else {
-                            restoreLegacyBackupIfPresent(isMerge = false)
-                            pushAllLocalChanges()
-                            val newListing = dropboxClient.listFolder("/sync", recursive = true).getOrNull()
-                            repository.setDropboxSyncCursor(newListing?.cursor)
-                        }
-
-                        val now = System.currentTimeMillis()
-                        repository.setLastDropboxSyncTime(now)
-                        repository.setLastDropboxBackupTime(now)
-                        repository.setHasPendingChanges(false)
-
-                        SyncResult.Success("Device updated with cloud data")
-                    }
-
-                    InitialSyncMode.MERGE -> {
-                        Log.d("DropboxSyncEngine", "Resolving Initial Sync: MERGE")
-                        val listing = dropboxClient.listFolder("/sync", recursive = true).getOrNull()
-                        val syncFolderHasFiles = listing != null && listing.entries.any { it.type == DropboxEntryType.FILE }
-                        if (syncFolderHasFiles) {
-                            pullRemoteDelta()
-                        } else {
-                            restoreLegacyBackupIfPresent(isMerge = true)
-                        }
-                        // Push merged state back to ensure both device and cloud are in sync
+                    val listing = dropboxClient.listFolder("/sync", recursive = true).getOrNull()
+                    val syncFolderHasFiles = listing != null && listing.entries.any { it.type == DropboxEntryType.FILE }
+                    if (syncFolderHasFiles) {
+                        pullRemoteDelta()
+                    } else {
+                        restoreLegacyBackupIfPresent(isMerge = false)
                         pushAllLocalChanges()
-
                         val newListing = dropboxClient.listFolder("/sync", recursive = true).getOrNull()
                         repository.setDropboxSyncCursor(newListing?.cursor)
-
-                        val now = System.currentTimeMillis()
-                        repository.setLastDropboxSyncTime(now)
-                        repository.setLastDropboxBackupTime(now)
-                        repository.setHasPendingChanges(false)
-
-                        SyncResult.Success("Merged local and cloud data successfully")
                     }
+
+                    val now = System.currentTimeMillis()
+                    repository.setLastDropboxSyncTime(now)
+                    repository.setLastDropboxBackupTime(now)
+                    repository.setHasPendingChanges(false)
+
+                    SyncResult.Success("Device updated with cloud data")
+                }
+
+                InitialSyncMode.MERGE -> {
+                    Log.d("DropboxSyncEngine", "Resolving Initial Sync: MERGE")
+                    val listing = dropboxClient.listFolder("/sync", recursive = true).getOrNull()
+                    val syncFolderHasFiles = listing != null && listing.entries.any { it.type == DropboxEntryType.FILE }
+                    if (syncFolderHasFiles) {
+                        pullRemoteDelta()
+                    } else {
+                        restoreLegacyBackupIfPresent(isMerge = true)
+                    }
+                    // Push merged state back to ensure both device and cloud are in sync
+                    pushAllLocalChanges()
+
+                    val newListing = dropboxClient.listFolder("/sync", recursive = true).getOrNull()
+                    repository.setDropboxSyncCursor(newListing?.cursor)
+
+                    val now = System.currentTimeMillis()
+                    repository.setLastDropboxSyncTime(now)
+                    repository.setLastDropboxBackupTime(now)
+                    repository.setHasPendingChanges(false)
+
+                    SyncResult.Success("Merged local and cloud data successfully")
                 }
             }
         } finally {
-            _isSyncing.value = false
-            delay(1200)
-            _syncingItems.value = emptyList()
-            pendingNotesToPush.clear()
-            pendingListsToPush.clear()
-            pendingDeletedNotes.clear()
-            pendingDeletedLists.clear()
-            pendingTagsPush = false
+            finishSyncSession()
         }
     }
 
@@ -950,6 +979,8 @@ class DropboxSyncEngine(
             context.openFileOutput(fileName, Context.MODE_PRIVATE).use {
                 it.write(content.toByteArray())
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e("DropboxSyncEngine", "Failed to save local file $fileName", e)
         }
@@ -958,6 +989,8 @@ class DropboxSyncEngine(
     private fun deleteLocalFile(fileName: String) {
         try {
             context.deleteFile(fileName)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e("DropboxSyncEngine", "Failed to delete local file $fileName", e)
         }

@@ -88,6 +88,7 @@ import kotlinx.coroutines.launch
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -116,6 +117,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import com.ozon.notes.ui.theme.GoogleSansFlexRounded
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -178,6 +180,8 @@ fun ListDetailScreen(
     val listState = rememberLazyListState()
     val dummyFocusRequester = remember { FocusRequester() }
     var editingEntry by remember { mutableStateOf<ListEntry?>(null) }
+    var ratingEntryId by remember(listId) { mutableStateOf<String?>(null) }
+    var draftRating by remember(listId) { mutableFloatStateOf(0f) }
     var entryForDescription by remember { mutableStateOf<ListEntry?>(null) }
     var previewEntry by remember { mutableStateOf<ListEntry?>(null) }
     var entryForPosterSearch by remember { mutableStateOf<ListEntry?>(null) }
@@ -678,6 +682,11 @@ fun ListDetailScreen(
                 if (isRatingList) entries.filter { it.isPaused } else emptyList()
             }
 
+            val isProgressSectionAnimating = isRatingList && (
+                (watchingReveal > 0f && watchingReveal < 1f) ||
+                    (pausedReveal > 0f && pausedReveal < 1f)
+                )
+
             val hierarchicalEntries = remember(entries, expandedEntries, checklistBehavior, currentList.type, searchQuery) {
                 if (currentList.type == ListType.UPCOMING) {
                     emptyList() // We handle UPCOMING separately below
@@ -789,7 +798,7 @@ fun ListDetailScreen(
                     end = 16.dp, 
                     bottom = bottomPadding + 100.dp
                 ),
-                verticalArrangement = Arrangement.spacedBy(ListDetailItemSpacing)
+                verticalArrangement = Arrangement.spacedBy(if (isRatingList) 0.dp else ListDetailItemSpacing)
             ) {
                 if (entryCountText != null) {
                     item(key = "entry_count_label") {
@@ -801,7 +810,7 @@ fun ListDetailScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(bottom = 6.dp)
+                                .padding(bottom = 6.dp + if (isRatingList) ListDetailItemSpacing else 0.dp)
                         )
                     }
                 }
@@ -936,7 +945,9 @@ fun ListDetailScreen(
                             item(key = "${groupKey}_section", contentType = "progress_header") {
                                 ProgressSectionSurface(
                                     isHeader = true,
-                                    connectToNext = hasVisibleRows
+                                    connectToNext = hasVisibleRows,
+                                    sectionRevealFraction = revealFraction,
+                                    includeItemSpacing = true
                                 ) {
                                     Row(
                                         modifier = Modifier
@@ -994,7 +1005,8 @@ fun ListDetailScreen(
                                     ProgressSectionSurface(
                                         isHeader = false,
                                         connectToNext = index < groupEntries.lastIndex,
-                                        revealFraction = revealFraction
+                                        revealFraction = revealFraction,
+                                        includeItemSpacing = true
                                     ) {
                                         Box(Modifier.padding(start = 8.dp, end = 8.dp, bottom = if (index == groupEntries.lastIndex) 8.dp else 0.dp)) {
                                             CurrentlyWatchingItem(
@@ -1003,7 +1015,6 @@ fun ListDetailScreen(
                                                 allEntries = entries,
                                                 currentList = currentList,
                                                 moviePostersEnabled = moviePostersEnabled,
-                                                isOledMode = isOledMode,
                                                 onEdit = { editingEntry = it },
                                                 onDelete = { entryToDelete = it },
                                                 onIncrement = { item ->
@@ -1078,7 +1089,8 @@ fun ListDetailScreen(
                         Box(
                             modifier = Modifier
                                 .zIndex((10000 - index).toFloat())
-                                .animateItem()
+                                .then(entryPlacementAnimation(isProgressSectionAnimating))
+                                .padding(bottom = if (isRatingList && !isLastItemInList) ListDetailItemSpacing else 0.dp)
                         ) {
                             SwipeToDismissWrapper(
                                 entry = entry,
@@ -1120,6 +1132,10 @@ fun ListDetailScreen(
                                     onToggleCheck = { isChecked ->
                                         val newIsPinned = if (isChecked) false else entry.isPinned
                                         checklistViewModel.onEvent(NoteEvent.SaveEntry(entry.copy(isChecked = isChecked, isPinned = newIsPinned)))
+                                    },
+                                    onRatingClick = {
+                                        draftRating = entry.rating
+                                        ratingEntryId = entry.id
                                     },
                                     onClick = { editingEntry = entry },
                                     onLongClick = { 
@@ -1236,6 +1252,10 @@ fun ListDetailScreen(
                                             onToggleCheck = { isChecked ->
                                                 val newIsPinned = if (isChecked) false else entry.isPinned
                                                 checklistViewModel.onEvent(NoteEvent.SaveEntry(entry.copy(isChecked = isChecked, isPinned = newIsPinned)))
+                                            },
+                                            onRatingClick = {
+                                                draftRating = entry.rating
+                                                ratingEntryId = entry.id
                                             },
                                             onClick = { editingEntry = entry },
                                             onLongClick = {
@@ -1386,6 +1406,21 @@ fun ListDetailScreen(
                 parentForNewSubentry = null
             },
             onSaveTag = { checklistViewModel.onEvent(NoteEvent.SaveTag(it)) }
+        )
+    }
+
+    val ratingEntry = ratingEntryId?.let { id ->
+        entries.find { it.id == id && !it.isCurrentlyWatching && !it.isPaused }
+    }
+    if (currentList.type == ListType.RATING && ratingEntry != null) {
+        RatingPickerDialog(
+            rating = draftRating,
+            onRatingChange = { draftRating = it },
+            onDismiss = { ratingEntryId = null },
+            onConfirm = {
+                checklistViewModel.onEvent(NoteEvent.SaveEntry(ratingEntry.copy(rating = draftRating)))
+                ratingEntryId = null
+            }
         )
     }
 
@@ -2434,7 +2469,6 @@ private fun CurrentlyWatchingItem(
     allEntries: List<ListEntry>,
     currentList: NoteList,
     moviePostersEnabled: Boolean,
-    isOledMode: Boolean,
     onEdit: (ListEntry) -> Unit,
     onDelete: (ListEntry) -> Unit,
     onIncrement: (ListEntry) -> Unit,
@@ -2522,13 +2556,7 @@ private fun CurrentlyWatchingItem(
                     ),
                 shape = shape,
                 colors = CardDefaults.cardColors(
-                    containerColor = if (isOledMode) {
-                        androidx.compose.ui.graphics.lerp(
-                            MaterialTheme.colorScheme.surfaceContainerLow,
-                            Color.White,
-                            0.04f
-                        )
-                    } else MaterialTheme.colorScheme.surfaceContainerLow
+                    containerColor = MaterialTheme.colorScheme.background
                 )
             ) {
                 Row(
@@ -2764,7 +2792,8 @@ fun ListEntryItem(
     onToggleCheck: (Boolean) -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {},
-    shape: Shape = CardDefaults.shape
+    shape: Shape = CardDefaults.shape,
+    onRatingClick: (() -> Unit)? = null
 ) {
     val isSubentry = depth > 0
     val isHighlighted = searchQuery.isNotBlank() && entry.title.contains(searchQuery, ignoreCase = true)
@@ -2974,9 +3003,25 @@ fun ListEntryItem(
                             val ratingText = formatRating(entry.rating)
                             Text(
                                 text = ratingText,
-                                style = if (isSubentry) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
+                                style = if (isSubentry) MaterialTheme.typography.titleSmall else {
+                                    MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp)
+                                },
                                 color = ratingColor,
-                                modifier = Modifier.padding(end = if (hasChildren) 4.dp else 0.dp)
+                                modifier = Modifier
+                                    .then(
+                                        if (onRatingClick != null && !entry.isCurrentlyWatching && !entry.isPaused) {
+                                            Modifier
+                                                .clickable(role = Role.Button, onClick = onRatingClick)
+                                                .semantics { contentDescription = "Edit rating for ${entry.title}" }
+                                                .then(
+                                                    if (!isSubentry) Modifier
+                                                        .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                                                        .wrapContentSize(Alignment.Center)
+                                                    else Modifier
+                                                )
+                                        } else Modifier
+                                    )
+                                    .padding(end = if (hasChildren) 4.dp else 0.dp)
                             )
                         }
                         if (hasChildren) {
@@ -2991,13 +3036,13 @@ fun ListEntryItem(
                             CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides 0.dp) {
                                 IconButton(
                                     onClick = onToggleExpand,
-                                    modifier = if (isSubentry) Modifier.size(32.dp) else Modifier
+                                    modifier = Modifier.size(if (isSubentry) 32.dp else 48.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Rounded.ExpandMore,
                                         contentDescription = if (isExpanded) "Collapse" else "Expand",
                                         modifier = Modifier
-                                            .size(if (isSubentry) 18.dp else 24.dp)
+                                            .size(if (isSubentry) 18.dp else 20.dp)
                                             .graphicsLayer { rotationZ = rotation }
                                     )
                                 }
@@ -3012,1174 +3057,12 @@ fun ListEntryItem(
 }
 
 @Composable
-fun DescriptionDialog(
-    entry: ListEntry,
-    viewModel: ChecklistViewModel,
-    onDismiss: () -> Unit,
-    onConfirm: (String?) -> Unit
-) {
-    var description by remember { mutableStateOf(entry.description ?: "") }
-    val focusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(entry.id) {
-        if (entry.description == null) {
-            val fullDesc = viewModel.getEntryDescription(entry.id)
-            if (fullDesc != null) description = fullDesc
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(entry.title) },
-        text = {
-            OutlinedTextField(
-                value = description,
-                onValueChange = { description = it },
-                label = { Text("Description") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 120.dp)
-                    .focusRequester(focusRequester),
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
-            )
-            LaunchedEffect(Unit) {
-                focusRequester.requestFocus()
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    onConfirm(description.takeIf { it.isNotBlank() })
-                }
-            ) { Text("Save") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
-}
-
-@Composable
-fun ScoreWheelPicker(
-    score: Float,
-    onScoreChange: (Float) -> Unit,
-    onScoreClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val coroutineScope = rememberCoroutineScope()
-    val haptic = LocalHapticFeedback.current
-    val density = LocalDensity.current
-    val itemHeight = 44.dp
-    val itemHeightPx = with(density) { itemHeight.toPx() }
-
-    val initialIndex = (score * 10).roundToInt().coerceIn(0, 100).toFloat()
-    val scrollOffset = remember { Animatable(initialIndex) }
-    var lastHapticIndex by remember { mutableIntStateOf((score * 10).roundToInt().coerceIn(0, 100)) }
-
-    LaunchedEffect(score) {
-        val targetIndex = (score * 10).roundToInt().coerceIn(0, 100).toFloat()
-        if ((scrollOffset.value - targetIndex).absoluteValue > 0.05f && !scrollOffset.isRunning) {
-            scrollOffset.animateTo(
-                targetValue = targetIndex,
-                animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
-            )
-        }
-    }
-
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(152.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerLow)
-            .border(
-                BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-                RoundedCornerShape(20.dp)
-            )
-            .draggable(
-                orientation = Orientation.Vertical,
-                state = rememberDraggableState { delta ->
-                    coroutineScope.launch {
-                        val deltaIndex = -delta / itemHeightPx
-                        val newValue = (scrollOffset.value + deltaIndex).coerceIn(-0.3f, 100.3f)
-                        scrollOffset.snapTo(newValue)
-
-                        val currentIntIndex = newValue.roundToInt().coerceIn(0, 100)
-                        if (currentIntIndex != lastHapticIndex) {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            lastHapticIndex = currentIntIndex
-                            onScoreChange(currentIntIndex / 10f)
-                        }
-                    }
-                },
-                onDragStopped = { velocity ->
-                    coroutineScope.launch {
-                        val velocityInIndices = -velocity / itemHeightPx
-                        val target = (scrollOffset.value + velocityInIndices * 0.12f)
-                            .roundToInt()
-                            .coerceIn(0, 100)
-                            .toFloat()
-
-                        scrollOffset.animateTo(
-                            targetValue = target,
-                            initialVelocity = velocityInIndices,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioLowBouncy,
-                                stiffness = Spring.StiffnessMediumLow
-                            )
-                        )
-                        onScoreChange(target / 10f)
-                    }
-                }
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        // Center click area (no background or border)
-        Box(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .fillMaxWidth()
-                .height(itemHeight)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onScoreClick
-                )
-        )
-
-        // Wheel drum items
-        val currentScroll = scrollOffset.value
-        val baseIndex = currentScroll.roundToInt()
-        val minIndex = (baseIndex - 3).coerceAtLeast(0)
-        val maxIndex = (baseIndex + 3).coerceAtMost(100)
-
-        for (i in minIndex..maxIndex) {
-            val offsetFromCenter = i - currentScroll
-            val absOffset = offsetFromCenter.absoluteValue
-            val scale = (1f - 0.18f * absOffset).coerceIn(0.6f, 1f)
-            val alpha = (1f - 0.48f * absOffset).coerceIn(0.12f, 1f)
-            val rotationX = (offsetFromCenter * 18f).coerceIn(-55f, 55f)
-            val itemScore = i / 10f
-
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .graphicsLayer {
-                        translationY = offsetFromCenter * itemHeightPx
-                        scaleX = scale
-                        scaleY = scale
-                        this.alpha = alpha
-                        this.rotationX = rotationX
-                        cameraDistance = 8 * density.density
-                    }
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) {
-                        if (absOffset < 0.5f) {
-                            onScoreClick()
-                        } else {
-                            coroutineScope.launch {
-                                scrollOffset.animateTo(
-                                    targetValue = i.toFloat(),
-                                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
-                                )
-                                onScoreChange(i / 10f)
-                            }
-                        }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = formatRating(itemScore),
-                    style = if (absOffset < 0.5f) {
-                        MaterialTheme.typography.headlineLarge
-                    } else {
-                        MaterialTheme.typography.titleLarge
-                    },
-                    fontWeight = if (absOffset < 0.5f) FontWeight.Bold else FontWeight.Medium,
-                    color = if (absOffset < 0.5f) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    }
-                )
-            }
-        }
-
-        val surfaceColor = MaterialTheme.colorScheme.surfaceContainerLow
-        val topGradient = remember(surfaceColor) {
-            Brush.verticalGradient(listOf(surfaceColor, Color.Transparent))
-        }
-        val bottomGradient = remember(surfaceColor) {
-            Brush.verticalGradient(listOf(Color.Transparent, surfaceColor))
-        }
-
-        // Top fade gradient
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .height(36.dp)
-                .background(topGradient)
-        )
-
-        // Bottom fade gradient
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(36.dp)
-                .background(bottomGradient)
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun EntryDialog(
-    listId: String,
-    listType: ListType,
-    currentSectionName: String = "Currently Watching",
-    entry: ListEntry? = null,
-    allTags: List<Tag> = emptyList(),
-    allEntries: List<ListEntry> = emptyList(),
-    titlePrefix: String? = null,
-    onDismiss: () -> Unit,
-    onConfirm: (
-        title: String,
-        rating: Float,
-        tagIds: List<String>,
-        linkedId: String?,
-        dueDate: Long?,
-        remindMe: Boolean,
-        isCurrentlyWatching: Boolean,
-        isPaused: Boolean,
-        currentProgress: Int?,
-        totalProgress: Int?,
-        progressUnit: String?
-    ) -> Unit,
-    onSaveTag: (Tag) -> Unit
-) {
-    var title by remember { 
-        mutableStateOf(
-            TextFieldValue(
-                text = entry?.title ?: "",
-                selection = TextRange(entry?.title?.length ?: 0)
-            )
-        ) 
-    }
-    var rating by remember { mutableFloatStateOf(entry?.rating ?: 0f) }
-    var selectedTagIds by remember { mutableStateOf(entry?.tagIds?.toSet() ?: emptySet()) }
-    var linkedEntryId by remember { mutableStateOf(entry?.linkedEntryId) }
-    var showAddTagDialog by remember { mutableStateOf(false) }
-    
-    var dueDate by remember { mutableStateOf(entry?.dueDate) }
-    var remindMe by remember { mutableStateOf(entry?.remindMe ?: false) }
-
-    var isCurrentlyWatching by remember { mutableStateOf(entry?.isCurrentlyWatching ?: false) }
-    var isPaused by remember { mutableStateOf(entry?.isPaused ?: false) }
-    var currentProgressText by remember { mutableStateOf(entry?.currentProgress?.toString() ?: "") }
-    var totalProgressText by remember { mutableStateOf(entry?.totalProgress?.toString() ?: "") }
-    var progressUnit by remember { mutableStateOf(entry?.progressUnit ?: "episodes") }
-
-    var showDatePicker by remember { mutableStateOf(false) }
-    var showTimePicker by remember { mutableStateOf(false) }
-
-    val context = LocalContext.current
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-        onResult = { isGranted ->
-            remindMe = isGranted
-        }
-    )
-
-    val focusRequester = remember { FocusRequester() }
-    val focusManager = LocalFocusManager.current
-    val keyboardController = LocalSoftwareKeyboardController.current
-    val scope = rememberCoroutineScope()
-
-    var showWheelPicker by remember { mutableStateOf(false) }
-    var isEditingRating by remember { mutableStateOf(false) }
-    var editingRatingValue by remember {
-        val initialDisplay = (rating * 10).roundToInt() / 10f
-        val initialStr = formatRating(initialDisplay)
-        mutableStateOf(
-            TextFieldValue(
-                text = initialStr,
-                selection = TextRange(0, initialStr.length)
-            )
-        )
-    }
-    val ratingFocusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(isEditingRating) {
-        if (isEditingRating) {
-            delay(50)
-            ratingFocusRequester.requestFocus()
-            keyboardController?.show()
-        }
-    }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            decorFitsSystemWindows = false
-        )
-    ) {
-        Scaffold(
-            topBar = {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = titlePrefix ?: if (entry == null) "Add Entry" else "Edit Entry",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onDismiss) {
-                            Icon(
-                                imageVector = Icons.Rounded.Close,
-                                contentDescription = "Close"
-                            )
-                        }
-                    },
-                    actions = {
-                        Button(
-                            onClick = {
-                                if (title.text.isNotBlank()) {
-                                    val finalRating = if (isEditingRating) {
-                                        editingRatingValue.text.toFloatOrNull()?.let {
-                                            ((it * 10).roundToInt() / 10f).coerceIn(0f, 10f)
-                                        } ?: ((rating * 10).roundToInt() / 10f)
-                                    } else {
-                                        ((rating * 10).roundToInt() / 10f)
-                                    }
-                                    onConfirm(
-                                        title.text,
-                                        finalRating,
-                                        selectedTagIds.toList(),
-                                        linkedEntryId,
-                                        dueDate,
-                                        remindMe,
-                                        isCurrentlyWatching && !isPaused,
-                                        isPaused,
-                                        currentProgressText.toIntOrNull(),
-                                        totalProgressText.toIntOrNull(),
-                                        progressUnit.takeIf { (isCurrentlyWatching || isPaused) && it.isNotBlank() }
-                                    )
-                                }
-                            },
-                            enabled = title.text.isNotBlank(),
-                            shape = CircleShape,
-                            modifier = Modifier.padding(end = 8.dp)
-                        ) {
-                            Text(
-                                text = if (entry == null) "Add" else "Save",
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
-                )
-            },
-            containerColor = MaterialTheme.colorScheme.surface
-        ) { innerPadding ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-                contentAlignment = Alignment.TopCenter
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .widthIn(max = 640.dp)
-                        .imePadding()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 20.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                OutlinedTextField(
-                    value = title,
-                    onValueChange = { title = it },
-                    label = { Text("Title") },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester),
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
-                )
-                LaunchedEffect(Unit) {
-                    focusRequester.requestFocus()
-                    keyboardController?.show()
-                }
-                
-                if (listType == ListType.UPCOMING) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Due Date", style = MaterialTheme.typography.labelLarge)
-                        
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Surface(
-                                onClick = { showDatePicker = true },
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text(
-                                    text = dueDate?.let { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date(it)) } ?: "Select Date",
-                                    modifier = Modifier.padding(12.dp),
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
-                            
-                            if (dueDate != null) {
-                                IconButton(onClick = { 
-                                    dueDate = null
-                                    remindMe = false
-                                }) {
-                                    Icon(Icons.Rounded.Clear, contentDescription = "Clear Date")
-                                }
-                            }
-                        }
-
-                        if (dueDate != null) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text("Notify me", style = MaterialTheme.typography.bodyMedium)
-                                Switch(
-                                    checked = remindMe,
-                                    onCheckedChange = { enabled ->
-                                        if (enabled) {
-                                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-                                                    remindMe = true
-                                                } else {
-                                                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                                    // Note: remindMe will be set in the launcher callback
-                                                }
-                                            } else {
-                                                remindMe = true
-                                            }
-                                        } else {
-                                            remindMe = false
-                                        }
-                                    }
-                                )
-                            }
-                            
-                            if (remindMe) {
-                                Surface(
-                                    onClick = { showTimePicker = true },
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.surfaceVariant,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        text = dueDate?.let { SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(it)) } ?: "Select Time",
-                                        modifier = Modifier.padding(12.dp),
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (listType == ListType.RATING) {
-                    // Currently Watching / Reading / Playing Tracker Card
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = if (isCurrentlyWatching || isPaused) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = currentSectionName,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Switch(
-                                    checked = isCurrentlyWatching || isPaused,
-                                    onCheckedChange = {
-                                        isCurrentlyWatching = it
-                                        isPaused = false
-                                    }
-                                )
-                            }
-
-                            if (isCurrentlyWatching || isPaused) {
-                                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    FilterChip(
-                                        selected = !isPaused,
-                                        onClick = { isCurrentlyWatching = true; isPaused = false },
-                                        label = { Text(currentSectionName) }
-                                    )
-                                    FilterChip(
-                                        selected = isPaused,
-                                        onClick = { isCurrentlyWatching = false; isPaused = true },
-                                        label = { Text("Paused") }
-                                    )
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    OutlinedTextField(
-                                        value = currentProgressText,
-                                        onValueChange = { if (it.all { c -> c.isDigit() }) currentProgressText = it },
-                                        label = { Text("Current") },
-                                        placeholder = { Text("0") },
-                                        singleLine = true,
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    OutlinedTextField(
-                                        value = totalProgressText,
-                                        onValueChange = { if (it.all { c -> c.isDigit() }) totalProgressText = it },
-                                        label = { Text("Total") },
-                                        placeholder = { Text("12") },
-                                        singleLine = true,
-                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
-
-                                Text("Unit", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                val unitPresets = listOf("episodes", "pages", "chapters", "hours", "parts")
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    unitPresets.forEach { preset ->
-                                        FilterChip(
-                                            selected = progressUnit.equals(preset, ignoreCase = true),
-                                            onClick = { progressUnit = preset },
-                                            label = { Text(preset) }
-                                        )
-                                    }
-                                }
-
-                                val cur = currentProgressText.toIntOrNull()
-                                val tot = totalProgressText.toIntOrNull()
-                                if (tot != null && tot > 0) {
-                                    val left = (tot - (cur ?: 0)).coerceAtLeast(0)
-                                    val statusPreview = if (left == 0) "Completed" else "$left $progressUnit left (${cur ?: 0}/$tot)"
-                                    Text(
-                                        text = statusPreview,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Rating",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-
-                            AnimatedVisibility(
-                                visible = showWheelPicker,
-                                enter = fadeIn(animationSpec = tween(150)) + scaleIn(initialScale = 0.85f, animationSpec = tween(150)),
-                                exit = fadeOut(animationSpec = tween(100)) + scaleOut(targetScale = 0.85f, animationSpec = tween(100))
-                            ) {
-                                Surface(
-                                    onClick = {
-                                        if (isEditingRating) {
-                                            val f = editingRatingValue.text.toFloatOrNull()
-                                            if (f != null) {
-                                                rating = ((f * 10).roundToInt() / 10f).coerceIn(0f, 10f)
-                                            }
-                                            isEditingRating = false
-                                            keyboardController?.hide()
-                                        }
-                                        showWheelPicker = false
-                                    },
-                                    shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    contentColor = MaterialTheme.colorScheme.onPrimary
-                                ) {
-                                    Text(
-                                        text = "Done",
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onPrimary,
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        AnimatedContent(
-                            targetState = showWheelPicker,
-                            transitionSpec = {
-                                fadeIn(animationSpec = tween(150, delayMillis = 40))
-                                    .togetherWith(fadeOut(animationSpec = tween(90)))
-                                    .using(
-                                        SizeTransform(clip = true) { _, _ ->
-                                            tween(200, easing = FastOutSlowInEasing)
-                                        }
-                                    )
-                            },
-                            label = "WheelPickerAnimation",
-                            modifier = Modifier.fillMaxWidth()
-                        ) { isWheelOpen ->
-                            if (!isWheelOpen) {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.Center,
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(12.dp))
-                                            .clickable {
-                                                keyboardController?.hide()
-                                                focusManager.clearFocus()
-                                                showWheelPicker = true
-                                            }
-                                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                                    ) {
-                                        Text(
-                                            text = formatRating(rating),
-                                            style = MaterialTheme.typography.displaySmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-
-                                        Spacer(modifier = Modifier.width(8.dp))
-
-                                        Text(
-                                            text = "/ 10",
-                                            style = MaterialTheme.typography.headlineMedium,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                        )
-                                    }
-
-                                    Text(
-                                        text = "Tap score to change",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                    )
-                                }
-                            } else {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-
-                                    if (isEditingRating) {
-                                        val commitRating: () -> Unit = {
-                                            val f = editingRatingValue.text.toFloatOrNull()
-                                            if (f != null) {
-                                                rating = ((f * 10).roundToInt() / 10f).coerceIn(0f, 10f)
-                                            }
-                                            isEditingRating = false
-                                            keyboardController?.hide()
-                                        }
-
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.Center,
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Surface(
-                                                modifier = Modifier
-                                                    .width(160.dp)
-                                                    .height(152.dp),
-                                                shape = RoundedCornerShape(20.dp),
-                                                color = MaterialTheme.colorScheme.surfaceContainerLow,
-                                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                                            ) {
-                                                Column(
-                                                    modifier = Modifier
-                                                        .fillMaxSize()
-                                                        .padding(12.dp),
-                                                    verticalArrangement = Arrangement.Center,
-                                                    horizontalAlignment = Alignment.CenterHorizontally
-                                                ) {
-                                                    OutlinedTextField(
-                                                        value = editingRatingValue,
-                                                        onValueChange = { newValue ->
-                                                            val sanitized = newValue.text.replace(',', '.')
-                                                            if (sanitized.isEmpty() || Regex("""^(10(\.0?)?|[0-9](\.[0-9]?)?|\.[0-9]?)$""").matches(sanitized)) {
-                                                                editingRatingValue = newValue.copy(text = sanitized)
-                                                                sanitized.toFloatOrNull()?.let { f ->
-                                                                    rating = ((f * 10).roundToInt() / 10f).coerceIn(0f, 10f)
-                                                                }
-                                                            }
-                                                        },
-                                                        singleLine = true,
-                                                        keyboardOptions = KeyboardOptions(
-                                                            keyboardType = KeyboardType.Decimal,
-                                                            imeAction = ImeAction.Done
-                                                        ),
-                                                        keyboardActions = KeyboardActions(
-                                                            onDone = { commitRating() }
-                                                        ),
-                                                        textStyle = MaterialTheme.typography.headlineMedium.copy(
-                                                            textAlign = TextAlign.Center,
-                                                            fontWeight = FontWeight.Bold,
-                                                            color = MaterialTheme.colorScheme.primary
-                                                        ),
-                                                        shape = RoundedCornerShape(16.dp),
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .focusRequester(ratingFocusRequester)
-                                                    )
-
-                                                    Spacer(modifier = Modifier.height(10.dp))
-
-                                                    Row(
-                                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                    ) {
-                                                        TextButton(
-                                                            onClick = {
-                                                                isEditingRating = false
-                                                                keyboardController?.hide()
-                                                            }
-                                                        ) {
-                                                            Text("Cancel", style = MaterialTheme.typography.labelMedium)
-                                                        }
-
-                                                        FilledTonalIconButton(
-                                                            onClick = commitRating,
-                                                            modifier = Modifier.size(36.dp)
-                                                        ) {
-                                                            Icon(
-                                                                imageVector = Icons.Rounded.Check,
-                                                                contentDescription = "Confirm rating",
-                                                                modifier = Modifier.size(20.dp)
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                            Spacer(modifier = Modifier.width(12.dp))
-
-                                            Text(
-                                                text = "/ 10",
-                                                style = MaterialTheme.typography.headlineMedium,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                            )
-                                        }
-                                    } else {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.Center,
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            ScoreWheelPicker(
-                                                score = rating,
-                                                onScoreChange = { rating = it },
-                                                onScoreClick = {
-                                                    val currentStr = formatRating(rating)
-                                                    editingRatingValue = TextFieldValue(
-                                                        text = currentStr,
-                                                        selection = TextRange(0, currentStr.length)
-                                                    )
-                                                    isEditingRating = true
-                                                },
-                                                modifier = Modifier.width(160.dp)
-                                            )
-
-                                            Spacer(modifier = Modifier.width(12.dp))
-
-                                            Text(
-                                                text = "/ 10",
-                                                style = MaterialTheme.typography.headlineMedium,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                            )
-                                        }
-
-                                        Text(
-                                            text = "Scroll up/down to adjust • Tap score to type",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Linked Entry Selection
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Part of", style = MaterialTheme.typography.labelLarge)
-                        val selectedLinkedEntry = allEntries.find { it.id == linkedEntryId }
-                        var showSelectionPopup by remember { mutableStateOf(false) }
-
-                        Surface(
-                            onClick = {
-                                focusManager.clearFocus()
-                                showSelectionPopup = true 
-                            },
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = selectedLinkedEntry?.title ?: "None",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = if (selectedLinkedEntry != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Icon(Icons.Rounded.KeyboardArrowDown, contentDescription = null)
-                            }
-                        }
-
-                        if (showSelectionPopup) {
-                            var linkedSearchQuery by remember { mutableStateOf("") }
-                            val filteredEntries = remember(linkedSearchQuery, allEntries, entry) {
-                                allEntries.filter { 
-                                    it.id != entry?.id && 
-                                    it.parentId == null && 
-                                    it.linkedEntryId == null &&
-                                    (linkedSearchQuery.isBlank() || it.title.contains(linkedSearchQuery, ignoreCase = true))
-                                }
-                            }
-                            val scrollState = rememberScrollState()
-                            val topAlpha by remember { derivedStateOf { (scrollState.value / 100f).coerceIn(0f, 1f) } }
-
-                            Dialog(
-                                onDismissRequest = { showSelectionPopup = false },
-                                properties = DialogProperties(usePlatformDefaultWidth = false)
-                            ) {
-                                var isVisible by remember { mutableStateOf(false) }
-                                LaunchedEffect(Unit) { isVisible = true }
-
-                                AnimatedVisibility(
-                                    visible = isVisible,
-                                    enter = fadeIn(animationSpec = tween(durationMillis = 400)),
-                                    exit = fadeOut(animationSpec = tween(durationMillis = 300))
-                                ) {
-                                    Surface(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 24.dp)
-                                            .heightIn(max = 600.dp),
-                                        shape = RoundedCornerShape(32.dp),
-                                        color = MaterialTheme.colorScheme.surfaceContainerLow,
-                                        tonalElevation = 6.dp
-                                    ) {
-                                        Box(modifier = Modifier.fillMaxWidth()) {
-                                            val headerHeight = 80.dp
-                                            
-                                            // 1. Scrollable List
-                                            Column(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .verticalScroll(scrollState)
-                                                    .padding(horizontal = 20.dp)
-                                            ) {
-                                                Spacer(modifier = Modifier.height(headerHeight + 8.dp))
-                                                
-                                                // "None" option
-                                                LinkedSelectionItem(
-                                                    title = "None",
-                                                    isSelected = linkedEntryId == null,
-                                                    index = 0,
-                                                    total = filteredEntries.size + 1,
-                                                    onClick = {
-                                                        linkedEntryId = null
-                                                        showSelectionPopup = false
-                                                    }
-                                                )
-                                                
-                                                filteredEntries.forEachIndexed { index, item ->
-                                                    LinkedSelectionItem(
-                                                        title = item.title,
-                                                        isSelected = linkedEntryId == item.id,
-                                                        index = index + 1,
-                                                        total = filteredEntries.size + 1,
-                                                        onClick = {
-                                                            linkedEntryId = item.id
-                                                            showSelectionPopup = false
-                                                        }
-                                                    )
-                                                }
-                                                
-                                                if (filteredEntries.isEmpty() && linkedSearchQuery.isNotBlank()) {
-                                                    Box(
-                                                        modifier = Modifier.fillMaxWidth().padding(32.dp),
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        Text("No entries found", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                    }
-                                                }
-                                                Spacer(modifier = Modifier.height(24.dp))
-                                            }
-
-                                            // 2. Fixed Header Background Gradient
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .height(headerHeight + 24.dp)
-                                                    .graphicsLayer(alpha = topAlpha)
-                                                    .background(
-                                                        brush = Brush.verticalGradient(
-                                                            colors = listOf(
-                                                                MaterialTheme.colorScheme.surfaceContainerLow,
-                                                                MaterialTheme.colorScheme.surfaceContainerLow,
-                                                                MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.8f),
-                                                                Color.Transparent
-                                                            )
-                                                        )
-                                                    )
-                                            )
-
-                                            // 3. Header Buttons (Close + Search)
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(horizontal = 20.dp)
-                                                    .height(56.dp)
-                                                    .align(Alignment.TopCenter)
-                                                    .offset(y = 20.dp),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                            ) {
-                                                Surface(
-                                                    onClick = { showSelectionPopup = false },
-                                                    shape = CircleShape,
-                                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                                    modifier = Modifier.size(56.dp)
-                                                ) {
-                                                    Box(contentAlignment = Alignment.Center) {
-                                                        Icon(Icons.Rounded.Clear, contentDescription = "Close", modifier = Modifier.size(24.dp))
-                                                    }
-                                                }
-                                                
-                                                OutlinedTextField(
-                                                    value = linkedSearchQuery,
-                                                    onValueChange = { linkedSearchQuery = it },
-                                                    placeholder = { Text("Search") },
-                                                    leadingIcon = { Icon(Icons.Rounded.Search, null, modifier = Modifier.size(20.dp)) },
-                                                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                                                    singleLine = true,
-                                                    shape = CircleShape,
-                                                    colors = OutlinedTextFieldDefaults.colors(
-                                                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                                        unfocusedBorderColor = Color.Transparent,
-                                                        focusedBorderColor = Color.Transparent
-                                                    )
-                                                )
-                                            }
-
-                                            // 4. Bottom Gradient Fade
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .height(32.dp)
-                                                    .align(Alignment.BottomCenter)
-                                                    .background(
-                                                        brush = Brush.verticalGradient(
-                                                            colors = listOf(Color.Transparent, MaterialTheme.colorScheme.surfaceContainerLow)
-                                                        )
-                                                    )
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Tag Selection
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Tags", style = MaterialTheme.typography.labelLarge)
-                        IconButton(onClick = { showAddTagDialog = true }) {
-                            Icon(Icons.Rounded.Add, contentDescription = "Add New Tag")
-                        }
-                    }
-                    
-                    FlowRow(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // Selected tags in their specific order
-                        selectedTagIds.forEach { tagId ->
-                            allTags.find { it.id == tagId }?.let { tag ->
-                                FilterChip(
-                                    selected = true,
-                                    onClick = { selectedTagIds = selectedTagIds - tagId },
-                                    label = { Text(tag.name) }
-                                )
-                            }
-                        }
-                        // Unselected tags in global order
-                        allTags.filter { it.id !in selectedTagIds }.forEach { tag ->
-                            FilterChip(
-                                selected = false,
-                                onClick = { selectedTagIds = selectedTagIds + tag.id },
-                                label = { Text(tag.name) }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-    if (showDatePicker) {
-        val datePickerState = rememberDatePickerState(
-            initialSelectedDateMillis = dueDate ?: System.currentTimeMillis()
-        )
-        DatePickerDialog(
-            onDismissRequest = { showDatePicker = false },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val selectedDate = datePickerState.selectedDateMillis
-                        if (selectedDate != null) {
-                            val calendar = Calendar.getInstance()
-                            dueDate?.let { calendar.timeInMillis = it }
-                            val timePartCal = Calendar.getInstance().apply { timeInMillis = selectedDate }
-                            calendar.set(Calendar.YEAR, timePartCal.get(Calendar.YEAR))
-                            calendar.set(Calendar.MONTH, timePartCal.get(Calendar.MONTH))
-                            calendar.set(Calendar.DAY_OF_MONTH, timePartCal.get(Calendar.DAY_OF_MONTH))
-                            dueDate = calendar.timeInMillis
-                        }
-                        showDatePicker = false
-                    }
-                ) { Text("OK") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
-            }
-        ) {
-            DatePicker(state = datePickerState)
-        }
-    }
-
-    if (showTimePicker) {
-        val calendar = Calendar.getInstance()
-        dueDate?.let { calendar.timeInMillis = it }
-        val timePickerState = rememberTimePickerState(
-            initialHour = calendar.get(Calendar.HOUR_OF_DAY),
-            initialMinute = calendar.get(Calendar.MINUTE),
-            is24Hour = true
-        )
-        
-        AlertDialog(
-            onDismissRequest = { showTimePicker = false },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        val newCal = Calendar.getInstance()
-                        dueDate?.let { newCal.timeInMillis = it }
-                        newCal.set(Calendar.HOUR_OF_DAY, timePickerState.hour)
-                        newCal.set(Calendar.MINUTE, timePickerState.minute)
-                        newCal.set(Calendar.SECOND, 0)
-                        dueDate = newCal.timeInMillis
-                        showTimePicker = false
-                    }
-                ) { Text("OK") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showTimePicker = false }) { Text("Cancel") }
-            },
-            text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    TimePicker(state = timePickerState)
-                }
-            }
-        )
-    }
-
-    if (showAddTagDialog) {
-        var newTagName by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = { showAddTagDialog = false },
-            title = { Text("New Tag") },
-            text = {
-                OutlinedTextField(
-                    value = newTagName,
-                    onValueChange = { newTagName = it },
-                    label = { Text("Tag Name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (newTagName.isNotBlank()) {
-                            val newTag = Tag(name = newTagName, listId = listId)
-                            onSaveTag(newTag)
-                            selectedTagIds = selectedTagIds + newTag.id
-                            showAddTagDialog = false
-                        }
-                    }
-                ) { Text("Create") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddTagDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
-}
-
-@Composable
 private fun RenameListDialog(
     list: NoteList,
     onDismiss: () -> Unit,
     onConfirm: (NoteList, String, String?) -> Unit
 ) {
-    var newTitle by remember { 
+    var newTitle by remember {
         mutableStateOf(
             TextFieldValue(
                 text = list.title,
@@ -4236,285 +3119,6 @@ private fun RenameListDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun TagFilterDropdown(
-    selectedTagIds: Set<String>,
-    allTags: List<Tag>,
-    filterMode: TagFilterMode,
-    onTagToggle: (String) -> Unit,
-    onModeToggle: (TagFilterMode) -> Unit,
-    onClearAll: () -> Unit,
-    onReorderTags: (List<String>) -> Unit = {},
-    onDeleteTag: (String) -> Unit = {}
-) {
-    var expanded by remember { mutableStateOf(false) }
-    var showManageTagsDialog by remember { mutableStateOf(false) }
-    val hazeState = LocalHazeState.current
-    val useBlur = LocalAdvancedUiEnabled.current && hazeState != null
-    LiveBlurSourceUpdates(hazeState, enabled = expanded && useBlur)
-    val menuShape = RoundedCornerShape(28.dp)
-    val menuColor = MaterialTheme.colorScheme.surfaceContainerHigh
-
-    Box {
-        IconButton(onClick = { expanded = true }) {
-            Icon(
-                imageVector = Icons.Rounded.FilterAlt,
-                contentDescription = "Filter by Tag",
-                tint = if (selectedTagIds.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-            )
-        }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier
-                .width(280.dp)
-                .advancedUiBlur(
-                    hazeState = hazeState,
-                    shape = menuShape,
-                    backgroundColor = MaterialTheme.colorScheme.background,
-                    enabled = useBlur
-                )
-                .background(
-                    advancedUiSurfaceColor(originalColor = menuColor, enabled = useBlur),
-                    menuShape
-                ),
-            shape = menuShape,
-            containerColor = Color.Transparent,
-            tonalElevation = 0.dp
-        ) {
-            SingleChoiceSegmentedButtonRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
-            ) {
-                listOf(TagFilterMode.OR to "OR", TagFilterMode.AND to "AND").forEachIndexed { index, (mode, label) ->
-                    SegmentedButton(
-                        selected = filterMode == mode,
-                        onClick = { onModeToggle(mode) },
-                        shape = SegmentedButtonDefaults.itemShape(index = index, count = 2),
-                        colors = SegmentedButtonDefaults.colors(
-                            activeContainerColor = MaterialTheme.colorScheme.primary,
-                            activeContentColor = MaterialTheme.colorScheme.onPrimary,
-                            activeBorderColor = MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Text(label)
-                    }
-                }
-            }
-            Spacer(Modifier.height(4.dp))
-
-            allTags.forEachIndexed { index, tag ->
-                val isSelected = tag.id in selectedTagIds
-                val itemShape = when {
-                    isSelected -> CircleShape
-                    allTags.size == 1 -> RoundedCornerShape(16.dp)
-                    index == 0 -> RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
-                    index == allTags.lastIndex -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 16.dp, bottomEnd = 16.dp)
-                    else -> RoundedCornerShape(4.dp)
-                }
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            text = tag.name,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal
-                        )
-                    },
-                    onClick = { onTagToggle(tag.id) },
-                    leadingIcon = {
-                        Checkbox(
-                            checked = isSelected,
-                            onCheckedChange = null,
-                            colors = CheckboxDefaults.colors(
-                                checkedColor = MaterialTheme.colorScheme.onPrimary,
-                                uncheckedColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                checkmarkColor = MaterialTheme.colorScheme.primary
-                            ),
-                            modifier = Modifier.size(24.dp)
-                        )
-                    },
-                    modifier = Modifier
-                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                        .fillMaxWidth()
-                        .clip(itemShape)
-                        .background(
-                            if (isSelected) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.55f),
-                            itemShape
-                        )
-                        .semantics {
-                            role = Role.Checkbox
-                            toggleableState = if (isSelected) ToggleableState.On else ToggleableState.Off
-                        },
-                    colors = MenuDefaults.itemColors(
-                        textColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-                    )
-                )
-            }
-
-            if (allTags.isEmpty()) {
-                Text(
-                    "No tags available",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    textAlign = TextAlign.Center
-                )
-            }
-
-            if (selectedTagIds.isNotEmpty()) {
-                DropdownMenuItem(
-                    text = { Text("Clear all filters") },
-                    onClick = onClearAll,
-                    leadingIcon = { Icon(Icons.Rounded.Clear, contentDescription = null) },
-                    colors = MenuDefaults.itemColors(
-                        textColor = MaterialTheme.colorScheme.error,
-                        leadingIconColor = MaterialTheme.colorScheme.error
-                    ),
-                    modifier = Modifier.padding(horizontal = 8.dp).clip(MaterialTheme.shapes.small)
-                )
-            }
-            if (allTags.isNotEmpty()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    Button(
-                        onClick = {
-                            expanded = false
-                            showManageTagsDialog = true
-                        },
-                        shape = CircleShape,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
-                        ),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Rounded.Sort,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text("Manage tags")
-                    }
-                }
-            }
-        }
-    }
-
-    if (showManageTagsDialog) {
-        ManageTagsDialog(
-            tags = allTags,
-            onDismiss = { showManageTagsDialog = false },
-            onReorder = onReorderTags,
-            onDelete = onDeleteTag
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun ManageTagsDialog(
-    tags: List<Tag>,
-    onDismiss: () -> Unit,
-    onReorder: (List<String>) -> Unit,
-    onDelete: (String) -> Unit
-) {
-    var currentTags by remember { mutableStateOf(tags) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Manage Tags") },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 400.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                currentTags.forEachIndexed { index, tag ->
-                    val isFirst = index == 0
-                    val isLast = index == currentTags.size - 1
-                    
-                    val shape = when {
-                        currentTags.size == 1 -> RoundedCornerShape(24.dp)
-                        isFirst -> RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 4.dp, bottomEnd = 4.dp)
-                        isLast -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 24.dp, bottomEnd = 24.dp)
-                        else -> RoundedCornerShape(4.dp)
-                    }
-
-                    Surface(
-                        shape = shape,
-                        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(tag.name, style = MaterialTheme.typography.titleMedium)
-                            }
-                            
-                            IconButton(
-                                onClick = {
-                                    if (index > 0) {
-                                        val newList = currentTags.toMutableList()
-                                        val temp = newList[index]
-                                        newList[index] = newList[index - 1]
-                                        newList[index - 1] = temp
-                                        currentTags = newList
-                                        onReorder(newList.map { it.id })
-                                    }
-                                },
-                                enabled = index > 0
-                            ) {
-                                Icon(Icons.Rounded.ExpandLess, contentDescription = "Move Up")
-                            }
-                            
-                            IconButton(
-                                onClick = {
-                                    if (index < currentTags.size - 1) {
-                                        val newList = currentTags.toMutableList()
-                                        val temp = newList[index]
-                                        newList[index] = newList[index + 1]
-                                        newList[index + 1] = temp
-                                        currentTags = newList
-                                        onReorder(newList.map { it.id })
-                                    }
-                                },
-                                enabled = index < currentTags.size - 1
-                            ) {
-                                Icon(Icons.Rounded.ExpandMore, contentDescription = "Move Down")
-                            }
-
-                            IconButton(
-                                onClick = {
-                                    onDelete(tag.id)
-                                    currentTags = currentTags.filter { it.id != tag.id }
-                                },
-                                colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                            ) {
-                                Icon(Icons.Rounded.Delete, contentDescription = "Delete Tag")
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Done") }
         }
     )
 }

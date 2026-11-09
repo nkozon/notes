@@ -4,6 +4,11 @@ import android.content.Context
 import android.util.Base64
 import androidx.room.withTransaction
 import java.util.UUID
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.withContext
@@ -24,6 +29,11 @@ class RoomNoteRepository(
     private val context: Context,
     private val database: NoteDatabase
 ) : NoteRepository {
+
+    private val storageMutex = Mutex()
+
+    private suspend fun <T> withStorageLock(action: suspend () -> T): T =
+        storageMutex.withLock { action() }
 
     private val json = Json { 
         ignoreUnknownKeys = true
@@ -78,10 +88,10 @@ class RoomNoteRepository(
     override suspend fun getNoteById(id: String): Note? = withContext(Dispatchers.IO) {
         val entity = database.noteDao().getNoteById(id) ?: return@withContext null
         val domain = entity.toDomain(includeDrawingData = true)
-        
+
         val content = readFile("${id}.content")
         val html = readFile("${id}.html")
-        
+
         val drawingData = try {
             context.openFileInput("${id}.drawing").use { stream ->
                 json.decodeFromStream<DrawingData>(stream)
@@ -92,7 +102,7 @@ class RoomNoteRepository(
                 try { json.decodeFromString<DrawingData>(it) } catch (e: Exception) { null }
             }
         }
-        
+
         domain.copy(
             content = content ?: domain.content,
             contentHtml = html ?: domain.contentHtml,
@@ -101,15 +111,15 @@ class RoomNoteRepository(
     }
 
     @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
-    override suspend fun saveNote(note: Note, regenerateThumbnail: Boolean) {
+    override suspend fun saveNote(note: Note, regenerateThumbnail: Boolean) = withStorageLock {
         withContext(Dispatchers.IO) {
             val content = note.content
             val html = note.contentHtml
             val drawingData = note.drawingData
-            
+
             saveFile("${note.id}.content", content)
             html?.let { saveFile("${note.id}.html", it) }
-            
+
             if (drawingData != null) {
                 try {
                     context.openFileOutput("${note.id}.drawing", Context.MODE_PRIVATE).use {
@@ -121,7 +131,7 @@ class RoomNoteRepository(
             } else {
                 deleteFile("${note.id}.drawing")
             }
-            
+
             val preview = if (note.type == NoteType.TEXT) {
                 content.take(300)
             } else null
@@ -142,7 +152,11 @@ class RoomNoteRepository(
         dropboxSyncEngine.enqueueNoteSync(note.id)
     }
 
-    private fun generateThumbnail(note: Note): String? {
+    private fun generateThumbnail(
+        note: Note,
+        outputDirectory: File = context.filesDir,
+        failOnError: Boolean = false
+    ): String? {
         val strokes = note.drawingData?.strokes ?: return null
         if (strokes.isEmpty()) return null
 
@@ -164,7 +178,7 @@ class RoomNoteRepository(
             try {
                 val canvas = android.graphics.Canvas(bitmap)
                 canvas.drawColor(android.graphics.Color.WHITE)
-                
+
                 val paint = android.graphics.Paint().apply {
                     isAntiAlias = true
                     strokeCap = android.graphics.Paint.Cap.ROUND
@@ -187,45 +201,48 @@ class RoomNoteRepository(
                     canvas.drawPath(path, paint)
                 }
 
-                val file = File(context.filesDir, "${note.id}.thumb")
+                val file = File(outputDirectory, "${note.id}.thumb")
                 file.outputStream().use { 
-                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 80, it)
+                    if (!bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 80, it)) {
+                        throw java.io.IOException("Could not write drawing thumbnail")
+                    }
                 }
                 return file.absolutePath
             } finally {
                 bitmap.recycle()
             }
         } catch (e: Exception) {
+            if (failOnError) throw e
             e.printStackTrace()
             return null
         }
     }
 
-    override suspend fun togglePinNote(noteId: String) {
+    override suspend fun togglePinNote(noteId: String) = withStorageLock {
         database.noteDao().togglePin(noteId)
         setHasPendingChanges(true)
         dropboxSyncEngine.enqueueNoteSync(noteId)
     }
 
-    override suspend fun toggleHideNoteContent(noteId: String) {
+    override suspend fun toggleHideNoteContent(noteId: String) = withStorageLock {
         database.noteDao().toggleHideContent(noteId)
         setHasPendingChanges(true)
         dropboxSyncEngine.enqueueNoteSync(noteId)
     }
 
-    override suspend fun deleteNote(noteId: String) {
+    override suspend fun deleteNote(noteId: String) = withStorageLock {
         withContext(Dispatchers.IO) {
             val note = database.noteDao().getNoteById(noteId)
             val drawingData = note?.drawingData?.let {
                 try { json.decodeFromString<DrawingData>(it) } catch (e: Exception) { null }
             }
-            
+
             database.noteDao().deleteNote(noteId)
             deleteFile("${noteId}.content")
             deleteFile("${noteId}.html")
             deleteFile("${noteId}.drawing")
             deleteFile("${noteId}.thumb")
-            
+
             drawingData?.pdfInfo?.localPath?.let { path ->
                 val file = File(path)
                 if (file.exists()) file.delete()
@@ -239,7 +256,7 @@ class RoomNoteRepository(
         dropboxSyncEngine.enqueueNoteDeletion(noteId)
     }
 
-    override suspend fun deleteNotes(noteIds: List<String>) {
+    override suspend fun deleteNotes(noteIds: List<String>) = withStorageLock {
         withContext(Dispatchers.IO) {
             val now = System.currentTimeMillis()
             database.noteDao().deleteNotes(noteIds)
@@ -291,20 +308,20 @@ class RoomNoteRepository(
         }
     }
 
-    override suspend fun saveList(list: NoteList) {
+    override suspend fun saveList(list: NoteList) = withStorageLock {
         database.listDao().upsertList(list.toEntity())
         database.deletedItemDao().deleteDeletedItem(list.id, "LIST")
         setHasPendingChanges(true)
         dropboxSyncEngine.enqueueListSync(list.id)
     }
 
-    override suspend fun togglePinList(listId: String) {
+    override suspend fun togglePinList(listId: String) = withStorageLock {
         database.listDao().togglePin(listId)
         setHasPendingChanges(true)
         dropboxSyncEngine.enqueueListSync(listId)
     }
 
-    override suspend fun deleteList(listId: String) {
+    override suspend fun deleteList(listId: String) = withStorageLock {
         withContext(Dispatchers.IO) {
             val now = System.currentTimeMillis()
             val entries = database.listDao().getEntriesForListSync(listId)
@@ -346,7 +363,7 @@ class RoomNoteRepository(
         }
     }
 
-    override suspend fun saveEntry(entry: ListEntry) {
+    override suspend fun saveEntry(entry: ListEntry) = withStorageLock {
         database.withTransaction {
             entry.description?.let { saveFile("${entry.id}.desc", it) }
             database.listDao().upsertEntry(entry.toEntity().copy(description = null))
@@ -360,8 +377,8 @@ class RoomNoteRepository(
         dropboxSyncEngine.enqueueListSync(entry.listId)
     }
 
-    override suspend fun saveEntries(entries: List<ListEntry>) {
-        if (entries.isEmpty()) return
+    override suspend fun saveEntries(entries: List<ListEntry>) = withStorageLock {
+        if (entries.isEmpty()) return@withStorageLock
         val entryIds = entries.map { it.id }
         database.withTransaction {
             entries.forEach { entry ->
@@ -384,7 +401,7 @@ class RoomNoteRepository(
         entries.map { it.listId }.distinct().forEach { dropboxSyncEngine.enqueueListSync(it) }
     }
 
-    override suspend fun deleteEntry(entryId: String) {
+    override suspend fun deleteEntry(entryId: String) = withStorageLock {
         val listId = database.listDao().getEntryById(entryId)?.listId
         withContext(Dispatchers.IO) {
             database.listDao().deleteEntry(entryId)
@@ -395,16 +412,17 @@ class RoomNoteRepository(
         }
         setHasPendingChanges(true)
         listId?.let { dropboxSyncEngine.enqueueListSync(it) }
+        Unit
     }
 
-    override suspend fun deleteCompletedEntries(listId: String) {
+    override suspend fun deleteCompletedEntries(listId: String) = withStorageLock {
         withContext(Dispatchers.IO) {
             val entries = database.listDao().getEntriesForListSync(listId)
             val completedIds = entries.filter { it.isChecked }.map { it.id }
             val now = System.currentTimeMillis()
-            
+
             database.listDao().deleteCompletedEntriesByList(listId)
-            
+
             completedIds.forEach { id ->
                 NotificationHelper.cancelNotification(context, id)
                 deleteFile("${id}.desc")
@@ -426,21 +444,21 @@ class RoomNoteRepository(
         }
     }
 
-    override suspend fun saveTag(tag: Tag) {
+    override suspend fun saveTag(tag: Tag) = withStorageLock {
         database.tagDao().upsertTag(tag.toEntity())
         database.deletedItemDao().deleteDeletedItem(tag.id, "TAG")
         setHasPendingChanges(true)
         dropboxSyncEngine.enqueueTagsSync()
     }
 
-    override suspend fun saveTags(tags: List<Tag>) {
+    override suspend fun saveTags(tags: List<Tag>) = withStorageLock {
         database.tagDao().upsertTags(tags.map { it.toEntity() })
         tags.forEach { database.deletedItemDao().deleteDeletedItem(it.id, "TAG") }
         setHasPendingChanges(true)
         dropboxSyncEngine.enqueueTagsSync()
     }
 
-    override suspend fun deleteTag(tagId: String) {
+    override suspend fun deleteTag(tagId: String) = withStorageLock {
         database.tagDao().deleteTag(tagId)
         database.deletedItemDao().upsertDeletedItem(
             DeletedItemEntity(tagId, "TAG", System.currentTimeMillis())
@@ -449,7 +467,7 @@ class RoomNoteRepository(
         dropboxSyncEngine.enqueueTagsSync()
     }
 
-    override suspend fun clearAllData() {
+    override suspend fun clearAllData() = withStorageLock {
         withContext(Dispatchers.IO) {
             database.clearAllTables()
             database.deletedItemDao().clearAll()
@@ -488,7 +506,7 @@ class RoomNoteRepository(
             val id = entity.id
             val content = readFile("${id}.content") ?: entity.content
             val html = readFile("${id}.html") ?: entity.contentHtml
-            
+
             var drawingData = try {
                 context.openFileInput("${id}.drawing").use { stream ->
                     json.decodeFromStream<DrawingData>(stream)
@@ -503,7 +521,7 @@ class RoomNoteRepository(
         }
         val lists = database.listDao().getAllListsList().map { it.toDomain() }
         val tags = database.tagDao().getAllTagsList().map { it.toDomain() }
-        
+
         val crossRefs = database.entryTagCrossRefDao().getAllCrossRefsList().groupBy { it.entryId }
         val entries = database.listDao().getAllEntriesList().map { entity ->
             val tagIds = crossRefs[entity.id]?.map { it.tagId } ?: emptyList()
@@ -511,13 +529,13 @@ class RoomNoteRepository(
             entity.toDomain(tagIds).copy(description = desc)
         }
         val deletions = database.deletedItemDao().getAllDeletedItems().map { it.toDomain() }
-        
+
         BackupData(notes, lists, entries, tags, deletions)
     }
 
     override suspend fun getNoteBackup(noteId: String): BackupData? = withContext(Dispatchers.IO) {
         val note = getNoteById(noteId) ?: return@withContext null
-        
+
         var drawingData = note.drawingData
         if (drawingData != null) {
             // Handle PDF base64 if it's a PDF drawing
@@ -528,7 +546,7 @@ class RoomNoteRepository(
                     info.copy(base64Data = Base64.encodeToString(bytes, Base64.DEFAULT))
                 } else info
             }
-            
+
             // Handle image base64 if there are images
             val updatedImages = drawingData.images.map { img ->
                 val file = File(img.path)
@@ -537,10 +555,10 @@ class RoomNoteRepository(
                     img.copy(base64Data = Base64.encodeToString(bytes, Base64.DEFAULT))
                 } else img
             }
-            
+
             drawingData = drawingData.copy(pdfInfo = updatedPdfInfo, images = updatedImages)
         }
-        
+
         val pdfRestoredNote = note.copy(drawingData = drawingData)
         BackupData(notes = listOf(pdfRestoredNote), lists = emptyList(), entries = emptyList(), tags = emptyList())
     }
@@ -548,421 +566,370 @@ class RoomNoteRepository(
     override suspend fun getListBackup(listId: String): BackupData? = withContext(Dispatchers.IO) {
         val listEntity = database.listDao().getListById(listId) ?: return@withContext null
         val list = listEntity.toDomain()
-        
+
         val allTags = database.tagDao().getAllTagsList().map { it.toDomain() }
         val crossRefs = database.entryTagCrossRefDao().getAllCrossRefsList().groupBy { it.entryId }
-        
+
         val entries = database.listDao().getEntriesForListSync(listId).map { entity ->
             val tagIds = crossRefs[entity.id]?.map { it.tagId } ?: emptyList()
             val desc = readFile("${entity.id}.desc") ?: entity.description
             entity.toDomain(tagIds).copy(description = desc)
         }
-        
+
         // Filter tags to only those used in this list or defined for this list
         val relevantTagIds = entries.flatMap { it.tagIds }.toSet()
         val relevantTags = allTags.filter { it.listId == listId || it.id in relevantTagIds }
-        
+
         BackupData(notes = emptyList(), lists = listOf(list), entries = entries, tags = relevantTags)
     }
 
-    override suspend fun restoreBackupData(data: BackupData) = withContext(Dispatchers.IO) {
-        // 1. Process and extract all files for notes outside transaction
-        val processedNotes = data.notes.map { note ->
-            saveFile("${note.id}.content", note.content)
-            note.contentHtml?.let { saveFile("${note.id}.html", it) }
-            
-            val restoredPdfInfo = note.drawingData?.pdfInfo?.let { info ->
-                if (info.base64Data != null) {
-                    try {
-                        val bytes = Base64.decode(info.base64Data, Base64.DEFAULT)
-                        val fileName = "note_pdf_${UUID.randomUUID()}.pdf"
-                        val file = File(context.filesDir, fileName)
-                        file.writeBytes(bytes)
-                        info.copy(localPath = file.absolutePath, base64Data = null)
-                    } catch (e: Exception) {
-                        info 
-                    }
-                } else {
-                    val fileName = info.localPath.removePrefix("media/").split("/").last().split("\\").last()
-                    val localFile = File(context.filesDir, fileName)
-                    if (localFile.exists()) {
-                        info.copy(localPath = localFile.absolutePath)
-                    } else info
+    private fun validateBackup(data: BackupData) {
+        fun validateIds(ids: List<String>) {
+            ids.forEach(::requireSafeBackupId)
+            require(ids.size == ids.toSet().size) { "Duplicate backup identifiers" }
+        }
+        validateIds(data.notes.map { it.id })
+        validateIds(data.lists.map { it.id })
+        validateIds(data.entries.map { it.id })
+        validateIds(data.tags.map { it.id })
+        data.deletedItems.forEach { requireSafeBackupId(it.id) }
+    }
+
+    private suspend fun prepareBackupNotes(data: BackupData, files: RestoreFiles): List<NoteEntity> {
+        fun stageMedia(path: String, base64: String?, prefix: String, extension: String): String {
+            val name = "${prefix}_${UUID.randomUUID()}.$extension"
+            files.replace(name) { target ->
+                if (base64 != null) target.writeBytes(Base64.decode(base64, Base64.DEFAULT))
+                else {
+                    // Only app-private files or the archive reader's staging directory may be read.
+                    val source = if (path.startsWith("media/")) {
+                        val filename = path.removePrefix("media/")
+                        requireSafeBackupId(filename)
+                        File(context.filesDir, filename)
+                    } else File(path)
+                    val canonical = source.canonicalFile
+                    val inFiles = canonical.parentFile == context.filesDir.canonicalFile
+                    val inStaging = canonical.parentFile?.let {
+                        it.parentFile == context.cacheDir.canonicalFile && it.name.startsWith("restore-media-")
+                    } == true
+                    require(inFiles || inStaging) { "Invalid backup media path" }
+                    require(canonical.isFile) { "Missing backup media: ${source.name}" }
+                    canonical.copyTo(target)
                 }
             }
-
-            val restoredImages = note.drawingData?.images?.map { img ->
-                if (img.base64Data != null) {
-                    try {
-                        val bytes = Base64.decode(img.base64Data, Base64.DEFAULT)
-                        val fileName = "img_${UUID.randomUUID()}.png"
-                        val file = File(context.filesDir, fileName)
-                        file.writeBytes(bytes)
-                        img.copy(path = file.absolutePath, base64Data = null)
-                    } catch (e: Exception) {
-                        img
+            return File(context.filesDir, name).absolutePath
+        }
+        val notes = data.notes.map { note ->
+            currentCoroutineContext().ensureActive()
+            files.replace("${note.id}.content") { it.writeText(note.content) }
+            if (note.contentHtml != null) files.replace("${note.id}.html") { it.writeText(note.contentHtml) }
+            else files.remove("${note.id}.html")
+            val drawing = note.drawingData?.let { original ->
+                original.copy(
+                    pdfInfo = original.pdfInfo?.let {
+                        it.copy(localPath = stageMedia(it.localPath, it.base64Data, "note_pdf", "pdf"), base64Data = null)
+                    },
+                    images = original.images.map {
+                        it.copy(path = stageMedia(it.path, it.base64Data, "img", "png"), base64Data = null)
                     }
-                } else {
-                    val fileName = img.path.removePrefix("media/").split("/").last().split("\\").last()
-                    val localFile = File(context.filesDir, fileName)
-                    if (localFile.exists()) {
-                        img.copy(path = localFile.absolutePath)
-                    } else img
-                }
-            } ?: emptyList()
-            
-            val drawingDataToSave = note.drawingData?.copy(
-                pdfInfo = restoredPdfInfo,
-                images = restoredImages
-            )
-            drawingDataToSave?.let { saveFile("${note.id}.drawing", json.encodeToString(it)) }
-            
-            val preview = if (note.type == NoteType.TEXT) note.content.take(300) else null
-            val previewImage = if (note.type == NoteType.DRAWING) generateThumbnail(note.copy(drawingData = drawingDataToSave)) else null
-            
-            note.toEntity(includeDrawingData = false).copy(
-                content = "",
-                contentHtml = null,
-                drawingData = null,
-                previewText = preview,
-                previewImage = previewImage
-            )
-        }
-
-        data.entries.forEach { entry ->
-            entry.description?.let { saveFile("${entry.id}.desc", it) }
-        }
-
-        // 2. Perform atomic database wipe + restore in a SINGLE transaction
-        database.withTransaction {
-            database.clearAllTables()
-
-            if (processedNotes.isNotEmpty()) {
-                database.noteDao().upsertNotes(processedNotes)
-            }
-
-            if (data.lists.isNotEmpty()) {
-                database.listDao().upsertLists(data.lists.map { it.toEntity() })
-            }
-
-            val validListIds = database.listDao().getAllListsList().map { it.id }.toSet()
-            val validTags = data.tags.filter { it.listId in validListIds }
-            if (validTags.isNotEmpty()) {
-                database.tagDao().upsertTags(validTags.map { it.toEntity() })
-            }
-
-            val validTagIds = database.tagDao().getAllTagsList().map { it.id }.toSet()
-            val entriesToRestore = data.entries.filter { it.listId in validListIds }
-            val validEntryIds = entriesToRestore.map { it.id }.toSet()
-            
-            val allEntryEntities = entriesToRestore.map { entry ->
-                entry.toEntity().copy(
-                    description = null,
-                    parentId = entry.parentId?.takeIf { p -> p in validEntryIds },
-                    linkedEntryId = entry.linkedEntryId?.takeIf { l -> l in validEntryIds }
                 )
             }
+            if (drawing != null) files.replace("${note.id}.drawing") { it.writeText(json.encodeToString(drawing)) }
+            else files.remove("${note.id}.drawing")
+            files.remove("${note.id}.thumb")
+            val thumbnail = if (note.type == NoteType.DRAWING) {
+                generateThumbnail(note.copy(drawingData = drawing), files.staged, failOnError = true)?.let {
+                    File(context.filesDir, "${note.id}.thumb").absolutePath
+                }
+            } else null
+            note.toEntity(includeDrawingData = false).copy(
+                content = "", contentHtml = null, drawingData = null,
+                previewText = if (note.type == NoteType.TEXT) note.content.take(300) else null,
+                previewImage = thumbnail
+            )
+        }
+        data.entries.forEach { entry ->
+            if (entry.description != null) files.replace("${entry.id}.desc") { it.writeText(entry.description) }
+            else files.remove("${entry.id}.desc")
+        }
+        return notes
+    }
 
-            if (allEntryEntities.isNotEmpty()) {
-                database.listDao().upsertEntries(allEntryEntities.map { it.copy(parentId = null, linkedEntryId = null) })
-                
-                val updates = allEntryEntities
-                    .filter { it.parentId != null || it.linkedEntryId != null }
-                    .map { Triple(it.id, it.parentId, it.linkedEntryId) }
-                
-                if (updates.isNotEmpty()) {
-                    database.listDao().updateEntriesRelationships(updates)
+    override suspend fun restoreBackupData(data: BackupData) = withContext(Dispatchers.IO) {
+        withStorageLock {
+            validateBackup(data)
+            RestoreFiles(context.filesDir).use { files ->
+                val processedNotes = prepareBackupNotes(data, files)
+
+                val restoredNoteIds = data.notes.map { it.id }.toSet()
+                val restoredEntryIds = data.entries.map { it.id }.toSet()
+                context.filesDir.listFiles()?.forEach { file ->
+                    val name = file.name
+                    val isObsolete = (name.endsWith(".content") && name.removeSuffix(".content") !in restoredNoteIds) ||
+                            (name.endsWith(".html") && name.removeSuffix(".html") !in restoredNoteIds) ||
+                            (name.endsWith(".drawing") && name.removeSuffix(".drawing") !in restoredNoteIds) ||
+                            (name.endsWith(".thumb") && name.removeSuffix(".thumb") !in restoredNoteIds) ||
+                            (name.endsWith(".desc") && name.removeSuffix(".desc") !in restoredEntryIds)
+                    if (isObsolete) {
+                        files.remove(file.name)
+                    }
                 }
 
-                val crossRefs = entriesToRestore.flatMap { entry ->
-                    entry.tagIds
-                        .filter { it in validTagIds }
-                        .map { EntryTagCrossRef(entry.id, it) }
-                }
-                if (crossRefs.isNotEmpty()) {
-                    database.entryTagCrossRefDao().insertAll(crossRefs)
-                }
-            }
+                currentCoroutineContext().ensureActive()
+                withContext(NonCancellable) {
+                    try {
+                        database.withTransaction {
+                            files.publish()
+                            database.clearAllTables()
 
-            database.deletedItemDao().clearAll()
-            if (data.deletedItems.isNotEmpty()) {
-                database.deletedItemDao().upsertDeletedItems(data.deletedItems.map { it.toEntity() })
-            }
+                            if (processedNotes.isNotEmpty()) {
+                                database.noteDao().upsertNotes(processedNotes)
+                            }
 
-            entriesToRestore.filter { it.remindMe }.forEach { entry ->
-                NotificationHelper.scheduleNotification(context, entry)
+                            if (data.lists.isNotEmpty()) {
+                                database.listDao().upsertLists(data.lists.map { it.toEntity() })
+                            }
+
+                            val validListIds = database.listDao().getAllListsList().map { it.id }.toSet()
+                            val validTags = data.tags.filter { it.listId in validListIds }
+                            if (validTags.isNotEmpty()) {
+                                database.tagDao().upsertTags(validTags.map { it.toEntity() })
+                            }
+
+                            val validTagIds = database.tagDao().getAllTagsList().map { it.id }.toSet()
+                            val entriesToRestore = data.entries.filter { it.listId in validListIds }
+                            val validEntryIds = entriesToRestore.map { it.id }.toSet()
+
+                            val allEntryEntities = entriesToRestore.map { entry ->
+                                entry.toEntity().copy(
+                                    description = null,
+                                    parentId = entry.parentId?.takeIf { p -> p in validEntryIds },
+                                    linkedEntryId = entry.linkedEntryId?.takeIf { l -> l in validEntryIds }
+                                )
+                            }
+
+                            if (allEntryEntities.isNotEmpty()) {
+                                database.listDao().upsertEntries(allEntryEntities.map { it.copy(parentId = null, linkedEntryId = null) })
+
+                                val updates = allEntryEntities
+                                    .filter { it.parentId != null || it.linkedEntryId != null }
+                                    .map { Triple(it.id, it.parentId, it.linkedEntryId) }
+
+                                if (updates.isNotEmpty()) {
+                                    database.listDao().updateEntriesRelationships(updates)
+                                }
+
+                                val crossRefs = entriesToRestore.flatMap { entry ->
+                                    entry.tagIds
+                                        .filter { it in validTagIds }
+                                        .map { EntryTagCrossRef(entry.id, it) }
+                                }
+                                if (crossRefs.isNotEmpty()) {
+                                    database.entryTagCrossRefDao().insertAll(crossRefs)
+                                }
+                            }
+
+                            database.deletedItemDao().clearAll()
+                            if (data.deletedItems.isNotEmpty()) {
+                                database.deletedItemDao().upsertDeletedItems(data.deletedItems.map { it.toEntity() })
+                            }
+
+                        }
+                    } catch (failure: Throwable) {
+                        files.rollback(failure)
+                        throw failure
+                    }
+
+                    setHasPendingChanges(false)
+                    val notificationListIds = database.listDao().getAllListsList().mapTo(hashSetOf()) { it.id }
+                    data.entries.filter { it.remindMe && it.listId in notificationListIds }.forEach {
+                        NotificationHelper.scheduleNotification(context, it)
+                    }
+
+                }
             }
         }
-
-        // 3. Clean up obsolete files that are no longer part of restored data
-        val restoredNoteIds = data.notes.map { it.id }.toSet()
-        val restoredEntryIds = data.entries.map { it.id }.toSet()
-        context.filesDir.listFiles()?.forEach { file ->
-            val name = file.name
-            val isObsolete = (name.endsWith(".content") && name.removeSuffix(".content") !in restoredNoteIds) ||
-                    (name.endsWith(".html") && name.removeSuffix(".html") !in restoredNoteIds) ||
-                    (name.endsWith(".drawing") && name.removeSuffix(".drawing") !in restoredNoteIds) ||
-                    (name.endsWith(".thumb") && name.removeSuffix(".thumb") !in restoredNoteIds) ||
-                    (name.endsWith(".desc") && name.removeSuffix(".desc") !in restoredEntryIds)
-            if (isObsolete) {
-                file.delete()
-            }
-        }
-        setHasPendingChanges(false)
     }
 
     override suspend fun importBackupData(data: BackupData) = withContext(Dispatchers.IO) {
-        // 1. Process files outside the transaction to keep it short and avoid deadlocks
-        val processedNotes = data.notes.map { note ->
-            saveFile("${note.id}.content", note.content)
-            note.contentHtml?.let { saveFile("${note.id}.html", it) }
-            
-            val restoredPdfInfo = note.drawingData?.pdfInfo?.let { info ->
-                if (info.base64Data != null) {
+        withStorageLock {
+            validateBackup(data)
+            RestoreFiles(context.filesDir).use { files ->
+                val processedNotes = prepareBackupNotes(data, files)
+
+                currentCoroutineContext().ensureActive()
+                withContext(NonCancellable) {
                     try {
-                        val bytes = Base64.decode(info.base64Data, Base64.DEFAULT)
-                        val fileName = "note_pdf_${UUID.randomUUID()}.pdf"
-                        val file = File(context.filesDir, fileName)
-                        file.writeBytes(bytes)
-                        info.copy(localPath = file.absolutePath, base64Data = null)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        info 
+                        database.withTransaction {
+                            files.publish()
+                            // A. Upsert Notes
+                            database.noteDao().upsertNotes(processedNotes)
+
+                            // B. Upsert Lists
+                            database.listDao().upsertLists(data.lists.map { it.toEntity() })
+
+                            // C. Upsert Tags (validating foreign keys)
+                            val validListIds = database.listDao().getAllListsList().map { it.id }.toSet()
+                            val validTags = data.tags.filter { it.listId in validListIds }
+                            if (validTags.isNotEmpty()) {
+                                database.tagDao().upsertTags(validTags.map { it.toEntity() })
+                            }
+
+                            // D. Restore Entries and CrossRefs
+                            val validTagIds = database.tagDao().getAllTagsList().map { it.id }.toSet()
+                            val entriesToRestore = data.entries.filter { it.listId in validListIds }
+                            val validEntryIds = entriesToRestore.map { it.id }.toSet()
+
+                            val allEntryEntities = entriesToRestore.map { entry ->
+                                entry.toEntity().copy(
+                                    description = null,
+                                    parentId = entry.parentId?.takeIf { p -> p in validEntryIds },
+                                    linkedEntryId = entry.linkedEntryId?.takeIf { l -> l in validEntryIds }
+                                )
+                            }
+
+                            // Pass 1: Insert all entries as top-level (parentId = null, linkedEntryId = null).
+                            database.listDao().upsertEntries(allEntryEntities.map { it.copy(parentId = null, linkedEntryId = null) })
+
+                            // Pass 2: Update the parentId and linkedEntryId links.
+                            val updates = allEntryEntities
+                                .filter { it.parentId != null || it.linkedEntryId != null }
+                                .map { Triple(it.id, it.parentId, it.linkedEntryId) }
+
+                            if (updates.isNotEmpty()) {
+                                database.listDao().updateEntriesRelationships(updates)
+                            }
+
+                            // Pass 3: Restore Tag CrossRefs
+                            val crossRefs = entriesToRestore.flatMap { entry ->
+                                entry.tagIds
+                                    .filter { it in validTagIds }
+                                    .map { EntryTagCrossRef(entry.id, it) }
+                            }
+                            if (crossRefs.isNotEmpty()) {
+                                database.entryTagCrossRefDao().insertAll(crossRefs)
+                            }
+
+                        }
+                    } catch (failure: Throwable) {
+                        files.rollback(failure)
+                        throw failure
                     }
-                } else {
-                    val fileName = info.localPath.removePrefix("media/").split("/").last().split("\\").last()
-                    val localFile = File(context.filesDir, fileName)
-                    if (localFile.exists()) {
-                        info.copy(localPath = localFile.absolutePath)
-                    } else info
+                    setHasPendingChanges(true)
+                    data.notes.forEach { dropboxSyncEngine.enqueueNoteSync(it.id) }
+                    data.lists.forEach { dropboxSyncEngine.enqueueListSync(it.id) }
+                    val notificationListIds = database.listDao().getAllListsList().mapTo(hashSetOf()) { it.id }
+                    data.entries.filter { it.remindMe && it.listId in notificationListIds }.forEach {
+                        NotificationHelper.scheduleNotification(context, it)
+                    }
+
                 }
             }
-
-            val restoredImages = note.drawingData?.images?.map { img ->
-                if (img.base64Data != null) {
-                    try {
-                        val bytes = Base64.decode(img.base64Data, Base64.DEFAULT)
-                        val fileName = "img_${UUID.randomUUID()}.png"
-                        val file = File(context.filesDir, fileName)
-                        file.writeBytes(bytes)
-                        img.copy(path = file.absolutePath, base64Data = null)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        img
-                    }
-                } else {
-                    val fileName = img.path.removePrefix("media/").split("/").last().split("\\").last()
-                    val localFile = File(context.filesDir, fileName)
-                    if (localFile.exists()) {
-                        img.copy(path = localFile.absolutePath)
-                    } else img
-                }
-            } ?: emptyList()
-            
-            val drawingDataToSave = note.drawingData?.copy(
-                pdfInfo = restoredPdfInfo,
-                images = restoredImages
-            )
-            drawingDataToSave?.let { saveFile("${note.id}.drawing", json.encodeToString(it)) }
-            
-            val preview = if (note.type == NoteType.TEXT) note.content.take(300) else null
-            val previewImage = if (note.type == NoteType.DRAWING) generateThumbnail(note.copy(drawingData = drawingDataToSave)) else null
-            
-            note.toEntity(includeDrawingData = false).copy(
-                content = "",
-                contentHtml = null,
-                drawingData = null,
-                previewText = preview,
-                previewImage = previewImage
-            )
         }
-
-        data.entries.forEach { entry ->
-            entry.description?.let { saveFile("${entry.id}.desc", it) }
-        }
-
-        // 2. Perform database operations in a transaction with CORRECT ORDER for Foreign Keys
-        database.withTransaction {
-            // A. Upsert Notes
-            database.noteDao().upsertNotes(processedNotes)
-
-            // B. Upsert Lists
-            database.listDao().upsertLists(data.lists.map { it.toEntity() })
-
-            // C. Upsert Tags (validating foreign keys)
-            val validListIds = database.listDao().getAllListsList().map { it.id }.toSet()
-            val validTags = data.tags.filter { it.listId in validListIds }
-            if (validTags.isNotEmpty()) {
-                database.tagDao().upsertTags(validTags.map { it.toEntity() })
-            }
-
-            // D. Restore Entries and CrossRefs
-            val validTagIds = database.tagDao().getAllTagsList().map { it.id }.toSet()
-            val entriesToRestore = data.entries.filter { it.listId in validListIds }
-            val validEntryIds = entriesToRestore.map { it.id }.toSet()
-            
-            val allEntryEntities = entriesToRestore.map { entry ->
-                entry.toEntity().copy(
-                    description = null,
-                    parentId = entry.parentId?.takeIf { p -> p in validEntryIds },
-                    linkedEntryId = entry.linkedEntryId?.takeIf { l -> l in validEntryIds }
-                )
-            }
-
-            // Pass 1: Insert all entries as top-level (parentId = null, linkedEntryId = null). 
-            database.listDao().upsertEntries(allEntryEntities.map { it.copy(parentId = null, linkedEntryId = null) })
-            
-            // Pass 2: Update the parentId and linkedEntryId links.
-            val updates = allEntryEntities
-                .filter { it.parentId != null || it.linkedEntryId != null }
-                .map { Triple(it.id, it.parentId, it.linkedEntryId) }
-            
-            if (updates.isNotEmpty()) {
-                database.listDao().updateEntriesRelationships(updates)
-            }
-
-            // Pass 3: Restore Tag CrossRefs
-            val crossRefs = entriesToRestore.flatMap { entry ->
-                entry.tagIds
-                    .filter { it in validTagIds }
-                    .map { EntryTagCrossRef(entry.id, it) }
-            }
-            if (crossRefs.isNotEmpty()) {
-                database.entryTagCrossRefDao().insertAll(crossRefs)
-            }
-
-            // Pass 4: Schedule Notifications for restored entries
-            entriesToRestore.filter { it.remindMe }.forEach { entry ->
-                NotificationHelper.scheduleNotification(context, entry)
-            }
-        }
-        setHasPendingChanges(true)
     }
 
     override suspend fun applyMergedBackupData(data: BackupData) = withContext(Dispatchers.IO) {
-        val mergedNoteIds = data.notes.map { it.id }.toSet()
-        val mergedListIds = data.lists.map { it.id }.toSet()
-        val mergedEntryIds = data.entries.map { it.id }.toSet()
-        val mergedTagIds = data.tags.map { it.id }.toSet()
+        withStorageLock {
+            val mergedNoteIds = data.notes.map { it.id }.toSet()
+            val mergedListIds = data.lists.map { it.id }.toSet()
+            val mergedEntryIds = data.entries.map { it.id }.toSet()
+            val mergedTagIds = data.tags.map { it.id }.toSet()
+            validateBackup(data)
+            RestoreFiles(context.filesDir).use { files ->
+                val processedNotes = prepareBackupNotes(data, files)
 
-        // 1. Process files for notes outside transaction
-        val processedNotes = data.notes.map { note ->
-            saveFile("${note.id}.content", note.content)
-            note.contentHtml?.let { saveFile("${note.id}.html", it) }
+                val existingNotes = database.noteDao().getAllNotesList()
+                existingNotes.filter { it.id !in mergedNoteIds }.forEach { note ->
+                    files.remove("${note.id}.content")
+                    files.remove("${note.id}.html")
+                    files.remove("${note.id}.drawing")
+                    files.remove("${note.id}.thumb")
+                }
 
-            val restoredPdfInfo = note.drawingData?.pdfInfo?.let { info ->
-                val fileName = info.localPath.removePrefix("media/").split("/").last().split("\\").last()
-                val localFile = File(context.filesDir, fileName)
-                if (localFile.exists()) info.copy(localPath = localFile.absolutePath) else info
-            }
+                val existingEntries = database.listDao().getAllEntriesList()
+                existingEntries.filter { it.id !in mergedEntryIds }.forEach { entry ->
+                    files.remove("${entry.id}.desc")
+                }
 
-            val restoredImages = note.drawingData?.images?.map { img ->
-                val fileName = img.path.removePrefix("media/").split("/").last().split("\\").last()
-                val localFile = File(context.filesDir, fileName)
-                if (localFile.exists()) img.copy(path = localFile.absolutePath) else img
-            } ?: emptyList()
+                currentCoroutineContext().ensureActive()
+                withContext(NonCancellable) {
+                    try {
+                        database.withTransaction {
+                            files.publish()
+                            // Upsert notes
+                            database.noteDao().upsertNotes(processedNotes)
+                            val noteIdsToDelete = existingNotes.map { it.id }.filter { it !in mergedNoteIds }
+                            if (noteIdsToDelete.isNotEmpty()) {
+                                database.noteDao().deleteNotes(noteIdsToDelete)
+                            }
 
-            val drawingDataToSave = note.drawingData?.copy(
-                pdfInfo = restoredPdfInfo,
-                images = restoredImages
-            )
-            drawingDataToSave?.let { saveFile("${note.id}.drawing", json.encodeToString(it)) }
+                            // Update lists
+                            val existingLists = database.listDao().getAllListsList()
+                            val listIdsToDelete = existingLists.map { it.id }.filter { it !in mergedListIds }
+                            listIdsToDelete.forEach { database.listDao().deleteList(it) }
+                            database.listDao().upsertLists(data.lists.map { it.toEntity() })
 
-            val preview = if (note.type == NoteType.TEXT) note.content.take(300) else null
-            val previewImage = if (note.type == NoteType.DRAWING) generateThumbnail(note.copy(drawingData = drawingDataToSave)) else null
+                            // Update tags
+                            val existingTags = database.tagDao().getAllTagsList()
+                            val tagIdsToDelete = existingTags.map { it.id }.filter { it !in mergedTagIds }
+                            tagIdsToDelete.forEach { database.tagDao().deleteTag(it) }
+                            database.tagDao().upsertTags(data.tags.map { it.toEntity() })
 
-            note.toEntity(includeDrawingData = false).copy(
-                content = "",
-                contentHtml = null,
-                drawingData = null,
-                previewText = preview,
-                previewImage = previewImage
-            )
-        }
+                            // Update entries
+                            val entryIdsToDelete = existingEntries.map { it.id }.filter { it !in mergedEntryIds }
+                            entryIdsToDelete.forEach { database.listDao().deleteEntry(it) }
 
-        // 2. Process descriptions for entries
-        data.entries.forEach { entry ->
-            entry.description?.let { saveFile("${entry.id}.desc", it) }
-        }
+                            val validEntries = data.entries.filter { it.listId in mergedListIds }
+                            val validEntryIds = validEntries.map { it.id }.toSet()
 
-        // 3. Clean up deleted note and entry files
-        val existingNotes = database.noteDao().getAllNotesList()
-        existingNotes.filter { it.id !in mergedNoteIds }.forEach { note ->
-            deleteFile("${note.id}.content")
-            deleteFile("${note.id}.html")
-            deleteFile("${note.id}.drawing")
-            deleteFile("${note.id}.thumb")
-        }
+                            val allEntryEntities = validEntries.map { entry ->
+                                entry.toEntity().copy(
+                                    description = null,
+                                    parentId = entry.parentId?.takeIf { p -> p in validEntryIds },
+                                    linkedEntryId = entry.linkedEntryId?.takeIf { l -> l in validEntryIds }
+                                )
+                            }
 
-        val existingEntries = database.listDao().getAllEntriesList()
-        existingEntries.filter { it.id !in mergedEntryIds }.forEach { entry ->
-            deleteFile("${entry.id}.desc")
-            NotificationHelper.cancelNotification(context, entry.id)
-        }
+                            database.listDao().upsertEntries(allEntryEntities.map { it.copy(parentId = null, linkedEntryId = null) })
 
-        // 4. Update Database in ordered transaction
-        database.withTransaction {
-            // Upsert notes
-            database.noteDao().upsertNotes(processedNotes)
-            val noteIdsToDelete = existingNotes.map { it.id }.filter { it !in mergedNoteIds }
-            if (noteIdsToDelete.isNotEmpty()) {
-                database.noteDao().deleteNotes(noteIdsToDelete)
-            }
+                            val updates = allEntryEntities
+                                .filter { it.parentId != null || it.linkedEntryId != null }
+                                .map { Triple(it.id, it.parentId, it.linkedEntryId) }
+                            if (updates.isNotEmpty()) {
+                                database.listDao().updateEntriesRelationships(updates)
+                            }
 
-            // Update lists
-            val existingLists = database.listDao().getAllListsList()
-            val listIdsToDelete = existingLists.map { it.id }.filter { it !in mergedListIds }
-            listIdsToDelete.forEach { database.listDao().deleteList(it) }
-            database.listDao().upsertLists(data.lists.map { it.toEntity() })
+                            // Update CrossRefs
+                            val validTagIds = data.tags.map { it.id }.toSet()
+                            val crossRefs = validEntries.flatMap { entry ->
+                                entry.tagIds.filter { it in validTagIds }.map { EntryTagCrossRef(entry.id, it) }
+                            }
+                            if (crossRefs.isNotEmpty()) {
+                                database.entryTagCrossRefDao().insertAll(crossRefs)
+                            }
 
-            // Update tags
-            val existingTags = database.tagDao().getAllTagsList()
-            val tagIdsToDelete = existingTags.map { it.id }.filter { it !in mergedTagIds }
-            tagIdsToDelete.forEach { database.tagDao().deleteTag(it) }
-            database.tagDao().upsertTags(data.tags.map { it.toEntity() })
+                            // Update Deleted Items
+                            database.deletedItemDao().clearAll()
+                            if (data.deletedItems.isNotEmpty()) {
+                                database.deletedItemDao().upsertDeletedItems(data.deletedItems.map { it.toEntity() })
+                            }
 
-            // Update entries
-            val entryIdsToDelete = existingEntries.map { it.id }.filter { it !in mergedEntryIds }
-            entryIdsToDelete.forEach { database.listDao().deleteEntry(it) }
+                            // Reschedule notifications
 
-            val validEntries = data.entries.filter { it.listId in mergedListIds }
-            val validEntryIds = validEntries.map { it.id }.toSet()
+                        }
+                    } catch (failure: Throwable) {
+                        files.rollback(failure)
+                        throw failure
+                    }
+                    existingEntries.filter { it.id !in mergedEntryIds }.forEach {
+                        NotificationHelper.cancelNotification(context, it.id)
+                    }
+                    val notificationListIds = database.listDao().getAllListsList().mapTo(hashSetOf()) { it.id }
+                    data.entries.filter { it.remindMe && it.listId in notificationListIds }.forEach {
+                        NotificationHelper.scheduleNotification(context, it)
+                    }
 
-            val allEntryEntities = validEntries.map { entry ->
-                entry.toEntity().copy(
-                    description = null,
-                    parentId = entry.parentId?.takeIf { p -> p in validEntryIds },
-                    linkedEntryId = entry.linkedEntryId?.takeIf { l -> l in validEntryIds }
-                )
-            }
-
-            database.listDao().upsertEntries(allEntryEntities.map { it.copy(parentId = null, linkedEntryId = null) })
-
-            val updates = allEntryEntities
-                .filter { it.parentId != null || it.linkedEntryId != null }
-                .map { Triple(it.id, it.parentId, it.linkedEntryId) }
-            if (updates.isNotEmpty()) {
-                database.listDao().updateEntriesRelationships(updates)
-            }
-
-            // Update CrossRefs
-            val validTagIds = data.tags.map { it.id }.toSet()
-            val crossRefs = validEntries.flatMap { entry ->
-                entry.tagIds.filter { it in validTagIds }.map { EntryTagCrossRef(entry.id, it) }
-            }
-            if (crossRefs.isNotEmpty()) {
-                database.entryTagCrossRefDao().insertAll(crossRefs)
-            }
-
-            // Update Deleted Items
-            database.deletedItemDao().clearAll()
-            if (data.deletedItems.isNotEmpty()) {
-                database.deletedItemDao().upsertDeletedItems(data.deletedItems.map { it.toEntity() })
-            }
-
-            // Reschedule notifications
-            validEntries.filter { it.remindMe }.forEach { entry ->
-                NotificationHelper.scheduleNotification(context, entry)
+                }
             }
         }
     }

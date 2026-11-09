@@ -133,10 +133,121 @@ class ProgressSectionSurfaceTest {
                     for (tag in listOf("header", "row_0")) {
                         val bounds = compose.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot
                         val gapY = (bounds.bottom - rootBounds.top + 2 * density).toInt()
-                        assertEquals("Gap below $tag while opening=$opening", color, pixels[x, gapY])
+                        val sampleY = (bounds.top - rootBounds.top + 2 * density).toInt()
+                        val expected = if (tag == "header") color else pixels[x, sampleY]
+                        assertEquals("Gap below $tag while opening=$opening", expected, pixels[x, gapY])
                     }
                     compose.mainClock.advanceTimeBy(400)
                 }
+            }
+        } finally {
+            compose.mainClock.autoAdvance = true
+        }
+    }
+
+    @Test
+    fun nearlyCollapsedRowsDoNotLeaveAnOpaqueBackgroundStrip() {
+        compose.setContent {
+            MaterialTheme(colorScheme = darkColorScheme(primaryContainer = Color.Blue)) {
+                LazyColumn(
+                    modifier = Modifier.size(240.dp, 80.dp).background(Color.Black).testTag("section")
+                ) {
+                    item {
+                        ProgressSectionSurface(isHeader = true, connectToNext = false, includeItemSpacing = true) {
+                            Box(Modifier.height(56.dp))
+                        }
+                    }
+                    item {
+                        ProgressSectionSurface(
+                            isHeader = false,
+                            connectToNext = true,
+                            revealFraction = 0.01f,
+                            includeItemSpacing = true
+                        ) {
+                            Box(Modifier.height(200.dp))
+                        }
+                    }
+                }
+            }
+        }
+        val pixels = compose.onNodeWithTag("section").captureToImage().toPixelMap()
+        val density = pixels.width / 240f
+        // Header (56 dp), section spacing (4 dp), then the final two pixels of a shrinking row.
+        val tail = pixels[pixels.width / 2, (61 * density).toInt()]
+        assertTrue("Collapsed rows left a visible strip: $tail", tail.blue < 0.02f)
+    }
+
+    @Test
+    fun sectionSpacingAndFollowingCardCollapseWithoutAnEndJump() {
+        val expanded = androidx.compose.runtime.mutableStateOf(true)
+        compose.setContent {
+            MaterialTheme(colorScheme = darkColorScheme(primaryContainer = Color.Blue)) {
+                val reveal = progressSectionReveal(expanded.value)
+                LazyColumn(
+                    modifier = Modifier.size(240.dp, 360.dp).background(Color.Black).testTag("section")
+                ) {
+                    item(key = "header") {
+                        ProgressSectionSurface(
+                            isHeader = true,
+                            connectToNext = reveal > 0f,
+                            sectionRevealFraction = reveal,
+                            includeItemSpacing = true,
+                            modifier = Modifier.testTag("header")
+                        ) {
+                            Box(Modifier.height(60.dp))
+                        }
+                    }
+                    if (reveal > 0f) {
+                        items(3, key = { "row_$it" }) { index ->
+                            ProgressSectionSurface(
+                                isHeader = false,
+                                connectToNext = index < 2,
+                                revealFraction = reveal,
+                                includeItemSpacing = true,
+                                modifier = Modifier.testTag("row_$index")
+                            ) {
+                                Box(Modifier.height(100.dp))
+                            }
+                        }
+                    }
+                    item(key = "following") {
+                        Box(Modifier
+                            .then(entryPlacementAnimation(reveal > 0f && reveal < 1f))
+                            .size(240.dp, 40.dp).testTag("following"))
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.mainClock.autoAdvance = false
+        try {
+            repeat(2) {
+                compose.runOnIdle { expanded.value = false }
+                compose.mainClock.advanceTimeByFrame()
+                compose.mainClock.advanceTimeBy(96)
+                val header = compose.onNodeWithTag("header").fetchSemanticsNode().boundsInRoot
+                val rows = (0..2).map {
+                    compose.onNodeWithTag("row_$it").fetchSemanticsNode().boundsInRoot
+                }
+                val following = compose.onNodeWithTag("following").fetchSemanticsNode().boundsInRoot
+                assertEquals(header.bottom, rows.first().top, 1f)
+                assertEquals(rows.last().bottom, following.top, 1f)
+
+                // The following card starts offscreen when expanded. Check each frame as
+                // it returns, including when placement interpolation is enabled again.
+                var previousTop = following.top
+                repeat(16) {
+                    compose.mainClock.advanceTimeByFrame()
+                    val top = compose.onNodeWithTag("following").fetchSemanticsNode().boundsInRoot.top
+                    assertTrue("Following card jumped down during collapse: $previousTop -> $top",
+                        top <= previousTop + 1f)
+                    previousTop = top
+                }
+                val collapsed = previousTop
+                val collapsedHeader = compose.onNodeWithTag("header").fetchSemanticsNode().boundsInRoot
+                assertEquals(collapsedHeader.bottom, collapsed, 1f)
+                compose.runOnIdle { expanded.value = true }
+                compose.mainClock.advanceTimeBy(400)
             }
         } finally {
             compose.mainClock.autoAdvance = true

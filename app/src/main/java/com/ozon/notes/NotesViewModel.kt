@@ -5,6 +5,9 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.ozon.notes.domain.GetFilteredListsUseCase
 import com.ozon.notes.domain.GetFilteredNotesUseCase
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -158,20 +161,17 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
         
         viewModelScope.launch { 
             _importProgress.value = "Creating note..."
-            repository.saveNote(newNote)
             
             if (initialConfig.canvasType == CanvasType.PDF && pdfUri != null && context != null) {
+                val importedFile = File(context.filesDir, "note_pdf_${UUID.randomUUID()}.pdf")
                 try {
                     _importProgress.value = "Copying PDF..."
                     val localPath = withContext(Dispatchers.IO) {
-                        val inputStream = context.contentResolver.openInputStream(pdfUri) 
-                            ?: throw Exception("Could not open PDF file")
-                        val fileName = "note_pdf_${UUID.randomUUID()}.pdf"
-                        val file = File(context.filesDir, fileName)
-                        file.outputStream().use { outputStream ->
-                            inputStream.copyTo(outputStream)
+                        copyImportedFile(importedFile) {
+                            context.contentResolver.openInputStream(pdfUri)
                         }
-                        file.absolutePath
+                        coroutineContext.ensureActive()
+                        importedFile.absolutePath
                     }
                     
                     _importProgress.value = "Analyzing pages..."
@@ -211,18 +211,34 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
                     val updatedNote = newNote.copy(
                         drawingData = initialConfig.copy(pdfInfo = pdfInfo, backgroundPdfPath = null, pageCount = pdfInfo.pageCount)
                     )
-                    repository.saveNote(updatedNote)
+                    // Import owns a staged copy only after its database transaction commits.
+                    repository.importBackupData(BackupData(
+                        notes = listOf(updatedNote), lists = emptyList(), entries = emptyList()
+                    ))
                     _importProgress.value = null
                     onImportComplete(id)
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     e.printStackTrace()
                     _importProgress.value = null
                     withContext(Dispatchers.Main) {
                         android.widget.Toast.makeText(context, "PDF Import Failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
                     }
+                } finally {
+                    _importProgress.value = null
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        if (importedFile.exists() && !importedFile.delete()) {
+                            android.util.Log.e("NotesViewModel", "Could not remove PDF import staging file")
+                        }
+                    }
                 }
             } else {
-                _importProgress.value = null
+                try {
+                    repository.saveNote(newNote)
+                } finally {
+                    _importProgress.value = null
+                }
                 onImportComplete(id)
             }
         }

@@ -515,34 +515,6 @@ fun NoteListScreen(
                     .padding(bottom = 6.dp)
                     .zIndex(3f)
             ) {
-                if (!isSearchActive && menuProgress.value > 0.001f) {
-                    Column(
-                        horizontalAlignment = Alignment.End,
-                        modifier = Modifier
-                            .width(200.dp)
-                            .padding(bottom = 8.dp)
-                            .layout { measurable, constraints ->
-                                val placeable = measurable.measure(constraints)
-                                val animatedHeight = (placeable.height * menuProgress.value).roundToInt()
-                                layout(placeable.width, animatedHeight) {
-                                    placeable.placeRelative(0, animatedHeight - placeable.height)
-                                }
-                            }
-                            .graphicsLayer {
-                                scaleY = menuProgress.value
-                                transformOrigin = TransformOrigin(1f, 1f)
-                            },
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        createOptions.forEach { option ->
-                            CreateOptionItem(
-                                option = option,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    }
-                }
-
                 BoxWithConstraints(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -575,184 +547,219 @@ fun NoteListScreen(
                     )
                     val searchShape = RoundedCornerShape(searchCornerRadius)
 
-                    Row(
+                    // Keep the creation options aligned with the button in the centered row.
+                    Column(
                         modifier = Modifier.width(rowWidth),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Start
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Surface(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(56.dp)
-                                .advancedUiBlur(
-                                    hazeState = hazeState,
-                                    shape = searchShape,
-                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                        if (!isSearchActive && menuProgress.value > 0.001f) {
+                            Column(
+                                horizontalAlignment = Alignment.End,
+                                modifier = Modifier
+                                    .width(200.dp)
+                                    .padding(bottom = 8.dp)
+                                    .layout { measurable, constraints ->
+                                        val placeable = measurable.measure(constraints)
+                                        val animatedHeight = (placeable.height * menuProgress.value).roundToInt()
+                                        layout(placeable.width, animatedHeight) {
+                                            placeable.placeRelative(0, animatedHeight - placeable.height)
+                                        }
+                                    }
+                                    .graphicsLayer {
+                                        scaleY = menuProgress.value
+                                        transformOrigin = TransformOrigin(1f, 1f)
+                                    },
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                createOptions.forEach { option ->
+                                    CreateOptionItem(
+                                        option = option,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.width(rowWidth),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Start
+                        ) {
+                            Surface(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(56.dp)
+                                    .advancedUiBlur(
+                                        hazeState = hazeState,
+                                        shape = searchShape,
+                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                        enabled = advancedUi
+                                    ),
+                                shape = searchShape,
+                                color = advancedUiSurfaceColor(
+                                    originalColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    tint = MaterialTheme.colorScheme.primary,
                                     enabled = advancedUi
                                 ),
-                            shape = searchShape,
-                            color = advancedUiSurfaceColor(
-                                originalColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                tint = MaterialTheme.colorScheme.primary,
-                                enabled = advancedUi
-                            ),
-                            tonalElevation = if (advancedUi) 0.dp else 3.dp,
-                            shadowElevation = if (advancedUi) 0.dp else 3.dp
-                        ) {
-                            if (isSearchActive) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(horizontal = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    CircleIconButton(
-                                        onClick = { 
-                                            isSearchActive = false
-                                            notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
-                                            focusManager.clearFocus()
-                                            keyboardController?.hide()
-                                        },
-                                        icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                                        contentDescription = "Close Search",
-                                        containerColor = Color.Transparent
-                                    )
-                                    TextField(
-                                        value = searchQuery,
-                                        onValueChange = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
-                                        placeholder = { 
-                                            Text(if (showAllCategories) "Search notes and lists..." else if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) "Search notes..." else "Search lists...") 
-                                        },
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .focusRequester(dummyFocusRequester),
-                                        textStyle = LocalTextStyle.current.copy(textAlign = TextAlign.Start),
-                                        colors = TextFieldDefaults.colors(
-                                            focusedContainerColor = Color.Transparent,
-                                            unfocusedContainerColor = Color.Transparent,
-                                            focusedIndicatorColor = Color.Transparent,
-                                            unfocusedIndicatorColor = Color.Transparent
-                                        ),
-                                        singleLine = true,
-                                        trailingIcon = {
-                                            if (searchQuery.isNotEmpty()) {
-                                                IconButton(onClick = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }) {
-                                                    Icon(Icons.Rounded.Clear, contentDescription = "Clear")
-                                                }
-                                            }
-                                        }
-                                    )
-                                    SortDropdown(
-                                        selectedOrder = currentSortOrder,
-                                        onOrderSelected = onSortOrderSelected,
-                                        availableOrders = availableSortOrders,
-                                        iconOnly = true
-                                    )
-                                    LaunchedEffect(Unit) {
-                                        dummyFocusRequester.requestFocus()
-                                    }
-                                }
-                            } else {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .clip(CircleShape)
-                                        .clickable { 
-                                            if (isCreateMenuOpen) isCreateMenuOpen = false
-                                            isSearchActive = true 
-                                        }
-                                        .padding(start = 16.dp, end = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Search,
-                                        contentDescription = "Search",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                tonalElevation = if (advancedUi) 0.dp else 3.dp,
+                                shadowElevation = if (advancedUi) 0.dp else 3.dp
+                            ) {
+                                if (isSearchActive) {
                                     Row(
                                         modifier = Modifier
-                                            .weight(1f),
+                                            .fillMaxSize()
+                                            .padding(horizontal = 4.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Text(
-                                            text = if (searchQuery.isNotEmpty()) searchQuery else if (isTabletUi) "Search" else if (showAllCategories) "Search notes and lists..." else if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) "Search notes..." else "Search lists...",
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            color = if (searchQuery.isNotEmpty()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.weight(1f),
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                        CircleIconButton(
+                                            onClick = {
+                                                isSearchActive = false
+                                                notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
+                                                focusManager.clearFocus()
+                                                keyboardController?.hide()
+                                            },
+                                            icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                                            contentDescription = "Close Search",
+                                            containerColor = Color.Transparent
                                         )
-                                        if (searchQuery.isNotEmpty()) {
-                                            IconButton(
-                                                onClick = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Rounded.Clear,
-                                                    contentDescription = "Clear",
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
+                                        TextField(
+                                            value = searchQuery,
+                                            onValueChange = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(it)) },
+                                            placeholder = {
+                                                Text(if (showAllCategories) "Search notes and lists..." else if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) "Search notes..." else "Search lists...")
+                                            },
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .focusRequester(dummyFocusRequester),
+                                            textStyle = LocalTextStyle.current.copy(textAlign = TextAlign.Start),
+                                            colors = TextFieldDefaults.colors(
+                                                focusedContainerColor = Color.Transparent,
+                                                unfocusedContainerColor = Color.Transparent,
+                                                focusedIndicatorColor = Color.Transparent,
+                                                unfocusedIndicatorColor = Color.Transparent
+                                            ),
+                                            singleLine = true,
+                                            trailingIcon = {
+                                                if (searchQuery.isNotEmpty()) {
+                                                    IconButton(onClick = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }) {
+                                                        Icon(Icons.Rounded.Clear, contentDescription = "Clear")
+                                                    }
+                                                }
                                             }
-                                        }
+                                        )
                                         SortDropdown(
                                             selectedOrder = currentSortOrder,
                                             onOrderSelected = onSortOrderSelected,
                                             availableOrders = availableSortOrders,
                                             iconOnly = true
                                         )
+                                        LaunchedEffect(Unit) {
+                                            dummyFocusRequester.requestFocus()
+                                        }
+                                    }
+                                } else {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .clip(CircleShape)
+                                            .clickable {
+                                                if (isCreateMenuOpen) isCreateMenuOpen = false
+                                                isSearchActive = true
+                                            }
+                                            .padding(start = 16.dp, end = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Search,
+                                            contentDescription = "Search",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Row(
+                                            modifier = Modifier
+                                                .weight(1f),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Text(
+                                                text = if (searchQuery.isNotEmpty()) searchQuery else if (isTabletUi) "Search" else if (showAllCategories) "Search notes and lists..." else if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) "Search notes..." else "Search lists...",
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                color = if (searchQuery.isNotEmpty()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.weight(1f),
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            if (searchQuery.isNotEmpty()) {
+                                                IconButton(
+                                                    onClick = { notesViewModel.onEvent(NoteEvent.UpdateSearchQuery("")) }
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Rounded.Clear,
+                                                        contentDescription = "Clear",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                            SortDropdown(
+                                                selectedOrder = currentSortOrder,
+                                                onOrderSelected = onSortOrderSelected,
+                                                availableOrders = availableSortOrders,
+                                                iconOnly = true
+                                            )
+                                        }
                                     }
                                 }
                             }
-                        }
 
-                        AnimatedVisibility(
-                            visible = !isSearchActive,
-                            enter = expandHorizontally(animationSpec = tween(250, easing = FastOutSlowInEasing)) +
-                                fadeIn(animationSpec = tween(250)),
-                            exit = shrinkHorizontally(animationSpec = tween(250, easing = FastOutSlowInEasing)) +
-                                fadeOut(animationSpec = tween(250))
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Spacer(Modifier.width(12.dp))
-                                FloatingActionButton(
-                                    onClick = {
-                                        if (isSearchActive) {
-                                            isSearchActive = false
-                                            focusManager.clearFocus()
-                                            keyboardController?.hide()
-                                        }
-                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        isCreateMenuOpen = !isCreateMenuOpen
-                                    },
-                                    shape = CircleShape,
-                                    modifier = Modifier
-                                        .size(56.dp)
-                                        .advancedUiBlur(
-                                            hazeState = hazeState,
-                                            shape = CircleShape,
-                                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                            AnimatedVisibility(
+                                visible = !isSearchActive,
+                                enter = expandHorizontally(animationSpec = tween(250, easing = FastOutSlowInEasing)) +
+                                    fadeIn(animationSpec = tween(250)),
+                                exit = shrinkHorizontally(animationSpec = tween(250, easing = FastOutSlowInEasing)) +
+                                    fadeOut(animationSpec = tween(250))
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Spacer(Modifier.width(12.dp))
+                                    FloatingActionButton(
+                                        onClick = {
+                                            if (isSearchActive) {
+                                                isSearchActive = false
+                                                focusManager.clearFocus()
+                                                keyboardController?.hide()
+                                            }
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            isCreateMenuOpen = !isCreateMenuOpen
+                                        },
+                                        shape = CircleShape,
+                                        modifier = Modifier
+                                            .size(56.dp)
+                                            .advancedUiBlur(
+                                                hazeState = hazeState,
+                                                shape = CircleShape,
+                                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                                enabled = advancedUi
+                                            ),
+                                        containerColor = advancedUiSurfaceColor(
+                                            originalColor = fabContainerColor,
+                                            tint = MaterialTheme.colorScheme.primary,
                                             enabled = advancedUi
                                         ),
-                                    containerColor = advancedUiSurfaceColor(
-                                        originalColor = fabContainerColor,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        enabled = advancedUi
-                                    ),
-                                    contentColor = fabContentColor,
-                                    elevation = if (advancedUi) FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp) else FloatingActionButtonDefaults.elevation(
-                                        defaultElevation = if (isCreateMenuOpen) 6.dp else 4.dp,
-                                        pressedElevation = 8.dp
-                                    )
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Add,
-                                        contentDescription = if (isCreateMenuOpen) "Close create menu" else "Create new item",
-                                        modifier = Modifier
-                                            .size(28.dp)
-                                            .graphicsLayer {
-                                                rotationZ = fabRotation
-                                            }
-                                    )
+                                        contentColor = fabContentColor,
+                                        elevation = if (advancedUi) FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp) else FloatingActionButtonDefaults.elevation(
+                                            defaultElevation = if (isCreateMenuOpen) 6.dp else 4.dp,
+                                            pressedElevation = 8.dp
+                                        )
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Add,
+                                            contentDescription = if (isCreateMenuOpen) "Close create menu" else "Create new item",
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .graphicsLayer {
+                                                    rotationZ = fabRotation
+                                                }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -763,7 +770,7 @@ fun NoteListScreen(
         floatingActionButtonPosition = androidx.compose.material3.FabPosition.Center,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = { 
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth().zIndex(3f)) {
+            Box(modifier = Modifier.fillMaxWidth().zIndex(3f)) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2087,405 +2094,6 @@ private fun CategoryListCard(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun NoteCard(
-    note: Note,
-    onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null,
-    shape: Shape = RoundedCornerShape(12.dp),
-    isSelected: Boolean = false
-) {
-    val isDrawing = note.type == NoteType.DRAWING
-
-    val cardColor = if (isSelected) {
-        MaterialTheme.colorScheme.primaryContainer
-    } else {
-        MaterialTheme.colorScheme.surfaceContainerLow
-    }
-
-    val displayContent = note.previewText?.takeIf { it.isNotBlank() } ?: note.content
-    val hasSupportingContent = isDrawing || (!note.isContentHidden && displayContent.isNotBlank())
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
-            ),
-        shape = shape,
-        colors = CardDefaults.cardColors(containerColor = cardColor),
-        border = null
-    ) {
-        ListItem(
-            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-            leadingContent = {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (isDrawing) Icons.Rounded.Brush else Icons.Rounded.Description,
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-            },
-            headlineContent = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = note.title.ifBlank { "New Note" },
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                    if (note.isPinned) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Icon(
-                            imageVector = Icons.Rounded.PushPin,
-                            contentDescription = "Pinned",
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-                        )
-                    }
-                }
-            },
-            supportingContent = if (hasSupportingContent) {
-                {
-                    if (isDrawing) {
-                        Text(
-                            text = "Drawing",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontStyle = FontStyle.Italic,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                        )
-                    } else if (!note.isContentHidden && displayContent.isNotBlank()) {
-                        val firstSentence = remember(displayContent) {
-                            displayContent.split(Regex("(?<=[.!?])\\s+")).firstOrNull() ?: displayContent
-                        }
-                        Text(
-                            text = firstSentence,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            } else null,
-            trailingContent = if (isDrawing && (note.previewImage != null || note.drawingData?.strokes?.isNotEmpty() == true)) {
-                {
-                    Box(
-                        modifier = Modifier
-                            .size(60.dp, 40.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color.White)
-                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
-                    ) {
-                        if (note.previewImage != null) {
-                            AsyncImage(
-                                model = note.previewImage,
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = androidx.compose.ui.layout.ContentScale.Fit
-                            )
-                        } else {
-                            DrawingPreview(strokes = note.drawingData?.strokes ?: emptyList())
-                        }
-                    }
-                }
-            } else if (!isDrawing && note.isContentHidden) {
-                {
-                    Icon(
-                        imageVector = Icons.Rounded.VisibilityOff,
-                        contentDescription = "Hidden",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            } else null
-        )
-    }
-}
-
-private data class StrokeBoundsData(
-    val minX: Float,
-    val minY: Float,
-    val width: Float,
-    val height: Float
-)
-
-@Composable
-fun DrawingPreview(strokes: List<com.ozon.notes.Stroke>) {
-    if (strokes.isEmpty()) return
-
-    val strokeData = remember(strokes) {
-        if (strokes.isEmpty()) return@remember null
-        
-        var minX = Float.MAX_VALUE
-        var minY = Float.MAX_VALUE
-        var maxX = -Float.MAX_VALUE
-        var maxY = -Float.MAX_VALUE
-        
-        strokes.forEach { stroke ->
-            stroke.points.forEach { pt ->
-                minX = minOf(minX, pt.x)
-                minY = minOf(minY, pt.y)
-                maxX = maxOf(maxX, pt.x)
-                maxY = maxOf(maxY, pt.y)
-            }
-        }
-        
-        val drawingWidth = maxX - minX
-        val drawingHeight = maxY - minY
-        
-        if (drawingWidth <= 0 || drawingHeight <= 0) return@remember null
-
-        StrokeBoundsData(minX, minY, drawingWidth, drawingHeight)
-    }
-
-    val path = remember { androidx.compose.ui.graphics.Path() }
-
-    if (strokeData != null) {
-        androidx.compose.foundation.Canvas(
-            modifier = Modifier.fillMaxSize().padding(4.dp)
-        ) {
-            val scale = minOf(size.width / strokeData.width, size.height / strokeData.height) * 0.8f
-            val offsetX = (size.width - strokeData.width * scale) / 2f - strokeData.minX * scale
-            val offsetY = (size.height - strokeData.height * scale) / 2f - strokeData.minY * scale
-
-            strokes.forEach { stroke ->
-                val points = stroke.points
-                if (points.isNotEmpty()) {
-                    path.reset()
-                    path.moveTo(points[0].x * scale + offsetX, points[0].y * scale + offsetY)
-                    for (i in 1 until points.size step 3) {
-                        path.lineTo(points[i].x * scale + offsetX, points[i].y * scale + offsetY)
-                    }
-                    if ((points.size - 1) % 3 != 0) {
-                        path.lineTo(points.last().x * scale + offsetX, points.last().y * scale + offsetY)
-                    }
-                    drawPath(
-                        path = path,
-                        color = Color(stroke.colorArgb),
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(
-                            width = stroke.width * scale,
-                            cap = StrokeCap.Round,
-                            join = StrokeJoin.Round
-                        )
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun MainScreenTabBar(
-    selectedTab: MainTab,
-    onTabSelected: (MainTab) -> Unit,
-    modifier: Modifier = Modifier,
-    showNotesTab: Boolean = true,
-    showListsTab: Boolean = true,
-    hasTextNotes: Boolean = false,
-    hasDrawings: Boolean = false,
-    hasChecklists: Boolean = false,
-    hasRatings: Boolean = false,
-    hasUpcoming: Boolean = false,
-    hideUncreatedTabs: Boolean = true,
-    showTabLabels: Boolean = true,
-    tabOrder: List<MainTab> = listOf(MainTab.TEXT, MainTab.DRAWINGS, MainTab.CHECKLISTS, MainTab.RATINGS, MainTab.UPCOMING)
-) {
-    if (!hasTextNotes && !hasDrawings && !hasChecklists && !hasRatings && !hasUpcoming) return
-
-    val scrollState = rememberScrollState()
-
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(50.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                .drawWithContent {
-                    drawContent()
-                    val fadeWidthPx = 32.dp.toPx()
-                    
-                    val leftAlpha = (scrollState.value / fadeWidthPx).coerceIn(0f, 1f)
-                    val rightAlpha = ((scrollState.maxValue - scrollState.value) / fadeWidthPx).coerceIn(0f, 1f)
-                    
-                    if (rightAlpha > 0f) {
-                        drawRect(
-                            brush = Brush.horizontalGradient(
-                                colors = listOf(Color.Black, Color.Black.copy(alpha = 1f - rightAlpha)),
-                                startX = size.width - fadeWidthPx,
-                                endX = size.width
-                            ),
-                            blendMode = BlendMode.DstIn
-                        )
-                    }
-                    
-                    if (leftAlpha > 0f) {
-                        drawRect(
-                            brush = Brush.horizontalGradient(
-                                colors = listOf(Color.Black.copy(alpha = 1f - leftAlpha), Color.Black),
-                                startX = 0f,
-                                endX = fadeWidthPx
-                            ),
-                            blendMode = BlendMode.DstIn
-                        )
-                    }
-                }
-                .horizontalScroll(scrollState),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            tabOrder.forEach { tab ->
-                val shouldShow = when (tab) {
-                    MainTab.TEXT -> showNotesTab && (!hideUncreatedTabs || hasTextNotes || selectedTab == MainTab.TEXT)
-                    MainTab.DRAWINGS -> showNotesTab && (!hideUncreatedTabs || hasDrawings || selectedTab == MainTab.DRAWINGS)
-                    MainTab.CHECKLISTS -> showListsTab && (!hideUncreatedTabs || hasChecklists || selectedTab == MainTab.CHECKLISTS)
-                    MainTab.RATINGS -> showListsTab && (!hideUncreatedTabs || hasRatings || selectedTab == MainTab.RATINGS)
-                    MainTab.UPCOMING -> showListsTab && (!hideUncreatedTabs || hasUpcoming || selectedTab == MainTab.UPCOMING)
-                }
-                if (shouldShow) {
-                    MainTabItem(
-                        title = tab.getTitle(),
-                        icon = tab.getIcon(),
-                        isSelected = selectedTab == tab,
-                        onClick = { onTabSelected(tab) },
-                        showLabels = showTabLabels
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MainTabItem(
-    title: String,
-    icon: ImageVector,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    showLabels: Boolean = true,
-    modifier: Modifier = Modifier
-) {
-    val isLabelVisible = isSelected && showLabels
-    val hapticFeedback = LocalHapticFeedback.current
-
-    val backgroundColor by animateColorAsState(
-        targetValue = if (isSelected) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.8f)
-        },
-        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
-        label = "tabBackground"
-    )
-    val textColor by animateColorAsState(
-        targetValue = if (isSelected) {
-            MaterialTheme.colorScheme.onPrimaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        },
-        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
-        label = "tabText"
-    )
-
-    val horizontalPadding by animateDpAsState(
-        targetValue = if (isLabelVisible) 18.dp else 15.dp,
-        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
-        label = "tabPadding"
-    )
-
-    val cornerRadius by animateDpAsState(
-        targetValue = if (isSelected) 15.dp else 25.dp,
-        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
-        label = "tabCornerRadius"
-    )
-    val tabShape = RoundedCornerShape(cornerRadius)
-
-    val advancedUi = LocalAdvancedUiEnabled.current
-    val hazeState = LocalHazeState.current
-
-    Surface(
-        onClick = {
-            hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            onClick()
-        },
-        modifier = modifier
-            .fillMaxHeight()
-            .advancedUiBlur(
-                hazeState = hazeState,
-                shape = tabShape,
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                enabled = advancedUi
-            ),
-        shape = tabShape,
-        color = advancedUiSurfaceColor(
-            originalColor = backgroundColor,
-            tint = MaterialTheme.colorScheme.primary,
-            enabled = advancedUi
-        ),
-        tonalElevation = if (advancedUi) 0.dp else (if (isSelected) 2.dp else 0.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxHeight()
-                .padding(horizontal = horizontalPadding),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = if (isLabelVisible) null else title,
-                modifier = Modifier.size(20.dp),
-                tint = textColor
-            )
-            AnimatedVisibility(
-                visible = isLabelVisible,
-                enter = fadeIn(animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)) + expandHorizontally(
-                    animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
-                    expandFrom = Alignment.Start,
-                    clip = false
-                ),
-                exit = fadeOut(animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)) + shrinkHorizontally(
-                    animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
-                    shrinkTowards = Alignment.Start,
-                    clip = false
-                )
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
-                        ),
-                        color = textColor,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun EmptyTabState(
     icon: ImageVector,
     message: String,
@@ -2605,4 +2213,3 @@ private fun CreateOptionItem(
         }
     }
 }
-

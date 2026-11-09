@@ -16,7 +16,7 @@ import kotlinx.coroutines.launch
  * - Hierarchical entry management (CRUD for entries and sub-entries).
  * - Real-time filtering and sorting of entries.
  */
-class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
+class ChecklistViewModel(private val repository: ChecklistRepository) : ViewModel() {
 
     private val getFilteredEntriesUseCase = GetFilteredEntriesUseCase()
 
@@ -233,7 +233,7 @@ class ChecklistViewModel(private val repository: NoteRepository) : ViewModel() {
     suspend fun searchTmdb(query: String): List<TmdbMovie> = repository.searchTmdb(query)
 
     companion object {
-        fun provideFactory(repository: NoteRepository): ViewModelProvider.Factory =
+        fun provideFactory(repository: ChecklistRepository): ViewModelProvider.Factory =
             object : ViewModelProvider.Factory {
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T = ChecklistViewModel(repository) as T

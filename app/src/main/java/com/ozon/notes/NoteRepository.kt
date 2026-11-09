@@ -2,49 +2,10 @@ package com.ozon.notes
 
 import androidx.room.Room
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.update
 import android.content.Context
 
-interface NoteRepository {
-    fun getAllNotes(): Flow<List<Note>>
-    suspend fun getNoteById(id: String): Note?
-    suspend fun saveNote(note: Note, regenerateThumbnail: Boolean = true)
-    suspend fun togglePinNote(noteId: String)
-    suspend fun toggleHideNoteContent(noteId: String)
-    suspend fun deleteNote(noteId: String)
-    suspend fun deleteNotes(noteIds: List<String>)
-
-    suspend fun getNoteContent(id: String): String?
-    suspend fun getNoteHtml(id: String): String?
-    suspend fun getDrawingData(id: String): DrawingData?
-    suspend fun getEntryDescription(entryId: String): String?
-
-    // --- Lists ---
-    fun getAllLists(): Flow<List<NoteList>>
-    fun getAllListsWithCounts(): Flow<List<NoteListWithCounts>>
-    suspend fun getListById(id: String): NoteList?
-    suspend fun saveList(list: NoteList)
-    suspend fun togglePinList(listId: String)
-    suspend fun deleteList(listId: String)
-    fun getListSortOrder(listId: String): Flow<ListSortOrder>
-    suspend fun setListSortOrder(listId: String, sortOrder: ListSortOrder)
-    fun getAllEntries(): Flow<List<ListEntry>>
-    fun getEntriesForList(listId: String): Flow<List<ListEntry>>
-    suspend fun saveEntry(entry: ListEntry)
-    suspend fun saveEntries(entries: List<ListEntry>) {
-        entries.forEach { saveEntry(it) }
-    }
-    suspend fun deleteEntry(entryId: String)
-    suspend fun deleteCompletedEntries(listId: String)
-
-    // --- Tags ---
-    fun getTagsForList(listId: String): Flow<List<Tag>>
-    suspend fun saveTag(tag: Tag)
-    suspend fun saveTags(tags: List<Tag>)
-    suspend fun deleteTag(tagId: String)
-
+interface NoteRepository : NotesRepository, ChecklistRepository {
     suspend fun clearAllData()
 
     suspend fun getBackupData(): BackupData
@@ -52,7 +13,6 @@ interface NoteRepository {
     suspend fun getListBackup(listId: String): BackupData?
     suspend fun restoreBackupData(data: BackupData)
     suspend fun importBackupData(data: BackupData)
-    fun getContext(): Context
 
     // --- Settings ---
     fun getTheme(): Flow<AppTheme>
@@ -77,7 +37,6 @@ interface NoteRepository {
     suspend fun setNoteSortOrder(sortOrder: ListSortOrder)
     fun getListsSortOrder(): Flow<ListSortOrder>
     suspend fun setListsSortOrder(sortOrder: ListSortOrder)
-    fun getChecklistBehavior(): Flow<ChecklistBehavior>
     suspend fun setChecklistBehavior(behavior: ChecklistBehavior)
     fun getShowEntryCount(): Flow<Boolean>
     suspend fun setShowEntryCount(show: Boolean)
@@ -141,7 +100,6 @@ interface NoteRepository {
     // --- Movie Posters ---
     fun getMoviePostersEnabled(): Flow<Boolean>
     suspend fun setMoviePostersEnabled(enabled: Boolean)
-    suspend fun searchTmdb(query: String): List<TmdbMovie>
     suspend fun clearPosterCache()
     fun getPosterCacheSize(): Long
     fun getHighScoreEnabled(): Flow<Boolean>
@@ -171,27 +129,6 @@ interface NoteRepository {
     fun getSmoothingStrength(): Flow<Float>
     suspend fun setSmoothingStrength(strength: Float)
 }
-
-//class InMemoryNoteRepository : NoteRepository {
-//    private val notesFlow = MutableStateFlow<List<Note>>(emptyList())
-//
-//    override fun getAllNotes(): Flow<List<Note>> = notesFlow
-//
-//    override suspend fun saveNote(note: Note) {
-//        notesFlow.update { currentNotes ->
-//            val index = currentNotes.indexOfFirst { it.id == note.id }
-//            if (index != -1) {
-//                currentNotes.toMutableList().apply { set(index, note) }
-//            } else {
-//                listOf(note) + currentNotes
-//            }
-//        }
-//    }
-//
-//    override suspend fun deleteNote(noteId: String) {
-//        notesFlow.update { notes -> notes.filterNot {it.id == noteId } }
-//    }
-//}
 
 object AppContainer {
     @Volatile
