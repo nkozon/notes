@@ -999,8 +999,8 @@ fun ListDetailScreen(
                                     key = { _, entry -> entry.id },
                                     contentType = { _, _ -> "progress_entry" }
                                 ) { index, entry ->
-                                    val topRadius = if (index == 0) 28.dp else 4.dp
-                                    val bottomRadius = if (index == groupEntries.lastIndex) 28.dp else 4.dp
+                                    val topRadius = if (index == 0) 24.dp else 4.dp
+                                    val bottomRadius = if (index == groupEntries.lastIndex) 24.dp else 4.dp
                                     val shape = RoundedCornerShape(topRadius, topRadius, bottomRadius, bottomRadius)
                                     ProgressSectionSurface(
                                         isHeader = false,
@@ -1041,18 +1041,14 @@ fun ListDetailScreen(
                                                         isCurrentlyWatching = item.isPaused
                                                     )))
                                                 },
-                                                onPrimaryAction = { item ->
-                                                    val updatedEntry = if (item.isPaused) {
-                                                        item.copy(isPaused = false, isCurrentlyWatching = true)
-                                                    } else {
-                                                        item.copy(
-                                                            isCurrentlyWatching = false,
-                                                            currentProgress = null,
-                                                            totalProgress = null,
-                                                            progressUnit = null
-                                                        )
-                                                    }
-                                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(updatedEntry))
+                                                onFinish = { item ->
+                                                    checklistViewModel.onEvent(NoteEvent.SaveEntry(item.copy(
+                                                        isCurrentlyWatching = false,
+                                                        isPaused = false,
+                                                        currentProgress = null,
+                                                        totalProgress = null,
+                                                        progressUnit = null
+                                                    )))
                                                 },
                                                 onLongClick = { previewEntry = entry },
                                                 shape = shape
@@ -2473,7 +2469,7 @@ private fun CurrentlyWatchingItem(
     onDelete: (ListEntry) -> Unit,
     onIncrement: (ListEntry) -> Unit,
     onDecrement: (ListEntry) -> Unit,
-    onPrimaryAction: (ListEntry) -> Unit,
+    onFinish: (ListEntry) -> Unit,
     onTogglePaused: (ListEntry) -> Unit,
     onLongClick: () -> Unit,
     shape: Shape = RoundedCornerShape(24.dp)
@@ -2486,7 +2482,7 @@ private fun CurrentlyWatchingItem(
         confirmValueChange = { value ->
             when (value) {
                 SwipeToDismissBoxValue.EndToStart -> {
-                    onDelete(entry)
+                    if (entry.isPaused) onDelete(entry) else onFinish(entry)
                     false
                 }
                 SwipeToDismissBoxValue.StartToEnd -> {
@@ -2503,9 +2499,14 @@ private fun CurrentlyWatchingItem(
         backgroundContent = {
             val direction = dismissState.dismissDirection
             val color = when (direction) {
-                SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
+                SwipeToDismissBoxValue.EndToStart -> if (entry.isPaused) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer
                 SwipeToDismissBoxValue.StartToEnd -> MaterialTheme.colorScheme.primaryContainer
                 else -> Color.Transparent
+            }
+            val contentColor = if (entry.isPaused && direction == SwipeToDismissBoxValue.EndToStart) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.primary
             }
             val alignment = when (direction) {
                 SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
@@ -2513,7 +2514,7 @@ private fun CurrentlyWatchingItem(
                 else -> Alignment.Center
             }
             val icon = when (direction) {
-                SwipeToDismissBoxValue.EndToStart -> Icons.Rounded.Delete
+                SwipeToDismissBoxValue.EndToStart -> if (entry.isPaused) Icons.Rounded.Delete else Icons.Rounded.Check
                 SwipeToDismissBoxValue.StartToEnd -> if (entry.isPaused) Icons.Rounded.PlayArrow else Icons.Rounded.Pause
                 else -> null
             }
@@ -2534,12 +2535,16 @@ private fun CurrentlyWatchingItem(
                         Icon(
                             imageVector = icon,
                             contentDescription = null,
-                            tint = if (direction == SwipeToDismissBoxValue.EndToStart) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                            tint = contentColor
                         )
                         Text(
-                            text = if (direction == SwipeToDismissBoxValue.EndToStart) "Delete" else if (entry.isPaused) "Unpause" else "Pause",
+                            text = when {
+                                direction == SwipeToDismissBoxValue.EndToStart -> if (entry.isPaused) "Delete" else "Finish"
+                                entry.isPaused -> "Unpause"
+                                else -> "Pause"
+                            },
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (direction == SwipeToDismissBoxValue.EndToStart) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                            color = contentColor
                         )
                     }
                 }
@@ -2566,7 +2571,7 @@ private fun CurrentlyWatchingItem(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    if (!entry.isPaused) {
+                    run {
                         // Poster Artwork or Category Icon (fallback to parent entry's poster)
                         val effectivePosterPath = remember(entry.tmdbPosterPath, parentEntry?.tmdbPosterPath) {
                             entry.tmdbPosterPath ?: parentEntry?.tmdbPosterPath
@@ -2639,14 +2644,39 @@ private fun CurrentlyWatchingItem(
 
                         }
 
-                        if (parentEntry != null) {
-                            Text(
-                                text = entry.title,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                        val tagNames = remember(allTags, entry.tagIds) {
+                            allTags.filter { it.id in entry.tagIds }.map { it.name }
+                        }
+                        if (parentEntry != null || tagNames.isNotEmpty()) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                if (parentEntry != null) {
+                                    Text(
+                                        text = entry.title,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.align(Alignment.CenterVertically)
+                                    )
+                                }
+                                tagNames.forEach { name ->
+                                    Surface(
+                                        modifier = Modifier.align(Alignment.CenterVertically),
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
+                                    ) {
+                                        Text(
+                                            text = name,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
 
                         val progressText = entry.getProgressLabel(defaultUnit = "episodes")
@@ -2655,25 +2685,36 @@ private fun CurrentlyWatchingItem(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                if (progressText.isNotBlank()) {
-                                    Text(
-                                        text = progressText,
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-                                if (entry.currentProgress != null && entry.totalProgress != null && entry.totalProgress > 0) {
-                                    Text(
-                                        text = "• ${entry.currentProgress}/${entry.totalProgress}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                    )
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    if (progressText.isNotBlank()) {
+                                        Text(
+                                            text = progressText,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false)
+                                        )
+                                    }
+                                    if (entry.currentProgress != null && entry.totalProgress != null && entry.totalProgress > 0) {
+                                        Text(
+                                            text = "${entry.currentProgress}/${entry.totalProgress}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                            maxLines = 1
+                                        )
+                                    }
                                 }
                                 if (effectiveRating > 0f) {
                                     val ratingText = formatRating(effectiveRating)
                                     Text(
-                                        text = if (progressText.isNotBlank()) "• $ratingText/10" else "$ratingText/10",
+                                        text = "$ratingText/10",
+                                        maxLines = 1,
                                         style = MaterialTheme.typography.bodySmall,
                                         fontWeight = FontWeight.Bold,
                                         color = MaterialTheme.colorScheme.primary
@@ -2682,7 +2723,7 @@ private fun CurrentlyWatchingItem(
                             }
                         }
 
-                        if (!entry.isPaused && entry.totalProgress != null && entry.totalProgress > 0) {
+                        if (entry.totalProgress != null && entry.totalProgress > 0) {
                             val progress = ((entry.currentProgress ?: 0).toFloat() / entry.totalProgress.toFloat()).coerceIn(0f, 1f)
                             LinearProgressIndicator(
                                 progress = { progress },
@@ -2695,66 +2736,37 @@ private fun CurrentlyWatchingItem(
                                 trackColor = MaterialTheme.colorScheme.surfaceVariant
                             )
                         }
-
-                        val tagNames = remember(allTags, entry.tagIds) {
-                            allTags.filter { it.id in entry.tagIds }.map { it.name }
-                        }
-                        if (tagNames.isNotEmpty()) {
-                            FlowRow(
-                                modifier = Modifier.padding(top = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                tagNames.forEach { name ->
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
-                                    ) {
-                                        Text(
-                                            text = name,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
                     }
 
-                    // Right Quick Progress Controls
-                    Column(
-                        horizontalAlignment = Alignment.End,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         if (!entry.isPaused) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                            FilledTonalIconButton(
+                                onClick = { onDecrement(entry) },
+                                modifier = Modifier.size(width = 32.dp, height = 72.dp),
+                                shape = CircleShape
                             ) {
-                                IconButton(
-                                    onClick = { onDecrement(entry) },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(Icons.Rounded.Remove, contentDescription = "Decrease Progress", modifier = Modifier.size(16.dp))
-                                }
-                                FilledTonalIconButton(
-                                    onClick = { onIncrement(entry) },
-                                    modifier = Modifier.size(32.dp),
-                                    shape = CircleShape
-                                ) {
-                                    Icon(Icons.Rounded.Add, contentDescription = "Increase Progress", modifier = Modifier.size(16.dp))
-                                }
+                                Icon(
+                                    Icons.Rounded.Remove,
+                                    contentDescription = "Decrease Progress",
+                                    modifier = Modifier.size(24.dp)
+                                )
                             }
                         }
-
-                        FilledTonalButton(
-                            onClick = { onPrimaryAction(entry) },
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                            modifier = Modifier.height(28.dp),
-                            shape = RoundedCornerShape(8.dp)
+                        FilledIconButton(
+                            onClick = {
+                                if (entry.isPaused) onTogglePaused(entry) else onIncrement(entry)
+                            },
+                            modifier = Modifier.size(width = 48.dp, height = 72.dp),
+                            shape = CircleShape
                         ) {
-                            Text(if (entry.isPaused) "Unpause" else "Finish", style = MaterialTheme.typography.labelSmall)
+                            Icon(
+                                imageVector = if (entry.isPaused) Icons.Rounded.PlayArrow else Icons.Rounded.Add,
+                                contentDescription = if (entry.isPaused) "Unpause entry" else "Increase Progress",
+                                modifier = Modifier.size(28.dp)
+                            )
                         }
                     }
                 }
