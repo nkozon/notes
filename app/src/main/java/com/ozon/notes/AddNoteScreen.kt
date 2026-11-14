@@ -264,7 +264,7 @@ private fun AddNoteScreenContent(
                                 icon = Icons.Rounded.MoreVert,
                                 contentDescription = "More"
                             )
-                            DropdownMenu(
+                            AdvancedUiDropdownMenu(
                                 expanded = showMoreMenu,
                                 onDismissRequest = { showMoreMenu = false }
                             ) {
@@ -689,7 +689,7 @@ private fun FormattingToolbarContent(
                     }
                 }
             }
-            DropdownMenu(
+            AdvancedUiDropdownMenu(
                 expanded = showTypeMenu,
                 onDismissRequest = { showTypeMenu = false }
             ) {

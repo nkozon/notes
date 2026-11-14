@@ -28,6 +28,8 @@ sealed interface NoteEvent {
     data class UpdateCustomAccentColor(val color: Int?) : NoteEvent
     data class UpdateIsOledMode(val enabled: Boolean) : NoteEvent
     data class UpdateAdvancedUi(val enabled: Boolean) : NoteEvent
+    data class UpdateAdvancedUiStyle(val style: AdvancedUiStyle) : NoteEvent
+    data class UpdateLiquidGlassFrosting(val frosting: Float) : NoteEvent
     data class UpdateTabletMode(val mode: TabletMode) : NoteEvent
     data class UpdateNoteSortOrder(val sortOrder: ListSortOrder) : NoteEvent
     data class UpdateListsSortOrder(val sortOrder: ListSortOrder) : NoteEvent

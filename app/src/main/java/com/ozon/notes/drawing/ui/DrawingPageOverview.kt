@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.ozon.notes.AdvancedUiDropdownMenu
 import com.ozon.notes.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -233,7 +234,7 @@ fun PageOverviewItem(
                         )
                     }
 
-                    DropdownMenu(
+                    AdvancedUiDropdownMenu(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false }
                     ) {

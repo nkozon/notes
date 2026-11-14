@@ -81,6 +81,7 @@ fun CircleIconButton(
 
     val effectiveContainerColor = if (advancedUi && isSurfaceVisible) {
         advancedUiSurfaceColor(
+            liquidGlass = true,
             originalColor = containerColor,
             tint = MaterialTheme.colorScheme.primary,
             translucentAlpha = containerColor.alpha * 0.65f,
@@ -95,6 +96,7 @@ fun CircleIconButton(
             .minimumInteractiveComponentSize()
             .size(44.dp)
             .advancedUiBlur(
+                liquidGlass = true,
                 hazeState = hazeState,
                 shape = shape,
                 tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
@@ -192,13 +194,14 @@ fun SortDropdown(
             modifier = Modifier
                 .width(280.dp)
                 .advancedUiBlur(
+                    liquidGlass = true,
                     hazeState = hazeState,
                     shape = menuShape,
                     backgroundColor = MaterialTheme.colorScheme.background,
                     enabled = useBlur
                 )
                 .background(
-                    advancedUiSurfaceColor(originalColor = menuColor, enabled = useBlur),
+                    advancedUiSurfaceColor(originalColor = menuColor, enabled = useBlur, liquidGlass = true),
                     menuShape
                 ),
             shape = menuShape,
@@ -876,7 +879,7 @@ fun RatingListActiveSectionSelector(
                         .clip(RoundedCornerShape(12.dp))
                         .clickable { dropdownExpanded = true }
                 )
-                DropdownMenu(
+                AdvancedUiDropdownMenu(
                     expanded = dropdownExpanded,
                     onDismissRequest = { dropdownExpanded = false },
                     shape = RoundedCornerShape(16.dp),

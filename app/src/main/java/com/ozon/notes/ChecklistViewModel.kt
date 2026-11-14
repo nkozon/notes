@@ -127,6 +127,24 @@ class ChecklistViewModel(private val repository: ChecklistRepository) : ViewMode
         initialValue = emptyList()
     )
 
+    /** Export the whole list independently of the screen's search and visibility filters. */
+    suspend fun exportListText(list: NoteList): String {
+        val stored = repository.getEntriesForList(list.id).first()
+        val pending = _pendingEntries.value.filter { it.listId == list.id }
+        val pendingIds = pending.mapTo(HashSet()) { it.id }
+        val entries = getFilteredEntriesUseCase(
+            entries = stored.filter { it.id !in pendingIds } + pending,
+            query = "",
+            tagIds = emptySet(),
+            filterMode = TagFilterMode.OR,
+            sortOrder = repository.getListSortOrder(list.id).first(),
+            behavior = ChecklistBehavior.GREY_OUT,
+            isChecklist = list.type != ListType.RATING,
+            allTags = repository.getTagsForList(list.id).first()
+        )
+        return formatListTextExport(list, entries)
+    }
+
     fun onEvent(event: NoteEvent) {
         when (event) {
             is NoteEvent.SetCurrentList -> _currentListId.value = event.listId

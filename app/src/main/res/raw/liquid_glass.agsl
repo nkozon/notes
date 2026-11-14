@@ -1,0 +1,32 @@
+// Rounded glass lens using a signed-distance surface and Snell refraction.
+// Independently implemented for the Compose/Haze backdrop pipeline.
+uniform shader backdrop;
+uniform float4 body;
+uniform float4 corners; // top-left, top-right, bottom-right, bottom-left
+uniform float2 textureSize;
+uniform float edgeWidth;
+uniform float strength;
+uniform float refractionDepth;
+
+float distanceToGlass(float2 point) {
+    float2 local = point - body.xy - body.zw * 0.5;
+    float corner = local.y < 0.0
+        ? (local.x < 0.0 ? corners.x : corners.y)
+        : (local.x < 0.0 ? corners.w : corners.z);
+    float2 delta = abs(local) - body.zw * 0.5 + corner;
+    return min(max(delta.x, delta.y), 0.0) + length(max(delta, 0.0)) - corner;
+}
+
+half4 main(float2 position) {
+    float distance = distanceToGlass(position);
+    float edge = clamp(1.0 + distance / edgeWidth, 0.0, 1.0);
+    float2 gradient = float2(
+        distanceToGlass(position + float2(0.5, 0.0)) - distanceToGlass(position - float2(0.5, 0.0)),
+        distanceToGlass(position + float2(0.0, 0.5)) - distanceToGlass(position - float2(0.0, 0.5))
+    );
+    float3 normal = normalize(float3(gradient * edge, sqrt(max(1.0 - edge * edge, 0.001))));
+    float3 ray = refract(float3(0.0, 0.0, -1.0), normal, 1.0 / 1.5);
+    float2 displacement = ray.xy / max(-ray.z, 0.1) * edgeWidth * refractionDepth * strength;
+    float2 samplePosition = clamp(position + displacement, float2(0.5), textureSize - 0.5);
+    return backdrop.eval(samplePosition);
+}

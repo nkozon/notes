@@ -31,6 +31,7 @@ import com.ozon.notes.LocalHazeState
 import com.ozon.notes.Stroke as NoteStroke
 import com.ozon.notes.advancedUiBlur
 import com.ozon.notes.advancedUiSurfaceColor
+import com.ozon.notes.AdvancedUiHeaderSurfaceAlpha
 import com.ozon.notes.drawing.controller.DrawingCanvasController
 import com.ozon.notes.drawing.geometry.DrawingGeometry
 import kotlin.math.roundToInt
@@ -87,18 +88,21 @@ fun DrawingSelectionOverlay(
                 val yOffset = if (isTooHigh) (bBottom * canvasScale + canvasOffset.y + px16) else (screenY - px64)
                 IntOffset((screenX - 72.dp.toPx().toInt()).roundToInt(), yOffset.roundToInt())
             }
-            .shadow(if (advancedUi) 0.dp else 4.dp, CircleShape)
+            .shadow(4.dp, CircleShape, clip = false)
             .advancedUiBlur(
+                liquidGlass = true,
                 hazeState = hazeState,
                 shape = CircleShape,
                 tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                backgroundColor = MaterialTheme.colorScheme.surface,
+                backgroundColor = Color(0xFFF9F9F9),
                 enabled = advancedUi
             )
             .clip(CircleShape)
             .zIndex(15f),
         color = advancedUiSurfaceColor(
-            originalColor = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
+            liquidGlass = true,
+            originalColor = if (advancedUi) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
+            translucentAlpha = AdvancedUiHeaderSurfaceAlpha,
             tint = MaterialTheme.colorScheme.primary,
             enabled = advancedUi
         ),

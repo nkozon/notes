@@ -545,8 +545,8 @@ fun DrawingNoteScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xFFF9F9F9))
                     .advancedUiSource(hazeState, advancedUi)
+                    .background(Color(0xFFF9F9F9))
             ) {
                 DrawingCanvas(
                     controller = controller,
@@ -567,92 +567,95 @@ fun DrawingNoteScreen(
                 showBottom = true
             )
 
-            // Top Bar
-            DrawingTopBar(
-                controller = controller,
-                isSplitScreen = isSplitScreen,
-                isSidePanelVisible = isSidePanelVisible,
-                onToggleSidePanel = { notesViewModel.onEvent(NoteEvent.ToggleSidePanel) },
-                showGuidelines = showGuidelines,
-                onToggleGuidelines = { showGuidelines = !showGuidelines },
-                showPageOverview = showPageOverview,
-                onTogglePageOverview = { showPageOverview = !showPageOverview },
-                onAddPageAtEnd = { controller.insertPage(controller.pageCount) },
-                onInsertImage = { imagePickerLauncher.launch("image/*") },
-                onExportPng = { launchExport(pngLauncher, "png") },
-                onExportPdfBitmap = { launchExport(pdfBitmapLauncher, "pdf") },
-                onExportPdfVector = { launchExport(pdfVectorLauncher, "pdf") },
-                onSave = { saveDrawing() },
-                onNavigateBack = {
-                    if (controller.isDirty) saveDrawing()
-                    onNavigateUp()
-                }
-            )
-
-            // Toolbar and Selection Layer
-            Box(modifier = Modifier.fillMaxSize().zIndex(11f)) {
-                DrawingToolbar(
-                    currentTool = controller.currentTool,
-                    onToolChange = { tool ->
-                        controller.clearSelection()
-                        if (controller.currentTool == tool && (tool == DrawingTool.PEN || tool == DrawingTool.ERASER)) {
-                            showThicknessPopup = !showThicknessPopup
-                            showColorPopup = false
-                        } else {
-                            controller.currentTool = tool
-                            showThicknessPopup = false
-                            showColorPopup = false
-                        }
-                    },
-                    anchor = toolbarAnchor,
-                    onAnchorChange = {
-                        toolbarAnchor = it
-                        notesViewModel.onEvent(NoteEvent.UpdateToolbarAnchor(it))
-                    },
-                    isCollapsed = isToolbarCollapsed,
-                    onToggleCollapse = { isToolbarCollapsed = it },
-                    penThickness = controller.penThickness,
-                    onPenThicknessChange = {
-                        controller.penThickness = it
-                        notesViewModel.onEvent(NoteEvent.UpdateLastDrawingThickness(it))
-                    },
-                    eraserThickness = controller.eraserThickness,
-                    onEraserThicknessChange = { controller.eraserThickness = it },
-                    showThicknessPopup = showThicknessPopup,
-                    selectedPenColor = controller.selectedPenColor,
-                    onPenColorChange = {
-                        controller.selectedPenColor = it
-                        notesViewModel.onEvent(NoteEvent.UpdateLastDrawingColor(it.toArgb()))
-                    },
-                    showColorPopup = showColorPopup,
-                    onToggleColorPopup = {
-                        showColorPopup = it
-                        if (it) showThicknessPopup = false
-                    },
-                    undoEnabled = controller.historyManager.canUndo,
-                    onUndo = { controller.undo() },
-                    redoEnabled = controller.historyManager.canRedo,
-                    onRedo = { controller.redo() },
-                    canvasScale = { controller.canvasScale },
-                    onResetZoom = {
-                        controller.canvasScale = 1f
-                        controller.canvasOffset = Offset.Zero
-                    },
-                    thicknessPresets = controller.thicknessPresets,
-                    onThicknessPresetsChange = {
-                        controller.thicknessPresets = it
-                        notesViewModel.onEvent(NoteEvent.UpdateDrawingThicknessPresets(it))
-                    }
-                )
-
-                // Selection Contextual Overlay
-                DrawingSelectionOverlay(
+            DrawingControlsTheme {
+                // Top Bar
+                DrawingTopBar(
                     controller = controller,
-                    onExportSelection = { s, i ->
-                        pendingExportSelection = s to i
-                        showSelectionExportDialog = true
+                    isSplitScreen = isSplitScreen,
+                    isSidePanelVisible = isSidePanelVisible,
+                    onToggleSidePanel = { notesViewModel.onEvent(NoteEvent.ToggleSidePanel) },
+                    showGuidelines = showGuidelines,
+                    onToggleGuidelines = { showGuidelines = !showGuidelines },
+                    showPageOverview = showPageOverview,
+                    onTogglePageOverview = { showPageOverview = !showPageOverview },
+                    onAddPageAtEnd = { controller.insertPage(controller.pageCount) },
+                    onInsertImage = { imagePickerLauncher.launch("image/*") },
+                    onExportPng = { launchExport(pngLauncher, "png") },
+                    onExportPdfBitmap = { launchExport(pdfBitmapLauncher, "pdf") },
+                    onExportPdfVector = { launchExport(pdfVectorLauncher, "pdf") },
+                    onSave = { saveDrawing() },
+                    onNavigateBack = {
+                        if (controller.isDirty) saveDrawing()
+                        onNavigateUp()
                     }
                 )
+
+                // Toolbar and Selection Layer
+                Box(modifier = Modifier.fillMaxSize().zIndex(11f)) {
+                    DrawingToolbar(
+                        currentTool = controller.currentTool,
+                        onToolChange = { tool ->
+                            controller.clearSelection()
+                            if (controller.currentTool == tool && (tool == DrawingTool.PEN || tool == DrawingTool.ERASER)) {
+                                showThicknessPopup = !showThicknessPopup
+                                showColorPopup = false
+                            } else {
+                                controller.currentTool = tool
+                                showThicknessPopup = false
+                                showColorPopup = false
+                            }
+                        },
+                        anchor = toolbarAnchor,
+                        onAnchorChange = {
+                            toolbarAnchor = it
+                            notesViewModel.onEvent(NoteEvent.UpdateToolbarAnchor(it))
+                        },
+                        isCollapsed = isToolbarCollapsed,
+                        onToggleCollapse = { isToolbarCollapsed = it },
+                        penThickness = controller.penThickness,
+                        onPenThicknessChange = {
+                            controller.penThickness = it
+                            notesViewModel.onEvent(NoteEvent.UpdateLastDrawingThickness(it))
+                        },
+                        eraserThickness = controller.eraserThickness,
+                        onEraserThicknessChange = { controller.eraserThickness = it },
+                        showThicknessPopup = showThicknessPopup,
+                        selectedPenColor = controller.selectedPenColor,
+                        onPenColorChange = {
+                            controller.selectedPenColor = it
+                            notesViewModel.onEvent(NoteEvent.UpdateLastDrawingColor(it.toArgb()))
+                        },
+                        showColorPopup = showColorPopup,
+                        onToggleColorPopup = {
+                            showColorPopup = it
+                            if (it) showThicknessPopup = false
+                        },
+                        undoEnabled = controller.historyManager.canUndo,
+                        onUndo = { controller.undo() },
+                        redoEnabled = controller.historyManager.canRedo,
+                        onRedo = { controller.redo() },
+                        canvasScale = { controller.canvasScale },
+                        onResetZoom = {
+                            controller.canvasScale = 1f
+                            controller.canvasOffset = Offset.Zero
+                        },
+                        thicknessPresets = controller.thicknessPresets,
+                        onThicknessPresetsChange = {
+                            controller.thicknessPresets = it
+                            notesViewModel.onEvent(NoteEvent.UpdateDrawingThicknessPresets(it))
+                        }
+                    )
+
+                    // Selection Contextual Overlay
+                    DrawingSelectionOverlay(
+                        controller = controller,
+                        onExportSelection = { s, i ->
+                            pendingExportSelection = s to i
+                            showSelectionExportDialog = true
+                        }
+                    )
+                }
+
             }
 
             // Tablet Side Panel Page Overview

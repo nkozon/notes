@@ -63,6 +63,12 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
     val advancedUiState: StateFlow<Boolean> = repository.getAdvancedUi()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    val advancedUiStyleState: StateFlow<AdvancedUiStyle> = repository.getAdvancedUiStyle()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AdvancedUiStyle.SIMPLE_BLUR)
+
+    val liquidGlassFrostingState: StateFlow<Float> = repository.getLiquidGlassFrosting()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DefaultLiquidGlassFrosting)
+
     val tabletModeState: StateFlow<TabletMode> = repository.getTabletMode()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TabletMode.AUTOMATIC)
 
@@ -566,6 +572,8 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
             is NoteEvent.UpdateCustomAccentColor -> viewModelScope.launch { repository.setCustomAccentColor(event.color) }
             is NoteEvent.UpdateIsOledMode -> viewModelScope.launch { repository.setIsOledMode(event.enabled) }
             is NoteEvent.UpdateAdvancedUi -> viewModelScope.launch { repository.setAdvancedUi(event.enabled) }
+            is NoteEvent.UpdateAdvancedUiStyle -> viewModelScope.launch { repository.setAdvancedUiStyle(event.style) }
+            is NoteEvent.UpdateLiquidGlassFrosting -> viewModelScope.launch { repository.setLiquidGlassFrosting(event.frosting) }
             is NoteEvent.UpdateTabletMode -> viewModelScope.launch { repository.setTabletMode(event.mode) }
             is NoteEvent.UpdateChecklistBehavior -> viewModelScope.launch { repository.setChecklistBehavior(event.behavior) }
             is NoteEvent.UpdateShowEntryCount -> viewModelScope.launch { repository.setShowEntryCount(event.show) }

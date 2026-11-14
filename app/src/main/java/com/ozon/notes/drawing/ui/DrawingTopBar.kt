@@ -44,11 +44,13 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.ozon.notes.AdvancedUiDropdownMenu
 import com.ozon.notes.CanvasType
 import com.ozon.notes.LocalAdvancedUiEnabled
 import com.ozon.notes.LocalHazeState
 import com.ozon.notes.advancedUiBlur
 import com.ozon.notes.advancedUiSurfaceColor
+import com.ozon.notes.AdvancedUiHeaderSurfaceAlpha
 import com.ozon.notes.drawing.controller.DrawingCanvasController
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -92,18 +94,21 @@ fun DrawingTopBar(
         Surface(
             modifier = Modifier
                 .weight(1f, fill = false)
-                .shadow(if (advancedUi) 0.dp else 8.dp, CircleShape)
+                .shadow(8.dp, CircleShape, clip = false)
                 .advancedUiBlur(
+                    liquidGlass = true,
                     hazeState = hazeState,
                     shape = CircleShape,
                     tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                    backgroundColor = MaterialTheme.colorScheme.surface,
+                    backgroundColor = Color(0xFFF9F9F9),
                     enabled = advancedUi
                 )
                 .clip(CircleShape),
             shape = CircleShape,
             color = advancedUiSurfaceColor(
-                originalColor = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
+                liquidGlass = true,
+                originalColor = if (advancedUi) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
+                translucentAlpha = AdvancedUiHeaderSurfaceAlpha,
                 tint = MaterialTheme.colorScheme.primary,
                 enabled = advancedUi
             ),
@@ -185,18 +190,21 @@ fun DrawingTopBar(
         // Right pill: Action buttons (Save/Checkmark, Page Overview, More Menu)
         Surface(
             modifier = Modifier
-                .shadow(if (advancedUi) 0.dp else 8.dp, CircleShape)
+                .shadow(8.dp, CircleShape, clip = false)
                 .advancedUiBlur(
+                    liquidGlass = true,
                     hazeState = hazeState,
                     shape = CircleShape,
                     tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                    backgroundColor = MaterialTheme.colorScheme.surface,
+                    backgroundColor = Color(0xFFF9F9F9),
                     enabled = advancedUi
                 )
                 .clip(CircleShape),
             shape = CircleShape,
             color = advancedUiSurfaceColor(
-                originalColor = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
+                liquidGlass = true,
+                originalColor = if (advancedUi) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp),
+                translucentAlpha = AdvancedUiHeaderSurfaceAlpha,
                 tint = MaterialTheme.colorScheme.primary,
                 enabled = advancedUi
             ),
@@ -315,7 +323,7 @@ fun DrawingTopBar(
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
-                    DropdownMenu(
+                    AdvancedUiDropdownMenu(
                         expanded = showMoreMenu,
                         onDismissRequest = { showMoreMenu = false }
                     ) {

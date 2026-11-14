@@ -31,6 +31,10 @@ interface NoteRepository : NotesRepository, ChecklistRepository {
     suspend fun setIsOledMode(enabled: Boolean)
     fun getAdvancedUi(): Flow<Boolean>
     suspend fun setAdvancedUi(enabled: Boolean)
+    fun getAdvancedUiStyle(): Flow<AdvancedUiStyle>
+    suspend fun setAdvancedUiStyle(style: AdvancedUiStyle)
+    fun getLiquidGlassFrosting(): Flow<Float>
+    suspend fun setLiquidGlassFrosting(frosting: Float)
     fun getTabletMode(): Flow<TabletMode>
     suspend fun setTabletMode(mode: TabletMode)
     fun getNoteSortOrder(): Flow<ListSortOrder>

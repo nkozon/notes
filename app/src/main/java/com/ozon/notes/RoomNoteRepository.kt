@@ -1027,6 +1027,25 @@ class RoomNoteRepository(
         _advancedUi.value = enabled
     }
 
+    private val _advancedUiStyle = MutableStateFlow(
+        AdvancedUiStyle.fromPreference(prefs.getString("advanced_ui_style", null))
+    )
+    override fun getAdvancedUiStyle(): Flow<AdvancedUiStyle> = _advancedUiStyle
+    override suspend fun setAdvancedUiStyle(style: AdvancedUiStyle) {
+        prefs.edit().putString("advanced_ui_style", style.name).apply()
+        _advancedUiStyle.value = style
+    }
+
+    private val _liquidGlassFrosting = MutableStateFlow(
+        normalizedGlassFrosting(prefs.getFloat("liquid_glass_frosting", DefaultLiquidGlassFrosting))
+    )
+    override fun getLiquidGlassFrosting(): Flow<Float> = _liquidGlassFrosting
+    override suspend fun setLiquidGlassFrosting(frosting: Float) {
+        val value = normalizedGlassFrosting(frosting)
+        prefs.edit().putFloat("liquid_glass_frosting", value).apply()
+        _liquidGlassFrosting.value = value
+    }
+
     override fun getTabletMode(): Flow<TabletMode> = _tabletMode
     override suspend fun setTabletMode(mode: TabletMode) {
         prefs.edit().putString("tablet_mode", mode.name).apply()

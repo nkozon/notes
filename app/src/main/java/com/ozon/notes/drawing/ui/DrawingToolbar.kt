@@ -31,6 +31,8 @@ import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
@@ -43,6 +45,7 @@ import com.ozon.notes.R
 import com.ozon.notes.ToolbarAnchor
 import com.ozon.notes.advancedUiBlur
 import com.ozon.notes.advancedUiSurfaceColor
+import com.ozon.notes.AdvancedUiHeaderSurfaceAlpha
 import kotlin.math.roundToInt
 
 private val HorizontalToolbarWidth = 340.dp
@@ -196,12 +199,13 @@ fun DrawingToolbar(
                         else Modifier.wrapContentSize()
                     )
                     .offset { IntOffset(dragOffset.x.roundToInt(), dragOffset.y.roundToInt()) }
-                    .shadow(if (advancedUi) 0.dp else (if (isCollapsed) 3.dp else 6.dp), CircleShape)
+                    .shadow(if (isCollapsed) 3.dp else 6.dp, CircleShape, clip = false)
                     .advancedUiBlur(
+                        liquidGlass = true,
                         hazeState = hazeState,
                         shape = CircleShape,
                         tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                        backgroundColor = MaterialTheme.colorScheme.surface,
+                        backgroundColor = Color(0xFFF9F9F9),
                         enabled = advancedUi
                     )
                     .clip(CircleShape)
@@ -255,7 +259,9 @@ fun DrawingToolbar(
                         )
                     },
                 color = advancedUiSurfaceColor(
-                    originalColor = MaterialTheme.colorScheme.surfaceColorAtElevation(if (isCollapsed) 2.dp else 4.dp),
+                    liquidGlass = true,
+                    originalColor = if (advancedUi) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceColorAtElevation(if (isCollapsed) 2.dp else 4.dp),
+                    translucentAlpha = AdvancedUiHeaderSurfaceAlpha,
                     tint = MaterialTheme.colorScheme.primary,
                     enabled = advancedUi
                 ),
@@ -491,13 +497,15 @@ private fun ToolbarSeparator(isHorizontal: Boolean) {
 
 @Composable
 fun ToolbarItem(tool: DrawingTool, painter: Painter, isSelected: Boolean, onClick: () -> Unit) {
+    val selectionColors = LocalDrawingToolSelectionColors.current
     IconButton(
         onClick = onClick,
-        modifier = Modifier.size(30.dp),
-        colors = if (isSelected) IconButtonDefaults.iconButtonColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-        ) else IconButtonDefaults.iconButtonColors()
+        modifier = Modifier.size(30.dp).semantics { selected = isSelected },
+        colors = IconButtonDefaults.iconButtonColors(
+            containerColor = if (isSelected) selectionColors?.background ?: MaterialTheme.colorScheme.primary else Color.Transparent,
+            contentColor = if (isSelected) selectionColors?.foreground ?: MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+            disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+        )
     ) {
         Icon(painter, tool.name, modifier = Modifier.size(18.dp))
     }
@@ -515,17 +523,20 @@ fun ColorPopup(selectedColor: Color, onColorChange: (Color) -> Unit, onOpenPicke
     Surface(
         modifier = Modifier
             .width(240.dp)
-            .shadow(if (advancedUi) 0.dp else 4.dp, RoundedCornerShape(16.dp))
+            .shadow(4.dp, RoundedCornerShape(16.dp), clip = false)
             .advancedUiBlur(
+                liquidGlass = true,
                 hazeState = hazeState,
                 shape = RoundedCornerShape(16.dp),
                 tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                backgroundColor = MaterialTheme.colorScheme.surface,
+                backgroundColor = Color(0xFFF9F9F9),
                 enabled = advancedUi
             ),
         shape = RoundedCornerShape(16.dp),
         color = advancedUiSurfaceColor(
-            originalColor = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp),
+            liquidGlass = true,
+            originalColor = if (advancedUi) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp),
+            translucentAlpha = AdvancedUiHeaderSurfaceAlpha,
             tint = MaterialTheme.colorScheme.primary,
             enabled = advancedUi
         ),
@@ -597,17 +608,20 @@ fun ThicknessPopup(
     Surface(
         modifier = Modifier
             .width(300.dp)
-            .shadow(if (advancedUi) 0.dp else 4.dp, RoundedCornerShape(16.dp))
+            .shadow(4.dp, RoundedCornerShape(16.dp), clip = false)
             .advancedUiBlur(
+                liquidGlass = true,
                 hazeState = hazeState,
                 shape = RoundedCornerShape(16.dp),
                 tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                backgroundColor = MaterialTheme.colorScheme.surface,
+                backgroundColor = Color(0xFFF9F9F9),
                 enabled = advancedUi
             ),
         shape = RoundedCornerShape(16.dp),
         color = advancedUiSurfaceColor(
-            originalColor = MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp),
+            liquidGlass = true,
+            originalColor = if (advancedUi) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp),
+            translucentAlpha = AdvancedUiHeaderSurfaceAlpha,
             tint = MaterialTheme.colorScheme.primary,
             enabled = advancedUi
         ),

@@ -64,13 +64,14 @@ fun TagFilterDropdown(
             modifier = Modifier
                 .width(280.dp)
                 .advancedUiBlur(
+                    liquidGlass = true,
                     hazeState = hazeState,
                     shape = menuShape,
                     backgroundColor = MaterialTheme.colorScheme.background,
                     enabled = useBlur
                 )
                 .background(
-                    advancedUiSurfaceColor(originalColor = menuColor, enabled = useBlur),
+                    advancedUiSurfaceColor(originalColor = menuColor, enabled = useBlur, liquidGlass = true),
                     menuShape
                 ),
             shape = menuShape,

@@ -15,8 +15,8 @@ android {
         applicationId = "com.ozon.notes"
         minSdk = 30
         targetSdk = 36
-        versionCode = 52
-        versionName = "1.13.5"
+        versionCode = 54
+        versionName = "1.14"
 
         val localProperties = Properties()
         val localPropertiesFile = rootProject.file("local.properties")
@@ -99,4 +99,6 @@ dependencies {
     val hazeVersion = "2.0.1"
     implementation("dev.chrisbanes.haze:haze:$hazeVersion")
     implementation("dev.chrisbanes.haze:haze-blur:$hazeVersion")
+    // Provides the opt-in annotation for Haze's source-to-layer renderer hook.
+    implementation("dev.chrisbanes.haze:haze-utils:$hazeVersion")
 }

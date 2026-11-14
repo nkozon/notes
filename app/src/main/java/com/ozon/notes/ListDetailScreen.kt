@@ -84,6 +84,9 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.saveable.rememberSaveable
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -196,6 +199,36 @@ fun ListDetailScreen(
     var expandedEntries by remember { mutableStateOf(setOf<String>()) }
     var collapsingParentIds by remember { mutableStateOf(setOf<String>()) }
     val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    var showMoreMenu by remember(listId) { mutableStateOf(false) }
+    val moreMenuShape = RoundedCornerShape(28.dp)
+    LiveBlurSourceUpdates(hazeState, enabled = showMoreMenu && advancedUi)
+    var preparingExport by remember(listId) { mutableStateOf(false) }
+    var pendingExportText by rememberSaveable { mutableStateOf<String?>(null) }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        val text = pendingExportText
+        pendingExportText = null
+        if (uri != null && text != null) {
+            coroutineScope.launch {
+                val message = try {
+                    withContext(Dispatchers.IO) {
+                        val stream = context.contentResolver.openOutputStream(uri, "wt")
+                            ?: throw java.io.IOException("Unable to open export file")
+                        stream.bufferedWriter(Charsets.UTF_8).use { it.write(text) }
+                    }
+                    "List exported"
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    "Could not export list"
+                }
+                snackbarHostState.showSnackbar(message)
+            }
+        }
+    }
 
     val toggleExpand: (String) -> Unit = { entryId ->
         if (expandedEntries.contains(entryId)) {
@@ -345,9 +378,10 @@ fun ListDetailScreen(
 
     val pillContainerColor = if (pillBackgroundAlpha > 0.01f) {
         advancedUiSurfaceColor(
+            liquidGlass = true,
             originalColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = pillBackgroundAlpha),
             tint = MaterialTheme.colorScheme.primary,
-            translucentAlpha = pillBackgroundAlpha * 0.7f,
+            translucentAlpha = pillBackgroundAlpha * AdvancedUiHeaderSurfaceAlpha,
             tintAlpha = 0.15f * pillBackgroundAlpha,
             enabled = advancedUi
         )
@@ -393,66 +427,148 @@ fun ListDetailScreen(
     CompositionLocalProvider(LocalHazeState provides hazeState) {
         Scaffold(
                 containerColor = Color.Transparent,
+            snackbarHost = { SnackbarHost(snackbarHostState) },
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             floatingActionButtonPosition = androidx.compose.material3.FabPosition.Center,
             topBar = {
-                Box(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
                         .height(headerHeight)
                         .padding(horizontal = 16.dp),
-                    contentAlignment = Alignment.CenterStart
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = pillContainerColor,
-                        shadowElevation = if (advancedUi || isAtTop) 0.dp else 4.dp,
-                        tonalElevation = if (advancedUi || isAtTop) 0.dp else 4.dp,
-                        modifier = Modifier
-                            .advancedUiBlur(
+                    Box(modifier = Modifier.weight(1f)) {
+                        Surface(
+                            shape = CircleShape,
+                            color = pillContainerColor,
+                            shadowElevation = if (advancedUi || isAtTop) 0.dp else 4.dp,
+                            tonalElevation = if (advancedUi || isAtTop) 0.dp else 4.dp,
+                            modifier = Modifier
+                                .advancedUiBlur(
+                                    liquidGlass = true,
+                                    hazeState = hazeState,
+                                    shape = CircleShape,
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f * pillBackgroundAlpha),
+                                    blurRadius = 24.dp * pillBackgroundAlpha,
+                                    enabled = advancedUi
+                                )
+                                .clip(CircleShape)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(
+                                    onClick = onNavigateUp,
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                        contentDescription = "Back",
+                                        tint = backButtonContentColor
+                                    )
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f, fill = false)
+                                        .padding(start = 2.dp, end = 12.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { showRenameListDialog = true },
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    Text(
+                                        text = currentList.title,
+                                        style = MaterialTheme.typography.titleLarge.copy(
+                                            fontWeight = FontWeight.SemiBold
+                                        ),
+                                        color = titleContentColor,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Box {
+                        Surface(
+                            shape = CircleShape,
+                            color = pillContainerColor,
+                            shadowElevation = if (advancedUi || isAtTop) 0.dp else 4.dp,
+                            tonalElevation = if (advancedUi || isAtTop) 0.dp else 4.dp,
+                            modifier = Modifier.advancedUiBlur(
+                                liquidGlass = true,
                                 hazeState = hazeState,
                                 shape = CircleShape,
                                 tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f * pillBackgroundAlpha),
                                 blurRadius = 24.dp * pillBackgroundAlpha,
                                 enabled = advancedUi
-                            )
-                            .clip(CircleShape)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            ).clip(CircleShape)
                         ) {
-                            IconButton(
-                                onClick = onNavigateUp,
-                                modifier = Modifier.size(40.dp)
-                            ) {
+                            IconButton(onClick = { showMoreMenu = true }) {
                                 Icon(
-                                    imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                                    contentDescription = "Back",
+                                    Icons.Rounded.MoreVert,
+                                    contentDescription = "More options",
                                     tint = backButtonContentColor
                                 )
                             }
-
-                            Box(
-                                modifier = Modifier
-                                    .padding(start = 2.dp, end = 12.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable { showRenameListDialog = true },
-                                contentAlignment = Alignment.CenterStart
-                            ) {
-                                Text(
-                                    text = currentList.title,
-                                    style = MaterialTheme.typography.titleLarge.copy(
-                                        fontWeight = FontWeight.SemiBold
-                                    ),
-                                    color = titleContentColor,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                        }
+                        DropdownMenu(
+                            expanded = showMoreMenu,
+                            onDismissRequest = { showMoreMenu = false },
+                            modifier = Modifier
+                                .width(220.dp)
+                                .advancedUiBlur(
+                                    liquidGlass = true,
+                                    hazeState = hazeState,
+                                    shape = moreMenuShape,
+                                    backgroundColor = MaterialTheme.colorScheme.background,
+                                    enabled = advancedUi
                                 )
-                            }
+                                .background(
+                                    advancedUiSurfaceColor(
+                                        liquidGlass = true,
+                                        originalColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        enabled = advancedUi
+                                    ),
+                                    moreMenuShape
+                                ),
+                            shape = moreMenuShape,
+                            containerColor = Color.Transparent,
+                            tonalElevation = 0.dp
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Export as TXT") },
+                                leadingIcon = { Icon(Icons.Rounded.FileDownload, contentDescription = null) },
+                                enabled = !preparingExport && pendingExportText == null,
+                                onClick = {
+                                    showMoreMenu = false
+                                    preparingExport = true
+                                    coroutineScope.launch {
+                                        try {
+                                            pendingExportText = withContext(Dispatchers.Default) {
+                                                checklistViewModel.exportListText(currentList)
+                                            }
+                                            val fileName = currentList.title
+                                                .replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_")
+                                                .trim().ifBlank { "list" }
+                                            exportLauncher.launch("$fileName.txt")
+                                        } catch (error: CancellationException) {
+                                            throw error
+                                        } catch (error: Exception) {
+                                            pendingExportText = null
+                                            snackbarHostState.showSnackbar("Could not export list")
+                                        } finally {
+                                            preparingExport = false
+                                        }
+                                    }
+                                }
+                            )
                         }
                     }
                 }
@@ -494,6 +610,7 @@ fun ListDetailScreen(
                             .weight(1f)
                             .height(56.dp)
                             .advancedUiBlur(
+                                liquidGlass = true,
                                 hazeState = hazeState,
                                 shape = searchShape,
                                 tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
@@ -501,6 +618,7 @@ fun ListDetailScreen(
                             ),
                         shape = searchShape,
                         color = advancedUiSurfaceColor(
+                            liquidGlass = true,
                             originalColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                             tint = MaterialTheme.colorScheme.primary,
                             enabled = advancedUi
@@ -638,12 +756,14 @@ fun ListDetailScreen(
                                 modifier = Modifier
                                     .size(56.dp)
                                     .advancedUiBlur(
+                                        liquidGlass = true,
                                         hazeState = hazeState,
                                         shape = CircleShape,
                                         tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                                         enabled = advancedUi
                                     ),
                                 containerColor = advancedUiSurfaceColor(
+                                    liquidGlass = true,
                                     originalColor = MaterialTheme.colorScheme.primaryContainer,
                                     tint = MaterialTheme.colorScheme.primary,
                                     enabled = advancedUi

@@ -25,9 +25,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.lerp
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -46,6 +49,8 @@ fun ThemeScreen(
     val useDynamicColor by viewModel.useDynamicColorState.collectAsStateWithLifecycle()
     val isOledMode by viewModel.isOledModeState.collectAsStateWithLifecycle()
     val advancedUi by viewModel.advancedUiState.collectAsStateWithLifecycle()
+    val advancedUiStyle by viewModel.advancedUiStyleState.collectAsStateWithLifecycle()
+    val liquidGlassFrosting by viewModel.liquidGlassFrostingState.collectAsStateWithLifecycle()
     val font by viewModel.fontState.collectAsStateWithLifecycle()
     val tabletMode by viewModel.tabletModeState.collectAsStateWithLifecycle()
 
@@ -156,40 +161,49 @@ fun ThemeScreen(
                             }
 
                             SettingsItemContainer(index = 2, total = 3) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Text("Advanced user interface", style = MaterialTheme.typography.titleMedium)
-                                            Surface(
-                                                shape = CircleShape,
-                                                color = MaterialTheme.colorScheme.primaryContainer,
-                                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                Column {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
-                                                Text(
-                                                    text = "BETA",
-                                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                                )
+                                                Text("Advanced user interface", style = MaterialTheme.typography.titleMedium)
+                                                Surface(
+                                                    shape = CircleShape,
+                                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                                ) {
+                                                    Text(
+                                                        text = "BETA",
+                                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                                    )
+                                                }
                                             }
+                                            Text(
+                                                "Glass controls and progressive edge blur",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
                                         }
-                                        Text(
-                                            "Frosted glass blur and progressive gradient blurs",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        Switch(
+                                            checked = advancedUi,
+                                            onCheckedChange = { viewModel.onEvent(NoteEvent.UpdateAdvancedUi(it)) }
                                         )
                                     }
-                                    Switch(
-                                        checked = advancedUi,
-                                        onCheckedChange = { viewModel.onEvent(NoteEvent.UpdateAdvancedUi(it)) }
+                                    AdvancedUiEffectSettings(
+                                        advancedUiEnabled = advancedUi,
+                                        style = advancedUiStyle,
+                                        frosting = liquidGlassFrosting,
+                                        onStyleChange = { viewModel.onEvent(NoteEvent.UpdateAdvancedUiStyle(it)) },
+                                        onFrostingChange = { viewModel.onEvent(NoteEvent.UpdateLiquidGlassFrosting(it)) },
                                     )
                                 }
                             }
@@ -298,7 +312,7 @@ fun ThemeScreen(
                                     )
                                 }
 
-                                DropdownMenu(
+                                AdvancedUiDropdownMenu(
                                     expanded = fontDropdownExpanded,
                                     onDismissRequest = { fontDropdownExpanded = false },
                                     shape = RoundedCornerShape(16.dp),
@@ -442,7 +456,8 @@ fun ThemeModeItem(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     val cornerRadius by animateDpAsState(
         targetValue = if (selected) 24.dp else 12.dp,
@@ -452,7 +467,10 @@ fun ThemeModeItem(
 
     Surface(
         onClick = onClick,
-        modifier = modifier.height(48.dp),
+        enabled = enabled,
+        modifier = modifier.height(48.dp)
+            .alpha(if (enabled) 1f else 0.38f)
+            .semantics { this.selected = selected },
         shape = RoundedCornerShape(cornerRadius),
         color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
     ) {

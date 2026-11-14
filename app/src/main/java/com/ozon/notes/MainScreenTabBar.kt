@@ -174,6 +174,7 @@ private fun MainTabItem(
         modifier = modifier
             .fillMaxHeight()
             .advancedUiBlur(
+                liquidGlass = true,
                 hazeState = hazeState,
                 shape = tabShape,
                 tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
@@ -181,6 +182,7 @@ private fun MainTabItem(
             ),
         shape = tabShape,
         color = advancedUiSurfaceColor(
+            liquidGlass = true,
             originalColor = backgroundColor,
             tint = MaterialTheme.colorScheme.primary,
             enabled = advancedUi

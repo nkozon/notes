@@ -73,6 +73,8 @@ class MainActivity : ComponentActivity() {
             val customAccentColor by settingsViewModel.customAccentColorState.collectAsStateWithLifecycle()
             val isOledMode by settingsViewModel.isOledModeState.collectAsStateWithLifecycle()
             val advancedUi by settingsViewModel.advancedUiState.collectAsStateWithLifecycle()
+            val advancedUiStyle by settingsViewModel.advancedUiStyleState.collectAsStateWithLifecycle()
+            val liquidGlassFrosting by settingsViewModel.liquidGlassFrostingState.collectAsStateWithLifecycle()
 
             val listId by initialListId
             val entryId by rescheduleEntryId
@@ -134,7 +136,11 @@ class MainActivity : ComponentActivity() {
                 isOledMode = isOledMode,
                 appFont = appFont
             ) {
-                androidx.compose.runtime.CompositionLocalProvider(LocalAdvancedUiEnabled provides advancedUi) {
+                androidx.compose.runtime.CompositionLocalProvider(
+                    LocalAdvancedUiEnabled provides advancedUi,
+                    LocalAdvancedUiStyle provides advancedUiStyle,
+                    LocalLiquidGlassFrosting provides liquidGlassFrosting
+                ) {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.background

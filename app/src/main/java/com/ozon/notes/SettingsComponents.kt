@@ -95,9 +95,10 @@ fun SettingsTopAppBar(
 
     val pillContainerColor = if (pillBackgroundAlpha > 0.01f) {
         advancedUiSurfaceColor(
+            liquidGlass = true,
             originalColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = pillBackgroundAlpha),
             tint = MaterialTheme.colorScheme.primary,
-            translucentAlpha = pillBackgroundAlpha * 0.7f,
+            translucentAlpha = pillBackgroundAlpha * AdvancedUiHeaderSurfaceAlpha,
             tintAlpha = 0.15f * pillBackgroundAlpha,
             enabled = advancedUi
         )
@@ -118,6 +119,7 @@ fun SettingsTopAppBar(
             tonalElevation = if (advancedUi || isAtTop) 0.dp else 4.dp,
             modifier = Modifier
                 .advancedUiBlur(
+                    liquidGlass = true,
                     hazeState = hazeState,
                     shape = CircleShape,
                     tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f * pillBackgroundAlpha),

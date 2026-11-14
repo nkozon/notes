@@ -100,13 +100,22 @@ fun Modifier.advancedUiBlur(
     tint: Color? = null,
     backgroundColor: Color = Color.Unspecified,
     blurRadius: Dp = 24.dp,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    liquidGlass: Boolean = false,
 ): Modifier {
     if (!enabled || hazeState == null || blurRadius <= 0.01.dp) return this
     val effectiveRadius = blurRadius.coerceAtLeast(0.dp)
     val hasBackgroundColor = backgroundColor.isSpecified && backgroundColor.alpha > 0.01f
     val opaqueBackground = (if (hasBackgroundColor) backgroundColor else MaterialTheme.colorScheme.background)
         .copy(alpha = 1f)
+    if (liquidGlass && liquidGlassControlsEnabled()) {
+        return liquidGlassBackdrop(
+            hazeState = hazeState,
+            shape = shape,
+            backgroundColor = opaqueBackground,
+            strength = (effectiveRadius / 24.dp).coerceIn(0f, 1f),
+        )
+    }
     return this
         .clip(shape)
         .hazeBlur(
@@ -207,12 +216,18 @@ fun advancedUiSurfaceColor(
     tint: Color = MaterialTheme.colorScheme.primary,
     translucentAlpha: Float = 0.65f,
     tintAlpha: Float = 0.15f,
-    enabled: Boolean = LocalAdvancedUiEnabled.current
+    enabled: Boolean = LocalAdvancedUiEnabled.current,
+    liquidGlass: Boolean = false,
 ): Color {
     if (!enabled) return originalColor
     if (translucentAlpha <= 0.001f || originalColor.alpha <= 0.001f) return Color.Transparent
-    val base = originalColor.copy(alpha = translucentAlpha)
-    val scaledTintAlpha = (tintAlpha * (translucentAlpha / 0.65f)).coerceIn(0f, 1f)
+    val useLiquidGlass = liquidGlass && liquidGlassControlsEnabled()
+    val frosting = effectiveGlassFrosting(LocalLiquidGlassFrosting.current)
+    val surfaceAlpha = if (useLiquidGlass) {
+        ((0.08f + 0.5f * frosting) * (translucentAlpha / 0.65f)).coerceIn(0f, 1f)
+    } else translucentAlpha
+    val base = originalColor.copy(alpha = surfaceAlpha)
+    val scaledTintAlpha = (tintAlpha * (surfaceAlpha / 0.65f)).coerceIn(0f, 1f)
     val tintOverlay = tint.copy(alpha = scaledTintAlpha)
     return tintOverlay.compositeOver(base)
 }

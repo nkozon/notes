@@ -137,6 +137,9 @@ private fun CollapsedSidePanel(
     onCreate: () -> Unit,
     onSettingsClick: () -> Unit
 ) {
+    val inactiveTabColor = if (LocalAdvancedUiEnabled.current && liquidGlassControlsEnabled()) {
+        MaterialTheme.colorScheme.surfaceContainerHigh
+    } else Color.Transparent
     val settingsContainerColor = if (isSettingsActive) {
         MaterialTheme.colorScheme.primaryContainer
     } else {
@@ -186,7 +189,7 @@ private fun CollapsedSidePanel(
                     containerColor = if (isSelected) {
                         MaterialTheme.colorScheme.primaryContainer
                     } else {
-                        Color.Transparent
+                        inactiveTabColor
                     },
                     contentColor = if (isSelected) {
                         MaterialTheme.colorScheme.onPrimaryContainer
@@ -226,6 +229,7 @@ private fun CollapsedSidePanel(
             onClick = onSettingsClick,
             icon = Icons.Rounded.Settings,
             contentDescription = "Settings",
+            modifier = Modifier.size(48.dp),
             shape = if (isSettingsActive) RoundedCornerShape(12.dp) else CircleShape,
             containerColor = settingsContainerColor,
             contentColor = settingsContentColor
@@ -269,6 +273,9 @@ fun NoteListScreen(
     val hasPendingChanges by settingsViewModel.hasPendingChanges.collectAsStateWithLifecycle()
     val mobileDataPrompt by settingsViewModel.mobileDataDownloadPrompt.collectAsStateWithLifecycle()
     val advancedUi by settingsViewModel.advancedUiState.collectAsStateWithLifecycle()
+    val headerButtonBackground = if (advancedUi && liquidGlassControlsEnabled()) {
+        MaterialTheme.colorScheme.surfaceContainerHigh
+    } else Color.Transparent
     val hazeState = rememberHazeState()
 
     val lastSelectedTab by settingsViewModel.lastSelectedTabState.collectAsStateWithLifecycle()
@@ -384,6 +391,15 @@ fun NoteListScreen(
             gridState.firstVisibleItemIndex == 0 && gridState.firstVisibleItemScrollOffset <= 10
         }
     }
+
+    val settingsButtonBackgroundAlpha by animateFloatAsState(
+        targetValue = if (isAtTop) 0f else 1f,
+        animationSpec = tween(durationMillis = 200),
+        label = "settingsButtonBackgroundAlpha"
+    )
+    val settingsButtonBaseColor = if (activeRoute is DetailRoute.Settings) {
+        MaterialTheme.colorScheme.primaryContainer
+    } else headerButtonBackground
 
     val topAlpha by remember {
         derivedStateOf {
@@ -591,6 +607,7 @@ fun NoteListScreen(
                                     .weight(1f)
                                     .height(56.dp)
                                     .advancedUiBlur(
+                                        liquidGlass = true,
                                         hazeState = hazeState,
                                         shape = searchShape,
                                         tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
@@ -598,6 +615,7 @@ fun NoteListScreen(
                                     ),
                                 shape = searchShape,
                                 color = advancedUiSurfaceColor(
+                                    liquidGlass = true,
                                     originalColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                                     tint = MaterialTheme.colorScheme.primary,
                                     enabled = advancedUi
@@ -734,12 +752,14 @@ fun NoteListScreen(
                                         modifier = Modifier
                                             .size(56.dp)
                                             .advancedUiBlur(
+                                                liquidGlass = true,
                                                 hazeState = hazeState,
                                                 shape = CircleShape,
                                                 tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                                                 enabled = advancedUi
                                             ),
                                         containerColor = advancedUiSurfaceColor(
+                                            liquidGlass = true,
                                             originalColor = fabContainerColor,
                                             tint = MaterialTheme.colorScheme.primary,
                                             enabled = advancedUi
@@ -804,6 +824,7 @@ fun NoteListScreen(
                                         onClick = { showSyncDetailsDialog = true },
                                         shape = CircleShape,
                                         color = advancedUiSurfaceColor(
+                                            liquidGlass = true,
                                             originalColor = MaterialTheme.colorScheme.primaryContainer,
                                             tint = MaterialTheme.colorScheme.primary,
                                             enabled = advancedUi
@@ -812,6 +833,7 @@ fun NoteListScreen(
                                         modifier = Modifier
                                             .height(38.dp)
                                             .advancedUiBlur(
+                                                liquidGlass = true,
                                                 hazeState = hazeState,
                                                 shape = CircleShape,
                                                 tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
@@ -842,6 +864,7 @@ fun NoteListScreen(
                                         },
                                         shape = CircleShape,
                                         color = advancedUiSurfaceColor(
+                                            liquidGlass = true,
                                             originalColor = MaterialTheme.colorScheme.primaryContainer,
                                             tint = MaterialTheme.colorScheme.primary,
                                             enabled = advancedUi
@@ -850,6 +873,7 @@ fun NoteListScreen(
                                         modifier = Modifier
                                             .height(38.dp)
                                             .advancedUiBlur(
+                                                liquidGlass = true,
                                                 hazeState = hazeState,
                                                 shape = CircleShape,
                                                 tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
@@ -887,7 +911,7 @@ fun NoteListScreen(
                                         },
                                         icon = Icons.AutoMirrored.Rounded.ViewSidebar,
                                         contentDescription = "Collapse side panel",
-                                        containerColor = Color.Transparent,
+                                        containerColor = headerButtonBackground,
                                         contentColor = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
@@ -895,10 +919,11 @@ fun NoteListScreen(
                                     onClick = onSettingsClick,
                                     icon = Icons.Rounded.Settings,
                                     contentDescription = "Settings",
+                                    modifier = Modifier.size(48.dp),
                                     shape = if (activeRoute is DetailRoute.Settings) RoundedCornerShape(12.dp) else CircleShape,
-                                    containerColor = if (activeRoute is DetailRoute.Settings) 
-                                        MaterialTheme.colorScheme.primaryContainer 
-                                    else Color.Transparent,
+                                    containerColor = settingsButtonBaseColor.copy(
+                                        alpha = settingsButtonBaseColor.alpha * settingsButtonBackgroundAlpha
+                                    ),
                                     contentColor = if (activeRoute is DetailRoute.Settings)
                                         MaterialTheme.colorScheme.onPrimaryContainer
                                     else MaterialTheme.colorScheme.onSurface
@@ -2162,6 +2187,7 @@ private fun CreateOptionItem(
         },
         shape = shape,
         color = advancedUiSurfaceColor(
+            liquidGlass = true,
             originalColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             tint = MaterialTheme.colorScheme.primary,
             enabled = advancedUi
@@ -2173,6 +2199,7 @@ private fun CreateOptionItem(
             .fillMaxWidth()
             .height(54.dp)
             .advancedUiBlur(
+                liquidGlass = true,
                 hazeState = hazeState,
                 shape = shape,
                 tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
