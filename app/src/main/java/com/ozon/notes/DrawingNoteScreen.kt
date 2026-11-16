@@ -557,16 +557,6 @@ fun DrawingNoteScreen(
                 )
             }
 
-            // System bar gradients
-            SystemBarGradients(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .zIndex(1f),
-                color = Color(0xFFF9F9F9),
-                showTop = !isNormalTablet,
-                showBottom = true
-            )
-
             DrawingControlsTheme {
                 // Top Bar
                 DrawingTopBar(

@@ -19,7 +19,11 @@ float distanceToGlass(float2 point) {
 
 half4 main(float2 position) {
     float distance = distanceToGlass(position);
-    float edge = clamp(1.0 + distance / edgeWidth, 0.0, 1.0);
+    float edgePosition = clamp(1.0 + distance / edgeWidth, 0.0, 1.0);
+    // Ease the bevel into the flat center with zero first and second derivatives.
+    // A linear ramp leaves a visible seam where the refraction band stops.
+    float edge = edgePosition * edgePosition * edgePosition
+        * (edgePosition * (edgePosition * 6.0 - 15.0) + 10.0);
     float2 gradient = float2(
         distanceToGlass(position + float2(0.5, 0.0)) - distanceToGlass(position - float2(0.5, 0.0)),
         distanceToGlass(position + float2(0.0, 0.5)) - distanceToGlass(position - float2(0.0, 0.5))

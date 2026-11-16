@@ -438,16 +438,32 @@ fun DrawingTitleDetailsPopup(
     }
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val advancedUi = LocalAdvancedUiEnabled.current
+    val hazeState = LocalHazeState.current
+    val popupShape = RoundedCornerShape(28.dp)
 
     Surface(
         modifier = modifier
             .widthIn(max = 360.dp)
-            .fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        tonalElevation = 8.dp,
-        shadowElevation = 8.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            .fillMaxWidth()
+            .shadow(8.dp, popupShape, clip = false)
+            .advancedUiBlur(
+                hazeState = hazeState,
+                shape = popupShape,
+                backgroundColor = Color(0xFFF9F9F9),
+                enabled = advancedUi,
+                liquidGlass = true,
+            ),
+        shape = popupShape,
+        color = advancedUiSurfaceColor(
+            originalColor = if (advancedUi) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+            translucentAlpha = AdvancedUiHeaderSurfaceAlpha,
+            enabled = advancedUi,
+            liquidGlass = true,
+        ),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        tonalElevation = if (advancedUi) 0.dp else 8.dp,
+        border = if (advancedUi) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
     ) {
         Column(
             modifier = Modifier
