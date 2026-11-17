@@ -1,5 +1,8 @@
 package com.ozon.notes
 
+import com.ozon.notes.RimIconButton as IconButton
+import com.ozon.notes.RimSurface as Surface
+
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState

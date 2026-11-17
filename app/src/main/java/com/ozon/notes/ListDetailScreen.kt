@@ -1,5 +1,15 @@
 package com.ozon.notes
 
+import com.ozon.notes.RimAssistChip as AssistChip
+import com.ozon.notes.RimButton as Button
+import com.ozon.notes.RimFilledIconButton as FilledIconButton
+import com.ozon.notes.RimFilledTonalIconButton as FilledTonalIconButton
+import com.ozon.notes.RimFloatingActionButton as FloatingActionButton
+import com.ozon.notes.RimIconButton as IconButton
+import com.ozon.notes.RimInputChip as InputChip
+import com.ozon.notes.RimSurface as Surface
+import com.ozon.notes.RimTextButton as TextButton
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -202,7 +212,9 @@ fun ListDetailScreen(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     var showMoreMenu by remember(listId) { mutableStateOf(false) }
-    val moreMenuShape = RoundedCornerShape(28.dp)
+    var showHeaderSort by remember(listId) { mutableStateOf(false) }
+    var showHeaderFilter by remember(listId) { mutableStateOf(false) }
+    val moreHeaderMorph = rememberHeaderMorphState(showMoreMenu || showHeaderSort || showHeaderFilter)
     LiveBlurSourceUpdates(hazeState, enabled = showMoreMenu && advancedUi)
     var preparingExport by remember(listId) { mutableStateOf(false) }
     var pendingExportText by rememberSaveable { mutableStateOf<String?>(null) }
@@ -337,6 +349,7 @@ fun ListDetailScreen(
     var isCompletedCollapsed by remember { mutableStateOf(true) }
     var isSearchActive by remember { mutableStateOf(false) }
     var showRenameListDialog by remember { mutableStateOf(false) }
+    val titleHeaderMorph = rememberHeaderMorphState(showRenameListDialog)
 
     BackHandler(enabled = isSearchActive) {
         isSearchActive = false
@@ -359,19 +372,19 @@ fun ListDetailScreen(
     }
 
     val pillBackgroundAlpha by animateFloatAsState(
-        targetValue = if (isAtTop) 0f else 1f,
+        targetValue = 1f,
         animationSpec = tween(durationMillis = 200),
         label = "pillBackgroundAlpha"
     )
 
     val backButtonContentColor by animateColorAsState(
-        targetValue = if (isAtTop) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer,
+        targetValue = MaterialTheme.colorScheme.onSecondaryContainer,
         animationSpec = tween(durationMillis = 200),
         label = "backButtonContentColor"
     )
 
     val titleContentColor by animateColorAsState(
-        targetValue = if (isAtTop) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer,
+        targetValue = MaterialTheme.colorScheme.onSecondaryContainer,
         animationSpec = tween(durationMillis = 200),
         label = "titleContentColor"
     )
@@ -414,7 +427,6 @@ fun ListDetailScreen(
         checklistViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
     }
 
-    val topPadding = if (isTabletUi) 0.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val headerHeight = 64.dp
 
     if (currentList == null) {
@@ -444,9 +456,10 @@ fun ListDetailScreen(
                         Surface(
                             shape = CircleShape,
                             color = pillContainerColor,
-                            shadowElevation = if (advancedUi || isAtTop) 0.dp else 4.dp,
-                            tonalElevation = if (advancedUi || isAtTop) 0.dp else 4.dp,
+                            shadowElevation = if (advancedUi) 0.dp else 4.dp,
+                            tonalElevation = if (advancedUi) 0.dp else 4.dp,
                             modifier = Modifier
+                                .headerMorphAnchor(titleHeaderMorph)
                                 .advancedUiBlur(
                                     liquidGlass = true,
                                     hazeState = hazeState,
@@ -461,6 +474,7 @@ fun ListDetailScreen(
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                WithoutButtonLightRim {
                                 IconButton(
                                     onClick = onNavigateUp,
                                     modifier = Modifier.size(40.dp)
@@ -492,6 +506,7 @@ fun ListDetailScreen(
                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                                     )
                                 }
+                                                            }
                             }
                         }
                     }
@@ -499,9 +514,9 @@ fun ListDetailScreen(
                         Surface(
                             shape = CircleShape,
                             color = pillContainerColor,
-                            shadowElevation = if (advancedUi || isAtTop) 0.dp else 4.dp,
-                            tonalElevation = if (advancedUi || isAtTop) 0.dp else 4.dp,
-                            modifier = Modifier.advancedUiBlur(
+                            shadowElevation = if (advancedUi) 0.dp else 4.dp,
+                            tonalElevation = if (advancedUi) 0.dp else 4.dp,
+                            modifier = Modifier.headerMorphAnchor(moreHeaderMorph).advancedUiBlur(
                                 liquidGlass = true,
                                 hazeState = hazeState,
                                 shape = CircleShape,
@@ -510,37 +525,55 @@ fun ListDetailScreen(
                                 enabled = advancedUi
                             ).clip(CircleShape)
                         ) {
-                            IconButton(onClick = { showMoreMenu = true }) {
-                                Icon(
-                                    Icons.Rounded.MoreVert,
-                                    contentDescription = "More options",
-                                    tint = backButtonContentColor
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                WithoutButtonLightRim {
+                                SortDropdown(
+                                    selectedOrder = sortOrder,
+                                    onOrderSelected = { checklistViewModel.onEvent(NoteEvent.UpdateListSortOrder(it)) },
+                                    availableOrders = availableSortOrders,
+                                    iconOnly = true,
+                                    expanded = showHeaderSort,
+                                    onExpandedChange = {
+                                        showHeaderSort = it
+                                        if (it) { showHeaderFilter = false; showMoreMenu = false }
+                                    },
+                                    morphState = moreHeaderMorph,
                                 )
+                                TagFilterDropdown(
+                                    selectedTagIds = selectedFilterTagIds,
+                                    allTags = allTags,
+                                    filterMode = tagFilterMode,
+                                    onTagToggle = { checklistViewModel.onEvent(NoteEvent.ToggleFilterTag(it)) },
+                                    onModeToggle = { checklistViewModel.onEvent(NoteEvent.UpdateTagFilterMode(it)) },
+                                    onClearAll = { checklistViewModel.onEvent(NoteEvent.ClearFilterTags) },
+                                    onReorderTags = { checklistViewModel.onEvent(NoteEvent.ReorderTags(listId, it)) },
+                                    onDeleteTag = { checklistViewModel.onEvent(NoteEvent.DeleteTag(it)) },
+                                    expanded = showHeaderFilter,
+                                    onExpandedChange = {
+                                        showHeaderFilter = it
+                                        if (it) { showHeaderSort = false; showMoreMenu = false }
+                                    },
+                                    morphState = moreHeaderMorph,
+                                )
+                                IconButton(onClick = {
+                                    showHeaderSort = false
+                                    showHeaderFilter = false
+                                    showMoreMenu = true
+                                }) {
+                                    Icon(
+                                        Icons.Rounded.MoreVert,
+                                        contentDescription = "More options",
+                                        tint = backButtonContentColor
+                                    )
+                                }
+                                                            }
                             }
                         }
-                        DropdownMenu(
+                        AdvancedUiDropdownMenu(
                             expanded = showMoreMenu,
                             onDismissRequest = { showMoreMenu = false },
-                            modifier = Modifier
-                                .width(220.dp)
-                                .advancedUiBlur(
-                                    liquidGlass = true,
-                                    hazeState = hazeState,
-                                    shape = moreMenuShape,
-                                    backgroundColor = MaterialTheme.colorScheme.background,
-                                    enabled = advancedUi
-                                )
-                                .background(
-                                    advancedUiSurfaceColor(
-                                        liquidGlass = true,
-                                        originalColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                        enabled = advancedUi
-                                    ),
-                                    moreMenuShape
-                                ),
-                            shape = moreMenuShape,
-                            containerColor = Color.Transparent,
-                            tonalElevation = 0.dp
+                            morphState = moreHeaderMorph,
+                            morphWidth = 220.dp,
                         ) {
                             DropdownMenuItem(
                                 text = { Text("Export as TXT") },
@@ -666,22 +699,6 @@ fun ListDetailScreen(
                                         }
                                     }
                                 )
-                                SortDropdown(
-                                    selectedOrder = sortOrder,
-                                    onOrderSelected = { checklistViewModel.onEvent(NoteEvent.UpdateListSortOrder(it)) },
-                                    availableOrders = availableSortOrders,
-                                    iconOnly = true
-                                )
-                                TagFilterDropdown(
-                                    selectedTagIds = selectedFilterTagIds,
-                                    allTags = allTags,
-                                    filterMode = tagFilterMode,
-                                    onTagToggle = { checklistViewModel.onEvent(NoteEvent.ToggleFilterTag(it)) },
-                                    onModeToggle = { checklistViewModel.onEvent(NoteEvent.UpdateTagFilterMode(it)) },
-                                    onClearAll = { checklistViewModel.onEvent(NoteEvent.ClearFilterTags) },
-                                    onReorderTags = { checklistViewModel.onEvent(NoteEvent.ReorderTags(listId, it)) },
-                                    onDeleteTag = { checklistViewModel.onEvent(NoteEvent.DeleteTag(it)) }
-                                )
                                 LaunchedEffect(Unit) {
                                     dummyFocusRequester.requestFocus()
                                 }
@@ -713,22 +730,6 @@ fun ListDetailScreen(
                                         modifier = Modifier.weight(1f),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
-                                    )
-                                    SortDropdown(
-                                        selectedOrder = sortOrder,
-                                        onOrderSelected = { checklistViewModel.onEvent(NoteEvent.UpdateListSortOrder(it)) },
-                                        availableOrders = availableSortOrders,
-                                        iconOnly = true
-                                    )
-                                    TagFilterDropdown(
-                                        selectedTagIds = selectedFilterTagIds,
-                                        allTags = allTags,
-                                        filterMode = tagFilterMode,
-                                        onTagToggle = { checklistViewModel.onEvent(NoteEvent.ToggleFilterTag(it)) },
-                                        onModeToggle = { checklistViewModel.onEvent(NoteEvent.UpdateTagFilterMode(it)) },
-                                        onClearAll = { checklistViewModel.onEvent(NoteEvent.ClearFilterTags) },
-                                        onReorderTags = { checklistViewModel.onEvent(NoteEvent.ReorderTags(listId, it)) },
-                                        onDeleteTag = { checklistViewModel.onEvent(NoteEvent.DeleteTag(it)) }
                                     )
                                 }
                             }
@@ -914,7 +915,7 @@ fun ListDetailScreen(
                     .advancedUiSource(hazeState, advancedUi),
                 contentPadding = PaddingValues(
                     start = 16.dp, 
-                    top = topPadding + headerHeight + 16.dp, 
+                    top = padding.calculateTopPadding() + 16.dp, 
                     end = 16.dp, 
                     bottom = bottomPadding + 100.dp
                 ),
@@ -1711,9 +1712,11 @@ fun ListDetailScreen(
         )
     }
 
-    if (showRenameListDialog) {
+    CompositionLocalProvider(LocalHazeState provides hazeState) {
         RenameListDialog(
             list = currentList,
+            expanded = showRenameListDialog,
+            morphState = titleHeaderMorph,
             onDismiss = { showRenameListDialog = false },
             onConfirm = { list, newTitle, newSectionName ->
                 checklistViewModel.onEvent(NoteEvent.SaveList(list.copy(title = newTitle, currentSectionName = newSectionName)))
@@ -2594,6 +2597,7 @@ private fun CurrentlyWatchingItem(
     onLongClick: () -> Unit,
     shape: Shape = RoundedCornerShape(24.dp)
 ) {
+    WithoutButtonLightRim {
     val parentEntry = remember(entry.parentId, allEntries) {
         entry.parentId?.let { pId -> allEntries.find { it.id == pId } }
     }
@@ -2893,6 +2897,7 @@ private fun CurrentlyWatchingItem(
             }
         }
     )
+    }
 }
 
 private fun isEntryCollapsing(entry: ListEntry, collapsingIds: Set<String>, allListEntries: List<ListEntry>): Boolean {
@@ -2927,6 +2932,7 @@ fun ListEntryItem(
     shape: Shape = CardDefaults.shape,
     onRatingClick: (() -> Unit)? = null
 ) {
+    WithoutButtonLightRim {
     val isSubentry = depth > 0
     val isHighlighted = searchQuery.isNotBlank() && entry.title.contains(searchQuery, ignoreCase = true)
     
@@ -3186,73 +3192,56 @@ fun ListEntryItem(
             )
         }
     }
+    }
 }
 
 @Composable
 private fun RenameListDialog(
     list: NoteList,
+    expanded: Boolean,
+    morphState: HeaderMorphState,
     onDismiss: () -> Unit,
     onConfirm: (NoteList, String, String?) -> Unit
 ) {
-    var newTitle by remember {
-        mutableStateOf(
-            TextFieldValue(
-                text = list.title,
-                selection = TextRange(list.title.length)
-            )
-        ) 
-    }
-    var sectionName by remember {
-        mutableStateOf(list.currentSectionName ?: "Currently Watching")
-    }
-    val focusRequester = remember { FocusRequester() }
-    val keyboardController = LocalSoftwareKeyboardController.current
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (list.type == ListType.RATING) "Edit Rating List" else "Rename List") },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                OutlinedTextField(
-                    value = newTitle,
-                    onValueChange = { newTitle = it },
-                    label = { Text("List Title") },
-                    singleLine = true,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester),
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
-                )
-                LaunchedEffect(Unit) {
-                    focusRequester.requestFocus()
-                    keyboardController?.show()
-                }
-
-                if (list.type == ListType.RATING) {
-                    Spacer(Modifier.height(4.dp))
-                    RatingListActiveSectionSelector(
-                        sectionName = sectionName,
-                        onSectionNameChange = { sectionName = it }
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (newTitle.text.isNotBlank()) {
-                        onConfirm(list, newTitle.text, sectionName.takeIf { list.type == ListType.RATING && it.isNotBlank() })
-                    }
-                }
-            ) { Text("Save") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+    HeaderMorphPopup(expanded, morphState, onDismiss, width = 360.dp, alignEnd = false) {
+        var newTitle by remember {
+            mutableStateOf(TextFieldValue(text = list.title, selection = TextRange(list.title.length)))
         }
-    )
+        var sectionName by remember { mutableStateOf(list.currentSectionName ?: "Currently Watching") }
+        val focusRequester = remember { FocusRequester() }
+        val keyboardController = LocalSoftwareKeyboardController.current
+        val settled = LocalHeaderMorphSettled.current
+        Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text(
+                if (list.type == ListType.RATING) "Edit Rating List" else "Rename List",
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            OutlinedTextField(
+                value = newTitle,
+                onValueChange = { newTitle = it },
+                label = { Text("List Title") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+            )
+            if (list.type == ListType.RATING) {
+                RatingListActiveSectionSelector(sectionName = sectionName, onSectionNameChange = { sectionName = it })
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+                TextButton(
+                    enabled = newTitle.text.isNotBlank(),
+                    onClick = { onConfirm(list, newTitle.text, sectionName.takeIf { list.type == ListType.RATING && it.isNotBlank() }) },
+                ) { Text("Save") }
+            }
+        }
+        LaunchedEffect(settled) {
+            if (settled) {
+                focusRequester.requestFocus()
+                keyboardController?.show()
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -3268,6 +3257,7 @@ fun InlineAddEntryItem(
     onEnter: () -> Unit,
     onCancel: () -> Unit
 ) {
+    WithoutButtonLightRim {
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -3418,6 +3408,7 @@ fun InlineAddEntryItem(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -3479,6 +3470,7 @@ private fun PreviewSubEntryItem(
     allTags: List<Tag>,
     shape: Shape
 ) {
+    WithoutButtonLightRim {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = shape,
@@ -3538,6 +3530,7 @@ private fun PreviewSubEntryItem(
                 )
             }
         }
+    }
     }
 }
 

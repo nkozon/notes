@@ -1,5 +1,9 @@
 package com.ozon.notes
 
+import com.ozon.notes.RimFilledTonalIconButton as FilledTonalIconButton
+import com.ozon.notes.RimSurface as Surface
+import com.ozon.notes.RimTextButton as TextButton
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape

@@ -1,5 +1,12 @@
 package com.ozon.notes
 
+import com.ozon.notes.RimButton as Button
+import com.ozon.notes.RimFilledTonalButton as FilledTonalButton
+import com.ozon.notes.RimFilterChip as FilterChip
+import com.ozon.notes.RimIconButton as IconButton
+import com.ozon.notes.RimSurface as Surface
+import com.ozon.notes.RimTextButton as TextButton
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable

@@ -1,5 +1,13 @@
 package com.ozon.notes.drawing.ui
 
+import com.ozon.notes.WithoutButtonLightRim
+
+import com.ozon.notes.buttonLightRim
+
+import com.ozon.notes.RimButton as Button
+import com.ozon.notes.RimIconButton as IconButton
+import com.ozon.notes.RimSurface as Surface
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -13,12 +21,10 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,7 +41,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
@@ -45,9 +50,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.ozon.notes.AdvancedUiDropdownMenu
+import com.ozon.notes.HeaderMorphPopup
+import com.ozon.notes.headerMorphAnchor
+import com.ozon.notes.rememberHeaderMorphState
+import com.ozon.notes.LocalHeaderMorphSettled
 import com.ozon.notes.CanvasType
 import com.ozon.notes.LocalAdvancedUiEnabled
 import com.ozon.notes.LocalHazeState
+import com.ozon.notes.withoutGlassContentShadow
 import com.ozon.notes.advancedUiBlur
 import com.ozon.notes.advancedUiSurfaceColor
 import com.ozon.notes.AdvancedUiHeaderSurfaceAlpha
@@ -77,6 +87,8 @@ fun DrawingTopBar(
 ) {
     var showTitleDialog by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
+    val titleMorph = rememberHeaderMorphState(showTitleDialog)
+    val menuMorph = rememberHeaderMorphState(showMoreMenu)
 
     Row(
         modifier = Modifier
@@ -94,6 +106,7 @@ fun DrawingTopBar(
         Surface(
             modifier = Modifier
                 .weight(1f, fill = false)
+                .headerMorphAnchor(titleMorph)
                 .shadow(8.dp, CircleShape, clip = false)
                 .advancedUiBlur(
                     liquidGlass = true,
@@ -118,6 +131,7 @@ fun DrawingTopBar(
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                WithoutButtonLightRim {
                 IconButton(
                     onClick = onNavigateBack,
                     modifier = Modifier.size(40.dp)
@@ -182,6 +196,7 @@ fun DrawingTopBar(
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                     )
                 }
+                            }
             }
         }
 
@@ -190,6 +205,7 @@ fun DrawingTopBar(
         // Right pill: Action buttons (Save/Checkmark, Page Overview, More Menu)
         Surface(
             modifier = Modifier
+                .headerMorphAnchor(menuMorph)
                 .shadow(8.dp, CircleShape, clip = false)
                 .advancedUiBlur(
                     liquidGlass = true,
@@ -214,6 +230,7 @@ fun DrawingTopBar(
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                WithoutButtonLightRim {
                 AnimatedVisibility(
                     visible = controller.isDirty || controller.showSavedCheckmark,
                     enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
@@ -294,6 +311,7 @@ fun DrawingTopBar(
                         modifier = Modifier
                             .size(40.dp)
                             .clip(CircleShape)
+                            .buttonLightRim(CircleShape)
                             .background(
                                 if (showPageOverview) MaterialTheme.colorScheme.primaryContainer
                                 else Color.Transparent
@@ -325,7 +343,8 @@ fun DrawingTopBar(
                     }
                     AdvancedUiDropdownMenu(
                         expanded = showMoreMenu,
-                        onDismissRequest = { showMoreMenu = false }
+                        onDismissRequest = { showMoreMenu = false },
+                        morphState = menuMorph,
                     ) {
                         DropdownMenuItem(
                             text = { Text("Insert Image") },
@@ -335,7 +354,7 @@ fun DrawingTopBar(
                             },
                             leadingIcon = { Icon(Icons.Rounded.Image, contentDescription = null) }
                         )
-                        HorizontalDivider()
+                        HorizontalDivider(modifier = Modifier.withoutGlassContentShadow())
                         DropdownMenuItem(
                             text = { Text(if (showGuidelines) "Hide Guidelines" else "Show Guidelines") },
                             onClick = {
@@ -349,7 +368,7 @@ fun DrawingTopBar(
                                 )
                             }
                         )
-                        HorizontalDivider()
+                        HorizontalDivider(modifier = Modifier.withoutGlassContentShadow())
                         DropdownMenuItem(
                             text = { Text("Export as PNG") },
                             onClick = {
@@ -376,52 +395,32 @@ fun DrawingTopBar(
                         )
                     }
                 }
+                            }
             }
         }
     }
 
-    if (showTitleDialog) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .zIndex(21f)
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { showTitleDialog = false }
-        )
-    }
-
-    AnimatedVisibility(
-        visible = showTitleDialog,
-        enter = scaleIn(
-            animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow),
-            initialScale = 0.88f,
-            transformOrigin = TransformOrigin(0.15f, 0f)
-        ) + fadeIn(),
-        exit = scaleOut(
-            targetScale = 0.88f,
-            transformOrigin = TransformOrigin(0.15f, 0f)
-        ) + fadeOut(),
-        modifier = Modifier
-            .statusBarsPadding()
-            .padding(top = 68.dp, start = 16.dp, end = 16.dp)
-            .zIndex(22f)
+    HeaderMorphPopup(
+        expanded = showTitleDialog,
+        state = titleMorph,
+        onDismissRequest = { showTitleDialog = false },
+        width = 360.dp,
+        alignEnd = false,
     ) {
-        DrawingTitleDetailsPopup(
+        DrawingTitleDetailsContent(
             title = controller.title,
             onTitleChange = {
                 controller.title = it
                 controller.isDirty = true
             },
             lastSavedTime = controller.lastSavedTime,
-            onClose = { showTitleDialog = false }
+            onClose = { showTitleDialog = false },
         )
     }
 }
 
 @Composable
-fun DrawingTitleDetailsPopup(
+private fun DrawingTitleDetailsContent(
     title: String,
     onTitleChange: (String) -> Unit,
     lastSavedTime: Long,
@@ -438,132 +437,107 @@ fun DrawingTitleDetailsPopup(
     }
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
-    val advancedUi = LocalAdvancedUiEnabled.current
-    val hazeState = LocalHazeState.current
-    val popupShape = RoundedCornerShape(28.dp)
-
-    Surface(
+    Column(
         modifier = modifier
-            .widthIn(max = 360.dp)
             .fillMaxWidth()
-            .shadow(8.dp, popupShape, clip = false)
-            .advancedUiBlur(
-                hazeState = hazeState,
-                shape = popupShape,
-                backgroundColor = Color(0xFFF9F9F9),
-                enabled = advancedUi,
-                liquidGlass = true,
-            ),
-        shape = popupShape,
-        color = advancedUiSurfaceColor(
-            originalColor = if (advancedUi) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-            translucentAlpha = AdvancedUiHeaderSurfaceAlpha,
-            enabled = advancedUi,
-            liquidGlass = true,
-        ),
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        tonalElevation = if (advancedUi) 0.dp else 8.dp,
-        border = if (advancedUi) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.EditNote,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp)
+                Icon(
+                    imageVector = Icons.Rounded.EditNote,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Text(
+                    text = "Note Details",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            IconButton(onClick = onClose) {
+                Icon(Icons.Rounded.Close, contentDescription = "Close")
+            }
+        }
+
+        OutlinedTextField(
+            value = titleState,
+            onValueChange = { newValue ->
+                titleState = newValue
+                onTitleChange(newValue.text)
+            },
+            label = { Text("Note Title") },
+            placeholder = { Text("Drawing") },
+            singleLine = true,
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(focusRequester),
+            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
+        )
+
+        val sdf = remember { SimpleDateFormat("MMM d, yyyy 'at' HH:mm", Locale.getDefault()) }
+        val formattedDate = remember(lastSavedTime) { sdf.format(Date(lastSavedTime)) }
+
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Schedule,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Column {
+                    Text(
+                        text = "Last Saved",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = "Note Details",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold
+                        text = formattedDate,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
-                IconButton(onClick = onClose) {
-                    Icon(Icons.Rounded.Close, contentDescription = "Close")
-                }
             }
+        }
 
-            OutlinedTextField(
-                value = titleState,
-                onValueChange = { newValue ->
-                    titleState = newValue
-                    onTitleChange(newValue.text)
-                },
-                label = { Text("Note Title") },
-                placeholder = { Text("Drawing") },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(focusRequester),
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences)
+        Button(
+            onClick = onClose,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
             )
-
-            val sdf = remember { SimpleDateFormat("MMM d, yyyy 'at' HH:mm", Locale.getDefault()) }
-            val formattedDate = remember(lastSavedTime) { sdf.format(Date(lastSavedTime)) }
-
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Schedule,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Column {
-                        Text(
-                            text = "Last Saved",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Text(
-                            text = formattedDate,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                }
-            }
-
-            Button(
-                onClick = onClose,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                )
-            ) {
-                Text("Done", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-            }
+        ) {
+            Text("Done", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         }
     }
 
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
-        keyboardController?.show()
+    val settled = LocalHeaderMorphSettled.current
+    LaunchedEffect(settled) {
+        if (settled) {
+            focusRequester.requestFocus()
+            keyboardController?.show()
+        }
     }
 }

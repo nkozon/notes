@@ -1,5 +1,8 @@
 package com.ozon.notes
 
+import com.ozon.notes.RimSurface as Surface
+import com.ozon.notes.RimTextButton as TextButton
+
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -574,6 +577,7 @@ fun SettingsToggleItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    WithButtonLightRim {
     val cornerRadius by animateDpAsState(
         targetValue = if (selected) 24.dp else 12.dp,
         animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing),
@@ -596,6 +600,7 @@ fun SettingsToggleItem(
                 color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+    }
     }
 }
 

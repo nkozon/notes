@@ -1,5 +1,7 @@
 package com.ozon.notes
 
+import com.ozon.notes.RimSurface as Surface
+
 import android.os.Build
 import androidx.compose.animation.*
 import androidx.compose.animation.core.LinearOutSlowInEasing
@@ -421,6 +423,7 @@ fun ColorPickerRow(
                 modifier = Modifier
                     .size(44.dp)
                     .clip(CircleShape)
+                    .buttonLightRim(CircleShape)
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                     .clickable { showFullPicker = true }
                     .border(
@@ -459,6 +462,7 @@ fun ThemeModeItem(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
+    WithButtonLightRim {
     val cornerRadius by animateDpAsState(
         targetValue = if (selected) 24.dp else 12.dp,
         animationSpec = tween(durationMillis = 300, easing = LinearOutSlowInEasing),
@@ -485,6 +489,7 @@ fun ThemeModeItem(
             )
         }
     }
+    }
 }
 
 @Composable
@@ -497,6 +502,7 @@ fun ColorPresetItem(
         modifier = Modifier
             .size(44.dp)
             .clip(CircleShape)
+            .buttonLightRim(CircleShape)
             .background(color)
             .clickable(onClick = onClick)
             .border(

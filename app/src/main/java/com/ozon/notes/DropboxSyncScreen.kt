@@ -1,5 +1,11 @@
 package com.ozon.notes
 
+import com.ozon.notes.RimButton as Button
+import com.ozon.notes.RimIconButton as IconButton
+import com.ozon.notes.RimRadioButton as RadioButton
+import com.ozon.notes.RimSurface as Surface
+import com.ozon.notes.RimTextButton as TextButton
+
 import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.*

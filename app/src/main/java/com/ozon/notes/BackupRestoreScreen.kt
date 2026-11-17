@@ -1,5 +1,7 @@
 package com.ozon.notes
 
+import com.ozon.notes.RimSurface as Surface
+
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast

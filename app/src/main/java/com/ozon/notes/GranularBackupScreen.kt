@@ -1,5 +1,7 @@
 package com.ozon.notes
 
+import com.ozon.notes.RimSurface as Surface
+
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts

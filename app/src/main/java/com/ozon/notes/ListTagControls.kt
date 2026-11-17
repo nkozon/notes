@@ -1,5 +1,11 @@
 package com.ozon.notes
 
+import com.ozon.notes.RimButton as Button
+import com.ozon.notes.RimIconButton as IconButton
+import com.ozon.notes.RimSegmentedButton as SegmentedButton
+import com.ozon.notes.RimSurface as Surface
+import com.ozon.notes.RimTextButton as TextButton
+
 import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -40,43 +46,32 @@ fun TagFilterDropdown(
     onModeToggle: (TagFilterMode) -> Unit,
     onClearAll: () -> Unit,
     onReorderTags: (List<String>) -> Unit = {},
-    onDeleteTag: (String) -> Unit = {}
+    onDeleteTag: (String) -> Unit = {},
+    expanded: Boolean? = null,
+    onExpandedChange: (Boolean) -> Unit = {},
+    morphState: HeaderMorphState? = null,
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    var localExpanded by remember { mutableStateOf(false) }
+    val menuExpanded = expanded ?: localExpanded
+    fun setExpanded(value: Boolean) {
+        localExpanded = value
+        onExpandedChange(value)
+    }
     var showManageTagsDialog by remember { mutableStateOf(false) }
-    val hazeState = LocalHazeState.current
-    val useBlur = LocalAdvancedUiEnabled.current && hazeState != null
-    LiveBlurSourceUpdates(hazeState, enabled = expanded && useBlur)
-    val menuShape = RoundedCornerShape(28.dp)
-    val menuColor = MaterialTheme.colorScheme.surfaceContainerHigh
 
     Box {
-        IconButton(onClick = { expanded = true }) {
+        IconButton(onClick = { setExpanded(true) }) {
             Icon(
                 imageVector = Icons.Rounded.FilterAlt,
                 contentDescription = "Filter by Tag",
                 tint = if (selectedTagIds.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
             )
         }
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier
-                .width(280.dp)
-                .advancedUiBlur(
-                    liquidGlass = true,
-                    hazeState = hazeState,
-                    shape = menuShape,
-                    backgroundColor = MaterialTheme.colorScheme.background,
-                    enabled = useBlur
-                )
-                .background(
-                    advancedUiSurfaceColor(originalColor = menuColor, enabled = useBlur, liquidGlass = true),
-                    menuShape
-                ),
-            shape = menuShape,
-            containerColor = Color.Transparent,
-            tonalElevation = 0.dp
+        AdvancedUiDropdownMenu(
+            expanded = menuExpanded,
+            onDismissRequest = { setExpanded(false) },
+            modifier = Modifier.width(280.dp),
+            morphState = morphState,
         ) {
             SingleChoiceSegmentedButtonRow(
                 modifier = Modifier
@@ -180,7 +175,7 @@ fun TagFilterDropdown(
                 ) {
                     Button(
                         onClick = {
-                            expanded = false
+                            setExpanded(false)
                             showManageTagsDialog = true
                         },
                         shape = CircleShape,

@@ -1,5 +1,11 @@
 package com.ozon.notes
 
+import com.ozon.notes.RimButton as Button
+import com.ozon.notes.RimFloatingActionButton as FloatingActionButton
+import com.ozon.notes.RimIconButton as IconButton
+import com.ozon.notes.RimSurface as Surface
+import com.ozon.notes.RimTextButton as TextButton
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
@@ -22,6 +28,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -85,6 +92,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -129,17 +137,22 @@ private fun TooltipIconButton(
 @Composable
 private fun CollapsedSidePanel(
     selectedTab: MainTab,
+    highlightSelectedCategory: Boolean,
     tabs: List<MainTab>,
     isSettingsActive: Boolean,
     onTabSelected: (MainTab) -> Unit,
     onExpand: () -> Unit,
     onSearch: () -> Unit,
     onCreate: () -> Unit,
-    onSettingsClick: () -> Unit
+    onSettingsClick: () -> Unit,
+    onCategoryAnchor: ((MainTab, Rect) -> Unit)? = null,
+    hiddenCategoryButtons: Set<MainTab> = emptySet(),
+    hideSidebarSearch: Boolean = false,
+    onSearchAnchor: ((Rect) -> Unit)? = null,
+    creationMenu: @Composable () -> Unit = {},
 ) {
-    val inactiveTabColor = if (LocalAdvancedUiEnabled.current && liquidGlassControlsEnabled()) {
-        MaterialTheme.colorScheme.surfaceContainerHigh
-    } else Color.Transparent
+    WithButtonLightRim {
+    val inactiveTabColor = MaterialTheme.colorScheme.surfaceContainerHigh
     val settingsContainerColor = if (isSettingsActive) {
         MaterialTheme.colorScheme.primaryContainer
     } else {
@@ -157,21 +170,6 @@ private fun CollapsedSidePanel(
             .padding(horizontal = 10.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        CircleIconButton(
-            onClick = onExpand,
-            icon = Icons.AutoMirrored.Rounded.ViewSidebar,
-            contentDescription = "Expand side panel",
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            contentColor = MaterialTheme.colorScheme.onSurface
-        )
-
-        Spacer(Modifier.height(10.dp))
-        HorizontalDivider(
-            modifier = Modifier.width(36.dp),
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
-        )
-        Spacer(Modifier.height(10.dp))
-
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -180,9 +178,15 @@ private fun CollapsedSidePanel(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             tabs.forEach { tab ->
-                val isSelected = tab == selectedTab
+                val isSelected = highlightSelectedCategory && !isSettingsActive && tab == selectedTab
+                var buttonBounds by remember(tab) { mutableStateOf(Rect.Zero) }
                 CircleIconButton(
-                    onClick = { onTabSelected(tab) },
+                    onClick = {
+                        onCategoryAnchor?.invoke(tab, buttonBounds)
+                        onTabSelected(tab)
+                    },
+                    modifier = Modifier.onGloballyPositioned { buttonBounds = it.boundsInWindow() }
+                        .graphicsLayer { alpha = if (tab in hiddenCategoryButtons) 0f else 1f },
                     icon = tab.getIcon(),
                     contentDescription = tab.getTitle(),
                     shape = if (isSelected) RoundedCornerShape(12.dp) else CircleShape,
@@ -202,14 +206,21 @@ private fun CollapsedSidePanel(
         }
 
         Spacer(Modifier.height(6.dp))
+        var searchBounds by remember { mutableStateOf(Rect.Zero) }
         CircleIconButton(
-            onClick = onSearch,
+            onClick = {
+                onSearchAnchor?.invoke(searchBounds)
+                onSearch()
+            },
+            modifier = Modifier.onGloballyPositioned { searchBounds = it.boundsInWindow() }
+                .graphicsLayer { alpha = if (hideSidebarSearch) 0f else 1f },
             icon = Icons.Rounded.Search,
             contentDescription = "Search",
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
             contentColor = MaterialTheme.colorScheme.onSurface
         )
         Spacer(Modifier.height(6.dp))
+        Box {
         CircleIconButton(
             onClick = onCreate,
             icon = Icons.Rounded.Add,
@@ -217,6 +228,8 @@ private fun CollapsedSidePanel(
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer
         )
+            creationMenu()
+        }
 
         Spacer(Modifier.height(8.dp))
         HorizontalDivider(
@@ -229,13 +242,15 @@ private fun CollapsedSidePanel(
             onClick = onSettingsClick,
             icon = Icons.Rounded.Settings,
             contentDescription = "Settings",
-            modifier = Modifier.size(48.dp),
             shape = if (isSettingsActive) RoundedCornerShape(12.dp) else CircleShape,
             containerColor = settingsContainerColor,
             contentColor = settingsContentColor
         )
     }
+    }
 }
+
+enum class TabletLibraryAction { BROWSE, SEARCH, CREATE }
 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
@@ -251,14 +266,28 @@ fun NoteListScreen(
     isTabletUi: Boolean = false,
     isSidePanelCollapsed: Boolean = false,
     onToggleSidePanelCollapse: (() -> Unit)? = null,
-    showAllCategories: Boolean = false
+    showAllCategories: Boolean = false,
+    categoryPopup: Boolean = false,
+    workspaceOverview: Boolean = false,
+    highlightSelectedCategory: Boolean = true,
+    globalSearch: Boolean = false,
+    categoryOverride: MainTab? = null,
+    libraryAction: TabletLibraryAction? = null,
+    onOpenLibrary: ((TabletLibraryAction) -> Unit)? = null,
+    onCategoryAnchor: ((MainTab, Rect) -> Unit)? = null,
+    libraryBackdrop: dev.chrisbanes.haze.HazeState? = null,
+    hiddenCategoryButtons: Set<MainTab> = emptySet(),
+    hideSidebarSearch: Boolean = false,
+    onSearchAnchor: ((Rect) -> Unit)? = null,
 ) {
-    val notes by notesViewModel.notesState.collectAsStateWithLifecycle()
+    val useUnfilteredLibrary = workspaceOverview || (isTabletUi && isSidePanelCollapsed)
+    val notes by (if (useUnfilteredLibrary) notesViewModel.overviewNotesState else notesViewModel.notesState).collectAsStateWithLifecycle()
     val noteSortOrder by notesViewModel.noteSortOrder.collectAsStateWithLifecycle()
     val listsSortOrder by notesViewModel.listsSortOrder.collectAsStateWithLifecycle()
-    val searchQuery by notesViewModel.searchQuery.collectAsStateWithLifecycle()
+    val activeSearchQuery by notesViewModel.searchQuery.collectAsStateWithLifecycle()
+    val searchQuery = if (workspaceOverview) "" else activeSearchQuery
     
-    val listsWithCounts by notesViewModel.listsWithCountsState.collectAsStateWithLifecycle()
+    val listsWithCounts by (if (useUnfilteredLibrary) notesViewModel.allListsWithCountsState else notesViewModel.listsWithCountsState).collectAsStateWithLifecycle()
     val showEntryCount by settingsViewModel.showEntryCountState.collectAsStateWithLifecycle()
     val showNotesTab by settingsViewModel.showNotesTabState.collectAsStateWithLifecycle()
     val showListsTab by settingsViewModel.showListsTabState.collectAsStateWithLifecycle()
@@ -277,9 +306,11 @@ fun NoteListScreen(
         MaterialTheme.colorScheme.surfaceContainerHigh
     } else Color.Transparent
     val hazeState = rememberHazeState()
+    var showHeaderSort by remember { mutableStateOf(false) }
+    val sortHeaderMorph = rememberHeaderMorphState(showHeaderSort)
 
     val lastSelectedTab by settingsViewModel.lastSelectedTabState.collectAsStateWithLifecycle()
-    val selectedTab = lastSelectedTab
+    val selectedTab = categoryOverride ?: lastSelectedTab
     val currentSortOrder = if (showAllCategories) noteSortOrder else if (selectedTab == MainTab.TEXT || selectedTab == MainTab.DRAWINGS) noteSortOrder else listsSortOrder
     val availableSortOrders = remember {
         listOf(
@@ -310,6 +341,8 @@ fun NoteListScreen(
     }
 
     LaunchedEffect(activeRoute) {
+        // Browsing a category must not be overridden by the editor behind the popup.
+        if (categoryPopup || onOpenLibrary != null) return@LaunchedEffect
         if (activeRoute is DetailRoute.List && showListsTab) {
             val list = listsWithCounts.find { it.list.id == activeRoute.id }?.list
             if (list?.type == ListType.RATING) settingsViewModel.onEvent(NoteEvent.UpdateLastSelectedTab(MainTab.RATINGS))
@@ -339,6 +372,7 @@ fun NoteListScreen(
     var selectedPdfUri by remember { mutableStateOf<Uri?>(null) }
     var showMarginDialog by remember { mutableStateOf(false) }
     var showSyncDetailsDialog by remember { mutableStateOf(false) }
+    val syncDetailsMorph = rememberHeaderMorphState(showSyncDetailsDialog)
 
     val pdfPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -367,6 +401,12 @@ fun NoteListScreen(
     var showDrawingTypeDialog by remember { mutableStateOf(false) }
     var isSearchActive by remember { mutableStateOf(false) }
     var isCreateMenuOpen by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(libraryAction, if (categoryPopup) selectedTab else null) {
+        if (categoryPopup) {
+            isSearchActive = libraryAction == TabletLibraryAction.SEARCH
+            isCreateMenuOpen = libraryAction == TabletLibraryAction.CREATE
+        }
+    }
     val menuProgress = animateFloatAsState(
         targetValue = if (isCreateMenuOpen) 1f else 0f,
         animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
@@ -393,13 +433,13 @@ fun NoteListScreen(
     }
 
     val settingsButtonBackgroundAlpha by animateFloatAsState(
-        targetValue = if (isAtTop) 0f else 1f,
+        targetValue = 1f,
         animationSpec = tween(durationMillis = 200),
         label = "settingsButtonBackgroundAlpha"
     )
     val settingsButtonBaseColor = if (activeRoute is DetailRoute.Settings) {
         MaterialTheme.colorScheme.primaryContainer
-    } else headerButtonBackground
+    } else MaterialTheme.colorScheme.secondaryContainer
 
     val topAlpha by remember {
         derivedStateOf {
@@ -413,10 +453,10 @@ fun NoteListScreen(
         keyboardController?.hide()
     }
 
-    val topPadding = if (isTabletUi) 0.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val topPadding = if (isTabletUi && !workspaceOverview) 0.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val headerHeight = 64.dp
     val hasContent = notes.isNotEmpty() || listsWithCounts.isNotEmpty()
-    val hasTabBar = hasContent && !showAllCategories && (showNotesTab || showListsTab)
+    val hasTabBar = !categoryPopup && hasContent && !showAllCategories && (showNotesTab || showListsTab)
     val topHeaderHeight = when {
         showAllCategories -> headerHeight
         hasTabBar -> headerHeight + 50.dp + 8.dp
@@ -478,25 +518,70 @@ fun NoteListScreen(
         if (isTabletUi && isSidePanelCollapsed) {
             CollapsedSidePanel(
                 selectedTab = selectedTab,
+                highlightSelectedCategory = highlightSelectedCategory,
                 tabs = visibleMainTabs,
-                isSettingsActive = activeRoute is DetailRoute.Settings,
-                onTabSelected = { settingsViewModel.onEvent(NoteEvent.UpdateLastSelectedTab(it)) },
+                isSettingsActive = activeRoute != null && activeRoute !is DetailRoute.Note && activeRoute !is DetailRoute.Drawing && activeRoute !is DetailRoute.List,
+                onTabSelected = {
+                    if (onOpenLibrary != null) notesViewModel.onEvent(NoteEvent.UpdateSearchQuery(""))
+                    settingsViewModel.onEvent(NoteEvent.UpdateLastSelectedTab(it))
+                    if (onCategoryAnchor == null) {
+                        if (onOpenLibrary != null) onOpenLibrary(TabletLibraryAction.BROWSE)
+                        else onToggleSidePanelCollapse?.invoke()
+                    }
+                },
                 onExpand = { onToggleSidePanelCollapse?.invoke() },
                 onSearch = {
-                    isSearchActive = true
-                    onToggleSidePanelCollapse?.invoke()
+                    if (onSearchAnchor == null) {
+                        if (onOpenLibrary != null) onOpenLibrary(TabletLibraryAction.SEARCH)
+                        else {
+                            isSearchActive = true
+                            onToggleSidePanelCollapse?.invoke()
+                        }
+                    }
                 },
                 onCreate = {
-                    isCreateMenuOpen = true
-                    onToggleSidePanelCollapse?.invoke()
+                    if (onOpenLibrary != null) {
+                        isCreateMenuOpen = !isCreateMenuOpen
+                        onOpenLibrary(TabletLibraryAction.CREATE)
+                    }
+                    else {
+                        isCreateMenuOpen = true
+                        onToggleSidePanelCollapse?.invoke()
+                    }
                 },
-                onSettingsClick = onSettingsClick
+                onSettingsClick = onSettingsClick,
+                onCategoryAnchor = onCategoryAnchor,
+                hiddenCategoryButtons = hiddenCategoryButtons,
+                hideSidebarSearch = hideSidebarSearch,
+                onSearchAnchor = onSearchAnchor,
+                creationMenu = {
+                    CompositionLocalProvider(
+                        LocalHazeState provides (libraryBackdrop ?: hazeState),
+                        LocalAdvancedUiEnabled provides advancedUi,
+                    ) {
+                        AdvancedUiDropdownMenu(
+                            expanded = isCreateMenuOpen,
+                            onDismissRequest = { isCreateMenuOpen = false },
+                            modifier = Modifier.width(240.dp),
+                        ) {
+                            createOptions.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(option.title) },
+                                    leadingIcon = { Icon(option.icon, null) },
+                                    onClick = option.onClick,
+                                )
+                            }
+                        }
+                    }
+                },
             )
         } else {
         @Suppress("UnusedMaterial3ScaffoldPaddingParameter")
         Scaffold(
             containerColor = Color.Transparent,
         floatingActionButton = {
+            WithButtonLightRim {
+            if (!categoryPopup && !workspaceOverview) {
             val haptics = LocalHapticFeedback.current
             val fabRotation by animateFloatAsState(
                 targetValue = if (isCreateMenuOpen) 135f else 0f,
@@ -666,12 +751,6 @@ fun NoteListScreen(
                                                 }
                                             }
                                         )
-                                        SortDropdown(
-                                            selectedOrder = currentSortOrder,
-                                            onOrderSelected = onSortOrderSelected,
-                                            availableOrders = availableSortOrders,
-                                            iconOnly = true
-                                        )
                                         LaunchedEffect(Unit) {
                                             dummyFocusRequester.requestFocus()
                                         }
@@ -718,12 +797,6 @@ fun NoteListScreen(
                                                     )
                                                 }
                                             }
-                                            SortDropdown(
-                                                selectedOrder = currentSortOrder,
-                                                onOrderSelected = onSortOrderSelected,
-                                                availableOrders = availableSortOrders,
-                                                iconOnly = true
-                                            )
                                         }
                                     }
                                 }
@@ -786,10 +859,13 @@ fun NoteListScreen(
                     }
                 }
             }
+            }
+                    }
         },
         floatingActionButtonPosition = androidx.compose.material3.FabPosition.Center,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = { 
+        topBar = {
+            WithButtonLightRim { 
             Box(modifier = Modifier.fillMaxWidth().zIndex(3f)) {
                 Column(
                     modifier = Modifier
@@ -798,10 +874,10 @@ fun NoteListScreen(
                     TopAppBar(
                         title = {
                             Text(
-                                text = "Notes",
-                                style = MaterialTheme.typography.headlineMedium.copy(
-                                    fontWeight = FontWeight.Bold
-                                ),
+                                text = if (workspaceOverview) "All notes" else if (globalSearch) "Search results" else if (categoryPopup) selectedTab.getTitle() else "Notes",
+                                style = if (categoryPopup) MaterialTheme.typography.titleLarge.copy(
+                                    fontWeight = FontWeight.SemiBold
+                                ) else MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
                                 color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.padding(start = 4.dp),
                                 maxLines = 1,
@@ -831,6 +907,7 @@ fun NoteListScreen(
                                         ),
                                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                                         modifier = Modifier
+                                            .headerMorphAnchor(syncDetailsMorph)
                                             .height(38.dp)
                                             .advancedUiBlur(
                                                 liquidGlass = true,
@@ -899,7 +976,7 @@ fun NoteListScreen(
                                         }
                                     }
                                 }
-                                if (isTabletUi && onToggleSidePanelCollapse != null) {
+                                if (isTabletUi && !categoryPopup && onToggleSidePanelCollapse != null) {
                                     CircleIconButton(
                                         onClick = {
                                             isCreateMenuOpen = false
@@ -915,19 +992,47 @@ fun NoteListScreen(
                                         contentColor = MaterialTheme.colorScheme.onSurface
                                     )
                                 }
-                                CircleIconButton(
-                                    onClick = onSettingsClick,
-                                    icon = Icons.Rounded.Settings,
-                                    contentDescription = "Settings",
-                                    modifier = Modifier.size(48.dp),
-                                    shape = if (activeRoute is DetailRoute.Settings) RoundedCornerShape(12.dp) else CircleShape,
-                                    containerColor = settingsButtonBaseColor.copy(
-                                        alpha = settingsButtonBaseColor.alpha * settingsButtonBackgroundAlpha
+                                Surface(
+                                    shape = CircleShape,
+                                    color = advancedUiSurfaceColor(
+                                        originalColor = settingsButtonBaseColor.copy(alpha = settingsButtonBackgroundAlpha),
+                                        translucentAlpha = settingsButtonBackgroundAlpha * AdvancedUiHeaderSurfaceAlpha,
+                                        tintAlpha = 0.15f * settingsButtonBackgroundAlpha,
+                                        enabled = advancedUi,
+                                        liquidGlass = true,
                                     ),
-                                    contentColor = if (activeRoute is DetailRoute.Settings)
-                                        MaterialTheme.colorScheme.onPrimaryContainer
-                                    else MaterialTheme.colorScheme.onSurface
-                                )
+                                    modifier = Modifier.headerMorphAnchor(sortHeaderMorph).advancedUiBlur(
+                                        hazeState = hazeState,
+                                        shape = CircleShape,
+                                        blurRadius = 24.dp * settingsButtonBackgroundAlpha,
+                                        enabled = advancedUi,
+                                        liquidGlass = true,
+                                    ),
+                                    shadowElevation = if (advancedUi) 0.dp else 4.dp,
+                                    tonalElevation = 0.dp,
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        WithoutButtonLightRim {
+                                        SortDropdown(
+                                            selectedOrder = currentSortOrder,
+                                            onOrderSelected = onSortOrderSelected,
+                                            availableOrders = availableSortOrders,
+                                            iconOnly = true,
+                                            expanded = showHeaderSort,
+                                            onExpandedChange = { showHeaderSort = it },
+                                            morphState = sortHeaderMorph,
+                                        )
+                                        if (!categoryPopup && !workspaceOverview) IconButton(onClick = onSettingsClick, modifier = Modifier.size(48.dp)) {
+                                            Icon(
+                                                Icons.Rounded.Settings,
+                                                contentDescription = "Settings",
+                                                tint = if (activeRoute is DetailRoute.Settings) MaterialTheme.colorScheme.onPrimaryContainer
+                                                    else MaterialTheme.colorScheme.onSurface,
+                                            )
+                                        }
+                                                                            }
+                                    }
+                                }
                             }
                         }
                     )
@@ -976,7 +1081,8 @@ fun NoteListScreen(
                 )
             }
         }
-    }
+                }
+        }
     ) { _ ->
         Box(
             modifier = Modifier.fillMaxSize()
@@ -1005,21 +1111,30 @@ fun NoteListScreen(
             val checklistLists = remember(listsWithCounts) { listsWithCounts.filter { it.list.type == ListType.CHECKLIST } }
             val ratingLists = remember(listsWithCounts) { listsWithCounts.filter { it.list.type == ListType.RATING } }
             val upcomingLists = remember(listsWithCounts) { listsWithCounts.filter { it.list.type == ListType.UPCOMING } }
-            val hasAnyContent = (showNotesTab && (textNotes.isNotEmpty() || drawingNotes.isNotEmpty())) ||
-                (showListsTab && (checklistLists.isNotEmpty() || ratingLists.isNotEmpty() || upcomingLists.isNotEmpty()))
+            val firstSearchCategory = if (globalSearch) (tabOrder + MainTab.entries).distinct().firstOrNull {
+                when (it) {
+                    MainTab.TEXT -> textNotes.isNotEmpty()
+                    MainTab.DRAWINGS -> drawingNotes.isNotEmpty()
+                    MainTab.CHECKLISTS -> checklistLists.isNotEmpty()
+                    MainTab.RATINGS -> ratingLists.isNotEmpty()
+                    MainTab.UPCOMING -> upcomingLists.isNotEmpty()
+                }
+            } else null
+            val hasAnyContent = ((showNotesTab || globalSearch || workspaceOverview) && (textNotes.isNotEmpty() || drawingNotes.isNotEmpty())) ||
+                ((showListsTab || globalSearch || workspaceOverview) && (checklistLists.isNotEmpty() || ratingLists.isNotEmpty() || upcomingLists.isNotEmpty()))
 
             LazyVerticalStaggeredGrid(
                 state = gridState,
-                columns = if (showAllCategories) {
+                columns = if (showAllCategories && !categoryPopup) {
                     StaggeredGridCells.Adaptive(minSize = 340.dp)
                 } else {
                     StaggeredGridCells.Fixed(1)
                 },
                 contentPadding = PaddingValues(
                     start = 16.dp, 
-                    top = topPadding + topHeaderHeight + 16.dp, 
+                    top = topPadding + topHeaderHeight + if (globalSearch) 0.dp else 16.dp, 
                     end = 16.dp, 
-                    bottom = bottomPadding + 100.dp
+                    bottom = if (categoryPopup) 16.dp else if (workspaceOverview) bottomPadding + 16.dp else bottomPadding + 100.dp
                 ),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalItemSpacing = 0.dp,
@@ -1041,11 +1156,11 @@ fun NoteListScreen(
                             )
                         }
                     } else {
-                        tabOrder.forEach { tab ->
+                        (if (globalSearch || workspaceOverview) (tabOrder + MainTab.entries).distinct() else tabOrder).forEach { tab ->
                             when (tab) {
-                                MainTab.TEXT -> if (showNotesTab && textNotes.isNotEmpty()) {
+                                MainTab.TEXT -> if ((showNotesTab || globalSearch || workspaceOverview) && textNotes.isNotEmpty()) {
                                     item(key = "header_text", span = StaggeredGridItemSpan.FullLine) {
-                                        CategoryHeader("Text Notes", Icons.Rounded.Description, textNotes.size)
+                                        CategoryHeader("Text Notes", Icons.Rounded.Description, textNotes.size, topPadding = if (globalSearch && tab == firstSearchCategory) 0.dp else 16.dp)
                                     }
                                     items(textNotes.size, key = { i -> "text_${textNotes[i].id}" }) { index ->
                                         val note = textNotes[index]
@@ -1072,9 +1187,9 @@ fun NoteListScreen(
                                         }
                                     }
                                 }
-                                MainTab.DRAWINGS -> if (showNotesTab && drawingNotes.isNotEmpty()) {
+                                MainTab.DRAWINGS -> if ((showNotesTab || globalSearch || workspaceOverview) && drawingNotes.isNotEmpty()) {
                                     item(key = "header_drawings", span = StaggeredGridItemSpan.FullLine) {
-                                        CategoryHeader("Drawings", Icons.Rounded.Brush, drawingNotes.size)
+                                        CategoryHeader("Drawings", Icons.Rounded.Brush, drawingNotes.size, topPadding = if (globalSearch && tab == firstSearchCategory) 0.dp else 16.dp)
                                     }
                                     items(drawingNotes.size, key = { i -> "drawing_${drawingNotes[i].id}" }) { index ->
                                         val note = drawingNotes[index]
@@ -1096,9 +1211,9 @@ fun NoteListScreen(
                                         }
                                     }
                                 }
-                                MainTab.CHECKLISTS -> if (showListsTab && checklistLists.isNotEmpty()) {
+                                MainTab.CHECKLISTS -> if ((showListsTab || globalSearch || workspaceOverview) && checklistLists.isNotEmpty()) {
                                     item(key = "header_checklists", span = StaggeredGridItemSpan.FullLine) {
-                                        CategoryHeader("Checklists", Icons.AutoMirrored.Rounded.List, checklistLists.size)
+                                        CategoryHeader("Checklists", Icons.AutoMirrored.Rounded.List, checklistLists.size, topPadding = if (globalSearch && tab == firstSearchCategory) 0.dp else 16.dp)
                                     }
                                     items(
                                         count = checklistLists.size,
@@ -1116,9 +1231,9 @@ fun NoteListScreen(
                                         )
                                     }
                                 }
-                                MainTab.RATINGS -> if (showListsTab && ratingLists.isNotEmpty()) {
+                                MainTab.RATINGS -> if ((showListsTab || globalSearch || workspaceOverview) && ratingLists.isNotEmpty()) {
                                     item(key = "header_ratings", span = StaggeredGridItemSpan.FullLine) {
-                                        CategoryHeader("Rating Lists", Icons.Rounded.Star, ratingLists.size)
+                                        CategoryHeader("Rating Lists", Icons.Rounded.Star, ratingLists.size, topPadding = if (globalSearch && tab == firstSearchCategory) 0.dp else 16.dp)
                                     }
                                     items(
                                         count = ratingLists.size,
@@ -1136,9 +1251,9 @@ fun NoteListScreen(
                                         )
                                     }
                                 }
-                                MainTab.UPCOMING -> if (showListsTab && upcomingLists.isNotEmpty()) {
+                                MainTab.UPCOMING -> if ((showListsTab || globalSearch || workspaceOverview) && upcomingLists.isNotEmpty()) {
                                     item(key = "header_upcoming", span = StaggeredGridItemSpan.FullLine) {
-                                        CategoryHeader("Upcoming Lists", Icons.Rounded.Event, upcomingLists.size)
+                                        CategoryHeader("Upcoming Lists", Icons.Rounded.Event, upcomingLists.size, topPadding = if (globalSearch && tab == firstSearchCategory) 0.dp else 16.dp)
                                     }
                                     items(
                                         count = upcomingLists.size,
@@ -1278,10 +1393,12 @@ fun NoteListScreen(
                 }
             }
 
-            SystemBarGradients(
-                modifier = Modifier.zIndex(1f),
-                topAlpha = { topAlpha }
-            )
+            if (!isTabletUi) {
+                SystemBarGradients(
+                    modifier = Modifier.zIndex(1f),
+                    topAlpha = { topAlpha }
+                )
+            }
 
             AnimatedVisibility(
                 visible = isCreateMenuOpen,
@@ -1465,8 +1582,10 @@ fun NoteListScreen(
         )
     }
 
-    if (showSyncDetailsDialog) {
-        AlertDialog(
+    CompositionLocalProvider(LocalHazeState provides hazeState) {
+        HeaderMorphDialog(
+            expanded = showSyncDetailsDialog,
+            state = syncDetailsMorph,
             onDismissRequest = { showSyncDetailsDialog = false },
             icon = {
                 Icon(
@@ -1479,8 +1598,7 @@ fun NoteListScreen(
             text = {
                 Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
+                        .fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
@@ -2044,12 +2162,13 @@ private fun CreateListDialog(
 private fun CategoryHeader(
     title: String,
     icon: ImageVector,
-    count: Int
+    count: Int,
+    topPadding: Dp = 16.dp,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 16.dp, bottom = 6.dp),
+            .padding(top = topPadding, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(

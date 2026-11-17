@@ -102,6 +102,7 @@ fun Modifier.advancedUiBlur(
     blurRadius: Dp = 24.dp,
     enabled: Boolean = true,
     liquidGlass: Boolean = false,
+    contentShadow: Boolean = true,
 ): Modifier {
     if (!enabled || hazeState == null || blurRadius <= 0.01.dp) return this
     val effectiveRadius = blurRadius.coerceAtLeast(0.dp)
@@ -114,6 +115,7 @@ fun Modifier.advancedUiBlur(
             shape = shape,
             backgroundColor = opaqueBackground,
             strength = (effectiveRadius / 24.dp).coerceIn(0f, 1f),
+            contentShadow = contentShadow,
         )
     }
     return this

@@ -1,5 +1,15 @@
 package com.ozon.notes.drawing.ui
 
+import com.ozon.notes.buttonLightRim
+
+import com.ozon.notes.RimButton as Button
+import com.ozon.notes.RimIconButton as IconButton
+import com.ozon.notes.RimOutlinedButton as OutlinedButton
+import com.ozon.notes.RimSurface as Surface
+import com.ozon.notes.RimTextButton as TextButton
+
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -43,12 +53,13 @@ import com.ozon.notes.LocalAdvancedUiEnabled
 import com.ozon.notes.LocalHazeState
 import com.ozon.notes.R
 import com.ozon.notes.ToolbarAnchor
+import com.ozon.notes.withoutGlassContentShadow
 import com.ozon.notes.advancedUiBlur
 import com.ozon.notes.advancedUiSurfaceColor
 import com.ozon.notes.AdvancedUiHeaderSurfaceAlpha
 import kotlin.math.roundToInt
 
-private val HorizontalToolbarWidth = 340.dp
+private val HorizontalToolbarWidth = 400.dp
 private val ToolbarHeight = 46.dp
 
 @Composable
@@ -133,8 +144,8 @@ fun DrawingToolbar(
             ) {
                 Surface(
                     modifier = Modifier.size(
-                        width = if (isCollapsed) (if (pIsHorizontal) 144.dp else ToolbarHeight) else if (pIsHorizontal) toolbarWidth else ToolbarHeight,
-                        height = if (isCollapsed) (if (pIsHorizontal) ToolbarHeight else 144.dp) else if (pIsHorizontal) ToolbarHeight else 220.dp
+                        width = if (isCollapsed) (if (pIsHorizontal) 144.dp else ToolbarHeight) else if (pIsHorizontal) toolbarWidth else 58.dp,
+                        height = if (isCollapsed) (if (pIsHorizontal) ToolbarHeight else 144.dp) else if (pIsHorizontal) 58.dp else 232.dp
                     ),
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
@@ -194,10 +205,6 @@ fun DrawingToolbar(
 
             Surface(
                 modifier = Modifier
-                    .then(
-                        if (!isCollapsed && isHorizontal) Modifier.width(toolbarWidth)
-                        else Modifier.wrapContentSize()
-                    )
                     .offset { IntOffset(dragOffset.x.roundToInt(), dragOffset.y.roundToInt()) }
                     .shadow(if (isCollapsed) 3.dp else 6.dp, CircleShape, clip = false)
                     .advancedUiBlur(
@@ -209,6 +216,7 @@ fun DrawingToolbar(
                         enabled = advancedUi
                     )
                     .clip(CircleShape)
+                    .buttonLightRim(CircleShape)
                     .pointerInput(anchor) {
                         detectDragGesturesAfterLongPress(
                             onDragStart = {
@@ -267,15 +275,20 @@ fun DrawingToolbar(
                 ),
                 tonalElevation = if (advancedUi) 0.dp else (if (isCollapsed) 2.dp else 4.dp)
             ) {
-                val toolbarPadding = 8.dp
+                val toolbarPadding = if (isCollapsed) 8.dp else 14.dp
                 if (isHorizontal) {
                     Row(
                         modifier = Modifier
+                            .animateContentSize(
+                                animationSpec = spring(dampingRatio = 0.62f, stiffness = 450f),
+                                alignment = Alignment.Center,
+                            )
                             .then(
                                 if (!isCollapsed) Modifier.width(toolbarWidth)
                                 else Modifier.wrapContentSize()
                             )
                             .clip(CircleShape)
+                            .buttonLightRim(CircleShape)
                             .horizontalScroll(rememberScrollState())
                             .padding(toolbarPadding),
                         horizontalArrangement = if (!isCollapsed) Arrangement.SpaceBetween else Arrangement.spacedBy(6.dp),
@@ -303,8 +316,13 @@ fun DrawingToolbar(
                 } else {
                     Column(
                         modifier = Modifier
+                            .animateContentSize(
+                                animationSpec = spring(dampingRatio = 0.62f, stiffness = 450f),
+                                alignment = Alignment.Center,
+                            )
                             .heightIn(max = (screenHeight / LocalDensity.current.density).dp - 120.dp)
                             .clip(CircleShape)
+                            .buttonLightRim(CircleShape)
                             .verticalScroll(rememberScrollState())
                             .padding(toolbarPadding),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -420,12 +438,14 @@ private fun ToolbarContent(
             modifier = Modifier
                 .size(30.dp)
                 .clip(CircleShape)
+                .buttonLightRim(CircleShape)
                 .background(if (showColorPopup) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
         ) {
             Box(
                 modifier = Modifier
                     .size(16.dp)
                     .clip(CircleShape)
+                    .buttonLightRim(CircleShape)
                     .background(selectedPenColor)
                     .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f), CircleShape)
             )
@@ -491,8 +511,8 @@ private fun ToolbarContent(
 
 @Composable
 private fun ToolbarSeparator(isHorizontal: Boolean) {
-    if (isHorizontal) VerticalDivider(modifier = Modifier.height(18.dp).width(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-    else HorizontalDivider(modifier = Modifier.width(18.dp).height(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    if (isHorizontal) VerticalDivider(modifier = Modifier.withoutGlassContentShadow().height(18.dp).width(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    else HorizontalDivider(modifier = Modifier.withoutGlassContentShadow().width(18.dp).height(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 }
 
 @Composable
@@ -500,9 +520,11 @@ fun ToolbarItem(tool: DrawingTool, painter: Painter, isSelected: Boolean, onClic
     val selectionColors = LocalDrawingToolSelectionColors.current
     IconButton(
         onClick = onClick,
-        modifier = Modifier.size(30.dp).semantics { selected = isSelected },
+        modifier = Modifier.size(30.dp)
+            .requiredSize(if (isSelected) 38.dp else 30.dp)
+            .semantics { selected = isSelected },
         colors = IconButtonDefaults.iconButtonColors(
-            containerColor = if (isSelected) selectionColors?.background ?: MaterialTheme.colorScheme.primary else Color.Transparent,
+            containerColor = if (isSelected) (selectionColors?.background ?: MaterialTheme.colorScheme.primary).copy(alpha = 0.75f) else Color.Transparent,
             contentColor = if (isSelected) selectionColors?.foreground ?: MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
             disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
         )
@@ -581,6 +603,7 @@ fun ColorCircle(color: Color, isSelected: Boolean, onClick: () -> Unit) {
         modifier = Modifier
             .size(34.dp)
             .clip(CircleShape)
+            .buttonLightRim(CircleShape)
             .background(color)
             .border(
                 width = if (isSelected) 3.dp else 1.dp,
@@ -673,6 +696,7 @@ fun ThicknessPopup(
                             modifier = Modifier
                                 .size(36.dp)
                                 .clip(CircleShape)
+                                .buttonLightRim(CircleShape)
                                 .background(if (kotlin.math.abs(thickness - preset) < 0.01f) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent)
                                 .combinedClickable(
                                     onClick = { onThicknessChange(preset) },

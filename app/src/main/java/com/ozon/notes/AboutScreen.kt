@@ -1,5 +1,7 @@
 package com.ozon.notes
 
+import com.ozon.notes.RimSurface as Surface
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -49,12 +51,12 @@ fun AboutScreen(
         derivedStateOf { scrollState.value > 0 }
     }
     val backButtonContainerColor by animateColorAsState(
-        targetValue = if (isScrolled) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+        targetValue = MaterialTheme.colorScheme.secondaryContainer,
         animationSpec = tween(durationMillis = 200),
         label = "backButtonContainerColor"
     )
     val backButtonContentColor by animateColorAsState(
-        targetValue = if (isScrolled) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+        targetValue = MaterialTheme.colorScheme.onSecondaryContainer,
         animationSpec = tween(durationMillis = 200),
         label = "backButtonContentColor"
     )

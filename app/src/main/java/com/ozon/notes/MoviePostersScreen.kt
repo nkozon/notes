@@ -1,5 +1,7 @@
 package com.ozon.notes
 
+import com.ozon.notes.RimTextButton as TextButton
+
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.LinearOutSlowInEasing

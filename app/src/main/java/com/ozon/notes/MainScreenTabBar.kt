@@ -1,5 +1,7 @@
 package com.ozon.notes
 
+import com.ozon.notes.RimSurface as Surface
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing

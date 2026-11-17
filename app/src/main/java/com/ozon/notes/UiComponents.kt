@@ -1,5 +1,11 @@
 package com.ozon.notes
 
+import com.ozon.notes.RimIconButton as IconButton
+import com.ozon.notes.RimOutlinedButton as OutlinedButton
+import com.ozon.notes.RimSegmentedButton as SegmentedButton
+import com.ozon.notes.RimSurface as Surface
+import com.ozon.notes.RimTextButton as TextButton
+
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -104,6 +110,7 @@ fun CircleIconButton(
                 enabled = advancedUi && hazeState != null && containerColor != Color.Transparent
             )
             .clip(shape)
+            .buttonLightRim(shape, enabled)
             .background(if (enabled) effectiveContainerColor else effectiveContainerColor.copy(alpha = 0.3f))
             .clickable(
                 enabled = enabled,
@@ -128,28 +135,31 @@ fun SortDropdown(
     availableOrders: List<ListSortOrder> = listOf(ListSortOrder.ALPHABETICAL, ListSortOrder.REVERSE_ALPHABETICAL),
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    iconOnly: Boolean = false
+    iconOnly: Boolean = false,
+    expanded: Boolean? = null,
+    onExpandedChange: (Boolean) -> Unit = {},
+    morphState: HeaderMorphState? = null,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    val hazeState = LocalHazeState.current
-    val useBlur = LocalAdvancedUiEnabled.current && hazeState != null
-    LiveBlurSourceUpdates(hazeState, enabled = expanded && useBlur)
-    val menuShape = RoundedCornerShape(28.dp)
-    val menuColor = MaterialTheme.colorScheme.surfaceContainerHigh
+    var localExpanded by remember { mutableStateOf(false) }
+    val menuExpanded = expanded ?: localExpanded
+    fun setExpanded(value: Boolean) {
+        localExpanded = value
+        onExpandedChange(value)
+    }
     val titleOptions = availableOrders.filter {
         it != ListSortOrder.TAG_ALPHABETICAL && it != ListSortOrder.TAG_REVERSE_ALPHABETICAL
     }
     val tagOptions = availableOrders.filter {
         it == ListSortOrder.TAG_ALPHABETICAL || it == ListSortOrder.TAG_REVERSE_ALPHABETICAL
     }
-    var selectedGroup by remember(expanded, selectedOrder, availableOrders) {
+    var selectedGroup by remember(menuExpanded, selectedOrder, availableOrders) {
         mutableStateOf(if (selectedOrder in tagOptions || titleOptions.isEmpty()) 1 else 0)
     }
 
     Box(modifier = modifier) {
         if (iconOnly) {
             IconButton(
-                onClick = { expanded = true },
+                onClick = { setExpanded(true) },
                 enabled = enabled
             ) {
                 Icon(
@@ -169,7 +179,8 @@ fun SortDropdown(
                         color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
                         shape = CircleShape
                     )
-                    .clickable(enabled = enabled) { expanded = true }
+                    .buttonLightRim(CircleShape, enabled)
+                    .clickable(enabled = enabled) { setExpanded(true) }
                     .padding(horizontal = 12.dp)
             ) {
                 Text(
@@ -188,26 +199,11 @@ fun SortDropdown(
             }
         }
 
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier
-                .width(280.dp)
-                .advancedUiBlur(
-                    liquidGlass = true,
-                    hazeState = hazeState,
-                    shape = menuShape,
-                    backgroundColor = MaterialTheme.colorScheme.background,
-                    enabled = useBlur
-                )
-                .background(
-                    advancedUiSurfaceColor(originalColor = menuColor, enabled = useBlur, liquidGlass = true),
-                    menuShape
-                ),
-            shape = menuShape,
-            // The menu modifier draws the blurred surface inside this native popup.
-            containerColor = Color.Transparent,
-            tonalElevation = 0.dp
+        AdvancedUiDropdownMenu(
+            expanded = menuExpanded,
+            onDismissRequest = { setExpanded(false) },
+            modifier = Modifier.width(280.dp),
+            morphState = morphState,
         ) {
             if (titleOptions.isNotEmpty() && tagOptions.isNotEmpty()) {
                 SingleChoiceSegmentedButtonRow(
@@ -261,7 +257,7 @@ fun SortDropdown(
                     },
                     onClick = {
                         onOrderSelected(order)
-                        expanded = false
+                        setExpanded(false)
                     },
                     leadingIcon = {
                         if (isSelected) {
@@ -925,7 +921,7 @@ fun RatingListActiveSectionSelector(
                             }
                         )
                     }
-                    HorizontalDivider()
+                    HorizontalDivider(modifier = Modifier.withoutGlassContentShadow())
                     DropdownMenuItem(
                         text = { Text("Custom...") },
                         leadingIcon = {

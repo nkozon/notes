@@ -78,7 +78,7 @@ class LiquidGlassUiTest {
             .performSemanticsAction(SemanticsActions.SetProgress) { it(0.37f) }
         compose.runOnIdle { assertEquals(0.4f, frosting, 0.01f) }
         compose.onNodeWithContentDescription("Glass frosting strength")
-            .assertRangeInfoEquals(ProgressBarRangeInfo(0.4f, 0f..0.5f, 4))
+            .assertRangeInfoEquals(ProgressBarRangeInfo(0.4f, 0f..0.7f, 6))
         compose.onNodeWithText("Glass frosting strength").assertExists()
         // Selecting the active button keeps it selected, just like the theme buttons.
         compose.onNodeWithText("Liquid glass").performClick()

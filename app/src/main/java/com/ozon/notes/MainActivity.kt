@@ -1,5 +1,7 @@
 package com.ozon.notes
 
+import com.ozon.notes.RimSurface as Surface
+
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -9,7 +11,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -139,6 +140,7 @@ class MainActivity : ComponentActivity() {
                 androidx.compose.runtime.CompositionLocalProvider(
                     LocalAdvancedUiEnabled provides advancedUi,
                     LocalAdvancedUiStyle provides advancedUiStyle,
+                    LocalButtonLightRimAvailable provides (advancedUi && advancedUiStyle == AdvancedUiStyle.LIQUID_GLASS),
                     LocalLiquidGlassFrosting provides liquidGlassFrosting
                 ) {
                     Surface(

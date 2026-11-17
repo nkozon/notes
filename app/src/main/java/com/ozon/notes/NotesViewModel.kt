@@ -62,20 +62,17 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
     .flowOn(Dispatchers.Default)
     .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val listsWithCountsState: StateFlow<List<NoteListWithCounts>> = combine(
-        searchQuery,
+    val overviewNotesState: StateFlow<List<Note>> = combine(allNotesState, noteSortOrder) { notes, order ->
+        getFilteredNotesUseCase(notes.orEmpty(), "", order)
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allListsWithCountsState: StateFlow<List<NoteListWithCounts>> = combine(
         listsSortOrder,
         repository.getAllListsWithCounts()
-    ) { query, sortOrder, allListsWithCounts ->
-        val filtered = if (query.isBlank()) {
-            allListsWithCounts
-        } else {
-            allListsWithCounts.filter { 
-                it.list.title.contains(query, ignoreCase = true) 
-            }
-        }
-
-        filtered.sortedWith { a, b ->
+    ) { sortOrder, allListsWithCounts ->
+        allListsWithCounts.sortedWith { a, b ->
             val la = a.list; val lb = b.list
             if (la.isPinned != lb.isPinned) {
                 return@sortedWith lb.isPinned.compareTo(la.isPinned)
@@ -89,8 +86,17 @@ class NotesViewModel(private val repository: NoteRepository) : ViewModel() {
             }
         }
     }
-    .flowOn(Dispatchers.Default)
-    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val listsWithCountsState: StateFlow<List<NoteListWithCounts>> = combine(
+        searchQuery,
+        allListsWithCountsState
+    ) { query, lists ->
+        if (query.isBlank()) lists else lists.filter { it.list.title.contains(query, ignoreCase = true) }
+    }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val splitFractionState: StateFlow<Float> = repository.getSplitFraction()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0.35f)

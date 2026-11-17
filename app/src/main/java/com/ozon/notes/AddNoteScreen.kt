@@ -1,6 +1,9 @@
 package com.ozon.notes
 
+import com.ozon.notes.RimSurface as Surface
+
 import androidx.compose.animation.*
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -258,15 +261,18 @@ private fun AddNoteScreenContent(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         var showMoreMenu by remember { mutableStateOf(false) }
+                        val headerMenuMorph = rememberHeaderMorphState(showMoreMenu)
                         Box {
                             CircleIconButton(
                                 onClick = { showMoreMenu = true },
                                 icon = Icons.Rounded.MoreVert,
-                                contentDescription = "More"
+                                contentDescription = "More",
+                                modifier = Modifier.headerMorphAnchor(headerMenuMorph),
                             )
                             AdvancedUiDropdownMenu(
                                 expanded = showMoreMenu,
-                                onDismissRequest = { showMoreMenu = false }
+                                onDismissRequest = { showMoreMenu = false },
+                                morphState = headerMenuMorph,
                             ) {
                                 val charCount = richTextState.annotatedString.text.length
                                 DropdownMenuItem(
@@ -288,7 +294,7 @@ private fun AddNoteScreenContent(
                                     onClick = { showMoreMenu = false },
                                     leadingIcon = { Icon(Icons.Rounded.Share, contentDescription = null) }
                                 )
-                                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                                HorizontalDivider(modifier = Modifier.withoutGlassContentShadow().padding(vertical = 4.dp))
                                 DropdownMenuItem(
                                     text = { Text("Delete") },
                                     onClick = {
@@ -482,6 +488,7 @@ fun TextFormattingToolbar(
                     .offset { IntOffset(dragOffset.x.roundToInt(), dragOffset.y.roundToInt()) }
                     .shadow(if (advancedUi) 0.dp else (if (isCollapsed) 4.dp else 8.dp), CircleShape)
                     .advancedUiBlur(
+                        liquidGlass = true,
                         hazeState = hazeState,
                         shape = CircleShape,
                         tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
@@ -529,6 +536,7 @@ fun TextFormattingToolbar(
                         )
                     },
                 color = advancedUiSurfaceColor(
+                    liquidGlass = true,
                     originalColor = MaterialTheme.colorScheme.surfaceColorAtElevation(if (isCollapsed) 2.dp else 6.dp),
                     tint = MaterialTheme.colorScheme.primary,
                     enabled = advancedUi
@@ -543,6 +551,10 @@ fun TextFormattingToolbar(
                 if (isHorizontal) {
                     Row(
                         modifier = Modifier
+                            .animateContentSize(
+                                animationSpec = spring(dampingRatio = 0.62f, stiffness = 450f),
+                                alignment = Alignment.Center,
+                            )
                             .widthIn(max = (screenWidth / LocalDensity.current.density).dp - 48.dp)
                             .clip(CircleShape)
                             .horizontalScroll(rememberScrollState())
@@ -555,6 +567,10 @@ fun TextFormattingToolbar(
                 } else {
                     Column(
                         modifier = Modifier
+                            .animateContentSize(
+                                animationSpec = spring(dampingRatio = 0.62f, stiffness = 450f),
+                                alignment = Alignment.Center,
+                            )
                             .heightIn(max = (screenHeight / LocalDensity.current.density).dp - 120.dp)
                             .clip(CircleShape)
                             .verticalScroll(rememberScrollState())
@@ -632,24 +648,14 @@ private fun FormattingToolbarContent(
         )
 
         Box {
-            val advancedUi = LocalAdvancedUiEnabled.current
-            val hazeState = LocalHazeState.current
+            // The toolbar already supplies the backdrop. A second blur here produced
+            // an oversized dark circle around the style selector's touch target.
             Surface(
                 onClick = { showTypeMenu = true },
                 shape = CircleShape,
-                color = advancedUiSurfaceColor(
-                    originalColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f),
-                    tint = MaterialTheme.colorScheme.primary,
-                    translucentAlpha = 0.5f,
-                    enabled = advancedUi
-                ),
-                modifier = (if (isHorizontal) Modifier.height(34.dp) else Modifier.width(34.dp))
-                    .advancedUiBlur(
-                        hazeState = hazeState,
-                        shape = CircleShape,
-                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                        enabled = advancedUi
-                    )
+                color = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+                modifier = if (isHorizontal) Modifier.height(34.dp) else Modifier.width(34.dp)
             ) {
                 if (isHorizontal) {
                     Row(
@@ -728,7 +734,7 @@ private fun FormattingToolbarContent(
 
 @Composable
 private fun ToolbarSeparator(isHorizontal: Boolean) {
-    if (isHorizontal) VerticalDivider(modifier = Modifier.height(24.dp).width(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-    else HorizontalDivider(modifier = Modifier.width(24.dp).height(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    if (isHorizontal) VerticalDivider(modifier = Modifier.withoutGlassContentShadow().height(24.dp).width(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    else HorizontalDivider(modifier = Modifier.withoutGlassContentShadow().width(24.dp).height(1.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 }
 

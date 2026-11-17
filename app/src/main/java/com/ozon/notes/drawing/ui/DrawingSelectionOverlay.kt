@@ -1,5 +1,10 @@
 package com.ozon.notes.drawing.ui
 
+import com.ozon.notes.RimButton as Button
+import com.ozon.notes.RimIconButton as IconButton
+import com.ozon.notes.RimSurface as Surface
+import com.ozon.notes.RimTextButton as TextButton
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -29,6 +34,7 @@ import com.ozon.notes.DrawingImage
 import com.ozon.notes.LocalAdvancedUiEnabled
 import com.ozon.notes.LocalHazeState
 import com.ozon.notes.Stroke as NoteStroke
+import com.ozon.notes.withoutGlassContentShadow
 import com.ozon.notes.advancedUiBlur
 import com.ozon.notes.advancedUiSurfaceColor
 import com.ozon.notes.AdvancedUiHeaderSurfaceAlpha
@@ -133,7 +139,7 @@ fun DrawingSelectionOverlay(
             }
             if (controller.selectedStrokeIds.isNotEmpty()) {
                 VerticalDivider(
-                    modifier = Modifier.height(24.dp).padding(horizontal = 4.dp),
+                    modifier = Modifier.withoutGlassContentShadow().height(24.dp).padding(horizontal = 4.dp),
                     color = MaterialTheme.colorScheme.outlineVariant
                 )
                 IconButton(onClick = {

@@ -67,10 +67,10 @@ internal fun AdvancedUiEffectSettings(
                     onValueChange = { onFrostingChange(normalizedGlassFrosting(it)) },
                     enabled = advancedUiEnabled && supportsLiquidGlass,
                     valueRange = 0f..MaxLiquidGlassFrosting,
-                    steps = 4,
+                    steps = 6,
                     modifier = Modifier.semantics {
                         contentDescription = "Glass frosting strength"
-                        stateDescription = "Level ${(value * 10).roundToInt() + 1} of 6"
+                        stateDescription = "Level ${(value * 10).roundToInt() + 1} of 8"
                     },
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

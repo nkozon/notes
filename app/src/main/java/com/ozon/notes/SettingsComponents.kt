@@ -1,5 +1,8 @@
 package com.ozon.notes
 
+import com.ozon.notes.RimIconButton as IconButton
+import com.ozon.notes.RimSurface as Surface
+
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.layout.*
@@ -73,19 +76,19 @@ fun SettingsTopAppBar(
     val isAtTop by headerState.isAtTop
 
     val pillBackgroundAlpha by animateFloatAsState(
-        targetValue = if (isAtTop) 0f else 1f,
+        targetValue = 1f,
         animationSpec = tween(durationMillis = 200),
         label = "pillBackgroundAlpha"
     )
 
     val backButtonContentColor by animateColorAsState(
-        targetValue = if (isAtTop) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer,
+        targetValue = MaterialTheme.colorScheme.onSecondaryContainer,
         animationSpec = tween(durationMillis = 200),
         label = "backButtonContentColor"
     )
 
     val titleContentColor by animateColorAsState(
-        targetValue = if (isAtTop) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer,
+        targetValue = MaterialTheme.colorScheme.onSecondaryContainer,
         animationSpec = tween(durationMillis = 200),
         label = "titleContentColor"
     )
@@ -115,8 +118,8 @@ fun SettingsTopAppBar(
         Surface(
             shape = CircleShape,
             color = pillContainerColor,
-            shadowElevation = if (advancedUi || isAtTop) 0.dp else 4.dp,
-            tonalElevation = if (advancedUi || isAtTop) 0.dp else 4.dp,
+            shadowElevation = if (advancedUi) 0.dp else 4.dp,
+            tonalElevation = if (advancedUi) 0.dp else 4.dp,
             modifier = Modifier
                 .advancedUiBlur(
                     liquidGlass = true,
@@ -132,6 +135,7 @@ fun SettingsTopAppBar(
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                WithoutButtonLightRim {
                 IconButton(
                     onClick = onNavigateUp,
                     modifier = Modifier.size(40.dp)
@@ -160,6 +164,7 @@ fun SettingsTopAppBar(
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                     )
                 }
+                            }
             }
         }
 
@@ -217,12 +222,12 @@ fun CollapsingTitleLayout(
             }
         }
         val backButtonContainerColor by animateColorAsState(
-            targetValue = if (isScrolled) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+            targetValue = MaterialTheme.colorScheme.secondaryContainer,
             animationSpec = tween(durationMillis = 200),
             label = "backButtonContainerColor"
         )
         val backButtonContentColor by animateColorAsState(
-            targetValue = if (isScrolled) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+            targetValue = MaterialTheme.colorScheme.onSecondaryContainer,
             animationSpec = tween(durationMillis = 200),
             label = "backButtonContentColor"
         )

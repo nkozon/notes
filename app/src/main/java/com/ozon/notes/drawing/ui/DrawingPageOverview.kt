@@ -1,5 +1,10 @@
 package com.ozon.notes.drawing.ui
 
+import com.ozon.notes.RimButton as Button
+import com.ozon.notes.RimFilledTonalButton as FilledTonalButton
+import com.ozon.notes.RimIconButton as IconButton
+import com.ozon.notes.RimSurface as Surface
+
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
 import androidx.compose.foundation.BorderStroke

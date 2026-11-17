@@ -55,6 +55,7 @@ internal fun Modifier.liquidGlassBackdrop(
     shape: Shape,
     backgroundColor: Color,
     strength: Float,
+    contentShadow: Boolean = true,
 ): Modifier {
     val resources = LocalResources.current
     val factory = remember(resources) {
@@ -70,6 +71,10 @@ internal fun Modifier.liquidGlassBackdrop(
             input = HazeInput.Sources(hazeState),
             style = style,
             sampling = HazeSampling.FullResolution,
+        )
+        .then(
+            if (contentShadow && frosting < 0.2f) Modifier.liquidGlassContentShadow(strength)
+            else Modifier
         )
 }
 

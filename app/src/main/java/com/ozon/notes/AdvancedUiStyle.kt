@@ -14,7 +14,7 @@ enum class AdvancedUiStyle {
 }
 
 const val DefaultLiquidGlassFrosting = 0.3f
-const val MaxLiquidGlassFrosting = 0.5f
+const val MaxLiquidGlassFrosting = 0.7f
 const val AdvancedUiHeaderSurfaceAlpha = 0.7f
 
 internal fun normalizedGlassFrosting(value: Float): Float =

@@ -19,11 +19,10 @@ float distanceToGlass(float2 point) {
 
 half4 main(float2 position) {
     float distance = distanceToGlass(position);
-    float edgePosition = clamp(1.0 + distance / edgeWidth, 0.0, 1.0);
-    // Ease the bevel into the flat center with zero first and second derivatives.
-    // A linear ramp leaves a visible seam where the refraction band stops.
-    float edge = edgePosition * edgePosition * edgePosition
-        * (edgePosition * (edgePosition * 6.0 - 15.0) + 10.0);
+    // A bounded bevel leaves an inset contour on large glass panels. A Gaussian
+    // falloff keeps the full edge depth and eases into the center without a band boundary.
+    float inwardDistance = min(distance, 0.0) / max(edgeWidth, 1.0);
+    float edge = exp(-0.5 * inwardDistance * inwardDistance);
     float2 gradient = float2(
         distanceToGlass(position + float2(0.5, 0.0)) - distanceToGlass(position - float2(0.5, 0.0)),
         distanceToGlass(position + float2(0.0, 0.5)) - distanceToGlass(position - float2(0.0, 0.5))
@@ -32,5 +31,15 @@ half4 main(float2 position) {
     float3 ray = refract(float3(0.0, 0.0, -1.0), normal, 1.0 / 1.5);
     float2 displacement = ray.xy / max(-ray.z, 0.1) * edgeWidth * refractionDepth * strength;
     float2 samplePosition = clamp(position + displacement, float2(0.5), textureSize - 0.5);
-    return backdrop.eval(samplePosition);
+    half4 glass = backdrop.eval(samplePosition);
+    // A narrow, soft highlight follows the lens contour, lit gently from above-left.
+    // Keep every edge faintly visible without turning it into a uniform white border.
+    float rimWidth = max(edgeWidth * 0.075, 0.5);
+    float rimDistance = (distance + rimWidth * 0.65) / rimWidth;
+    float rim = exp(-0.5 * rimDistance * rimDistance);
+    float2 outward = gradient / max(length(gradient), 0.001);
+    float lightFacing = clamp(0.5 + 0.5 * dot(outward, float2(-0.6, -0.8)), 0.0, 1.0);
+    half highlight = half(rim * (0.02 + 0.07 * lightFacing * lightFacing) * strength);
+    glass.rgb += (half3(glass.a) - glass.rgb) * highlight;
+    return glass;
 }
