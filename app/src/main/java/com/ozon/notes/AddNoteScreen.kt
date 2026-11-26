@@ -229,93 +229,97 @@ private fun AddNoteScreenContent(
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    if (noteId != null) {
-                        val sdf = remember { SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()) }
-                        Text(
-                            text = "Edited ${sdf.format(Date(timestamp))}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                        )
-                    }
-                },
-                navigationIcon = {
-                    Box(modifier = Modifier.padding(start = 16.dp)) {
-                        CircleIconButton(
-                            onClick = {
-                                if (hasNoteChanged()) {
-                                    saveNote()
-                                }
-                                wasSavedManually = true
-                                onNavigateUp()
-                            },
-                            icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "Back"
-                        )
-                    }
-                },
-                actions = {
-                    Row(
-                        modifier = Modifier.padding(end = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        var showMoreMenu by remember { mutableStateOf(false) }
-                        val headerMenuMorph = rememberHeaderMorphState(showMoreMenu)
-                        Box {
-                            CircleIconButton(
-                                onClick = { showMoreMenu = true },
-                                icon = Icons.Rounded.MoreVert,
-                                contentDescription = "More",
-                                modifier = Modifier.headerMorphAnchor(headerMenuMorph),
+            SolidHeader(isAtTop = !scrollState.canScrollBackward) {
+                CenterAlignedTopAppBar(
+                    title = {
+                        if (noteId != null) {
+                            val sdf = remember { SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()) }
+                            Text(
+                                text = "Edited ${sdf.format(Date(timestamp))}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                             )
-                            AdvancedUiDropdownMenu(
-                                expanded = showMoreMenu,
-                                onDismissRequest = { showMoreMenu = false },
-                                morphState = headerMenuMorph,
-                            ) {
-                                val charCount = richTextState.annotatedString.text.length
-                                DropdownMenuItem(
-                                    text = { 
-                                        Column {
-                                            Text("Statistics")
-                                            Text(
-                                                text = "$wordCount words, $charCount chars",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                            )
-                                        }
-                                    },
-                                    onClick = { showMoreMenu = false },
-                                    leadingIcon = { Icon(Icons.Rounded.BarChart, contentDescription = null) }
+                        }
+                    },
+                    navigationIcon = {
+                        Box(modifier = Modifier.padding(start = 16.dp)) {
+                            CircleIconButton(
+                                containerColor = if (LocalSolidHeaders.current) Color.Transparent else MaterialTheme.colorScheme.secondaryContainer,
+                                onClick = {
+                                    if (hasNoteChanged()) {
+                                        saveNote()
+                                    }
+                                    wasSavedManually = true
+                                    onNavigateUp()
+                                },
+                                icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                                contentDescription = "Back"
+                            )
+                        }
+                    },
+                    actions = {
+                        Row(
+                            modifier = Modifier.padding(end = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            var showMoreMenu by remember { mutableStateOf(false) }
+                            val headerMenuMorph = rememberHeaderMorphState(showMoreMenu)
+                            Box {
+                                CircleIconButton(
+                                    containerColor = if (LocalSolidHeaders.current) Color.Transparent else MaterialTheme.colorScheme.secondaryContainer,
+                                    onClick = { showMoreMenu = true },
+                                    icon = Icons.Rounded.MoreVert,
+                                    contentDescription = "More",
+                                    modifier = Modifier.headerMorphAnchor(headerMenuMorph),
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("Share") },
-                                    onClick = { showMoreMenu = false },
-                                    leadingIcon = { Icon(Icons.Rounded.Share, contentDescription = null) }
-                                )
-                                HorizontalDivider(modifier = Modifier.withoutGlassContentShadow().padding(vertical = 4.dp))
-                                DropdownMenuItem(
-                                    text = { Text("Delete") },
-                                    onClick = {
-                                        showMoreMenu = false
-                                        isDeleted = true
-                                        noteId?.let { viewModel.onEvent(NoteEvent.DeleteNote(it)) }
-                                        wasSavedManually = true
-                                        onNavigateUp()
-                                    },
-                                    leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
-                                )
+                                AdvancedUiDropdownMenu(
+                                    expanded = showMoreMenu,
+                                    onDismissRequest = { showMoreMenu = false },
+                                    morphState = headerMenuMorph,
+                                ) {
+                                    val charCount = richTextState.annotatedString.text.length
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text("Statistics")
+                                                Text(
+                                                    text = "$wordCount words, $charCount chars",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                                )
+                                            }
+                                        },
+                                        onClick = { showMoreMenu = false },
+                                        leadingIcon = { Icon(Icons.Rounded.BarChart, contentDescription = null) }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Share") },
+                                        onClick = { showMoreMenu = false },
+                                        leadingIcon = { Icon(Icons.Rounded.Share, contentDescription = null) }
+                                    )
+                                    HorizontalDivider(modifier = Modifier.withoutGlassContentShadow().padding(vertical = 4.dp))
+                                    DropdownMenuItem(
+                                        text = { Text("Delete") },
+                                        onClick = {
+                                            showMoreMenu = false
+                                            isDeleted = true
+                                            noteId?.let { viewModel.onEvent(NoteEvent.DeleteNote(it)) }
+                                            wasSavedManually = true
+                                            onNavigateUp()
+                                        },
+                                        leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
+                                    )
+                                }
                             }
                         }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    scrolledContainerColor = Color.Transparent
-                ),
-                modifier = Modifier.statusBarsPadding()
-            )
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        scrolledContainerColor = Color.Transparent
+                    ),
+                    modifier = Modifier.statusBarsPadding()
+                )
+            }
         }
     ) { padding ->
 

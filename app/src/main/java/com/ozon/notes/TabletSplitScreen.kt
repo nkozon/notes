@@ -241,7 +241,6 @@ internal fun TabletSplitScreen(
                                     onNavigateToMoviePosters = { openSettings(DetailRoute.MoviePosters) },
                                     onNavigateToCloudSync = { openSettings(DetailRoute.CloudSync) },
                                     onNavigateToBackup = { openSettings(DetailRoute.BackupRestore) },
-                                    onNavigateToGranularBackup = { openSettings(DetailRoute.GranularBackup) },
                                     onNavigateToAbout = { openSettings(DetailRoute.About) },
                                 )
                             }
@@ -264,7 +263,6 @@ internal fun TabletSplitScreen(
                                     onNavigateToMoviePosters = { settingsRoute = DetailRoute.MoviePosters },
                                     onNavigateToCloudSync = { settingsRoute = DetailRoute.CloudSync },
                                     onNavigateToBackup = { settingsRoute = DetailRoute.BackupRestore },
-                                    onNavigateToGranularBackup = { settingsRoute = DetailRoute.GranularBackup },
                                     onNavigateToAbout = { settingsRoute = DetailRoute.About },
                                 )
                             }
@@ -678,7 +676,6 @@ private val WorkspaceRouteSaver = Saver<DetailRoute?, List<String>>(
         DetailRoute.MoviePosters -> listOf("MoviePosters")
         DetailRoute.CloudSync -> listOf("CloudSync")
         DetailRoute.BackupRestore -> listOf("BackupRestore")
-        DetailRoute.GranularBackup -> listOf("GranularBackup")
         DetailRoute.About -> listOf("About")
     } },
     restore = { values -> when (values.firstOrNull()) {
@@ -692,8 +689,7 @@ private val WorkspaceRouteSaver = Saver<DetailRoute?, List<String>>(
         "DrawingSettings" -> DetailRoute.DrawingSettings
         "MoviePosters" -> DetailRoute.MoviePosters
         "CloudSync" -> DetailRoute.CloudSync
-        "BackupRestore" -> DetailRoute.BackupRestore
-        "GranularBackup" -> DetailRoute.GranularBackup
+        "BackupRestore", "GranularBackup" -> DetailRoute.BackupRestore
         "About" -> DetailRoute.About
         else -> null
     } },
@@ -714,7 +710,6 @@ private fun DetailPaneContent(
     onNavigateToMoviePosters: () -> Unit,
     onNavigateToCloudSync: () -> Unit,
     onNavigateToBackup: () -> Unit,
-    onNavigateToGranularBackup: () -> Unit,
     onNavigateToAbout: () -> Unit
 ) {
     when (route) {
@@ -755,7 +750,6 @@ private fun DetailPaneContent(
                 onNavigateToMoviePosters = onNavigateToMoviePosters,
                 onNavigateToCloudSync = onNavigateToCloudSync,
                 onNavigateToBackupRestore = onNavigateToBackup,
-                onNavigateToGranularBackup = onNavigateToGranularBackup,
                 onNavigateToAbout = onNavigateToAbout,
                 onNavigateUp = onClose
             )
@@ -780,13 +774,6 @@ private fun DetailPaneContent(
         }
         is DetailRoute.BackupRestore -> {
             BackupRestoreScreen(viewModel = settingsViewModel, onNavigateUp = onNavigateToSettings)
-        }
-        is DetailRoute.GranularBackup -> {
-            GranularBackupScreen(
-                notesViewModel = notesViewModel, 
-                settingsViewModel = settingsViewModel, 
-                onNavigateUp = onNavigateToSettings
-            )
         }
         is DetailRoute.About -> {
             AboutScreen(onNavigateUp = onNavigateToSettings, isTabletUi = true)

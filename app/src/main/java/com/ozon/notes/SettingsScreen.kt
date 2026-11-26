@@ -67,7 +67,6 @@ fun SettingsScreen(
     onNavigateToMoviePosters: () -> Unit,
     onNavigateToCloudSync: () -> Unit,
     onNavigateToBackupRestore: () -> Unit,
-    onNavigateToGranularBackup: () -> Unit,
     onNavigateToAbout: () -> Unit,
     onNavigateUp: () -> Unit
 ) {
@@ -265,7 +264,7 @@ fun SettingsScreen(
 
                 // Data Management Section
                 SettingsSection(title = "Data & Sync") {
-                    SettingsItemContainer(index = 0, total = 3, onClick = onNavigateToCloudSync) {
+                    SettingsItemContainer(index = 0, total = 2, onClick = onNavigateToCloudSync) {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -282,7 +281,7 @@ fun SettingsScreen(
                             }
                         }
                     }
-                    SettingsItemContainer(index = 1, total = 3, onClick = onNavigateToBackupRestore) {
+                    SettingsItemContainer(index = 1, total = 2, onClick = onNavigateToBackupRestore) {
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -290,26 +289,9 @@ fun SettingsScreen(
                             Icon(Icons.Rounded.Backup, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(Modifier.width(16.dp))
                             Column {
-                                Text("Full Backup & Restore", style = MaterialTheme.typography.titleMedium)
+                                Text("Backup & Restore", style = MaterialTheme.typography.titleMedium)
                                 Text(
-                                    text = "Create and restore local compressed backup archives",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                    SettingsItemContainer(index = 2, total = 3, onClick = onNavigateToGranularBackup) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Rounded.SettingsEthernet, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(16.dp))
-                            Column {
-                                Text("Granular Backup", style = MaterialTheme.typography.titleMedium)
-                                Text(
-                                    text = "Export or import individual notes and lists",
+                                    text = "Choose which notes and lists to back up or restore",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

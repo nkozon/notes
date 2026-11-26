@@ -428,7 +428,7 @@ fun NoteListScreen(
 
     val isAtTop by remember {
         derivedStateOf {
-            gridState.firstVisibleItemIndex == 0 && gridState.firstVisibleItemScrollOffset <= 10
+            !gridState.canScrollBackward
         }
     }
 
@@ -865,202 +865,204 @@ fun NoteListScreen(
         floatingActionButtonPosition = androidx.compose.material3.FabPosition.Center,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            WithButtonLightRim { 
+            CompositionLocalProvider(LocalButtonLightRimEnabled provides !LocalSolidHeaders.current) {
             Box(modifier = Modifier.fillMaxWidth().zIndex(3f)) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                ) {
-                    TopAppBar(
-                        title = {
-                            Text(
-                                text = if (workspaceOverview) "All notes" else if (globalSearch) "Search results" else if (categoryPopup) selectedTab.getTitle() else "Notes",
-                                style = if (categoryPopup) MaterialTheme.typography.titleLarge.copy(
-                                    fontWeight = FontWeight.SemiBold
-                                ) else MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.padding(start = 4.dp),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = Color.Transparent,
-                            scrolledContainerColor = Color.Transparent
-                        ),
-                        actions = {
-                            Row(
-                                modifier = Modifier.padding(end = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                if (isSyncActive) {
-                                    val count = dropboxSyncingItems.size
-                                    Surface(
-                                        onClick = { showSyncDetailsDialog = true },
-                                        shape = CircleShape,
-                                        color = advancedUiSurfaceColor(
-                                            liquidGlass = true,
-                                            originalColor = MaterialTheme.colorScheme.primaryContainer,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            enabled = advancedUi
-                                        ),
-                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        modifier = Modifier
-                                            .headerMorphAnchor(syncDetailsMorph)
-                                            .height(38.dp)
-                                            .advancedUiBlur(
-                                                liquidGlass = true,
-                                                hazeState = hazeState,
-                                                shape = CircleShape,
-                                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                                enabled = advancedUi
-                                            )
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 12.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(14.dp),
-                                                strokeWidth = 2.dp,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text = if (count > 0) "$count" else "Syncing",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                        }
-                                    }
-                                } else if (showMobileDataSyncButton) {
-                                    Surface(
-                                        onClick = {
-                                            settingsViewModel.syncWithDropbox(silent = false, forceMobileData = false)
-                                        },
-                                        shape = CircleShape,
-                                        color = advancedUiSurfaceColor(
-                                            liquidGlass = true,
-                                            originalColor = MaterialTheme.colorScheme.primaryContainer,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            enabled = advancedUi
-                                        ),
-                                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        modifier = Modifier
-                                            .height(38.dp)
-                                            .advancedUiBlur(
-                                                liquidGlass = true,
-                                                hazeState = hazeState,
-                                                shape = CircleShape,
-                                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                                enabled = advancedUi
-                                            )
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 12.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Rounded.CloudUpload,
-                                                contentDescription = "Sync Now",
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text = "Sync",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                fontWeight = FontWeight.Medium
-                                            )
-                                        }
-                                    }
-                                }
-                                if (isTabletUi && !categoryPopup && onToggleSidePanelCollapse != null) {
-                                    CircleIconButton(
-                                        onClick = {
-                                            isCreateMenuOpen = false
-                                            if (isSearchActive) {
-                                                focusManager.clearFocus()
-                                                keyboardController?.hide()
-                                            }
-                                            onToggleSidePanelCollapse.invoke()
-                                        },
-                                        icon = Icons.AutoMirrored.Rounded.ViewSidebar,
-                                        contentDescription = "Collapse side panel",
-                                        containerColor = headerButtonBackground,
-                                        contentColor = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                                Surface(
-                                    shape = CircleShape,
-                                    color = advancedUiSurfaceColor(
-                                        originalColor = settingsButtonBaseColor.copy(alpha = settingsButtonBackgroundAlpha),
-                                        translucentAlpha = settingsButtonBackgroundAlpha * AdvancedUiHeaderSurfaceAlpha,
-                                        tintAlpha = 0.15f * settingsButtonBackgroundAlpha,
-                                        enabled = advancedUi,
-                                        liquidGlass = true,
-                                    ),
-                                    modifier = Modifier.headerMorphAnchor(sortHeaderMorph).advancedUiBlur(
-                                        hazeState = hazeState,
-                                        shape = CircleShape,
-                                        blurRadius = 24.dp * settingsButtonBackgroundAlpha,
-                                        enabled = advancedUi,
-                                        liquidGlass = true,
-                                    ),
-                                    shadowElevation = if (advancedUi) 0.dp else 4.dp,
-                                    tonalElevation = 0.dp,
+                SolidHeader(isAtTop) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                    ) {
+                        TopAppBar(
+                            title = {
+                                Text(
+                                    text = if (workspaceOverview) "All notes" else if (globalSearch) "Search results" else if (categoryPopup) selectedTab.getTitle() else "Notes",
+                                    style = if (categoryPopup) MaterialTheme.typography.titleLarge.copy(
+                                        fontWeight = FontWeight.SemiBold
+                                    ) else MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.padding(start = 4.dp),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = Color.Transparent,
+                                scrolledContainerColor = Color.Transparent
+                            ),
+                            actions = {
+                                Row(
+                                    modifier = Modifier.padding(end = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        WithoutButtonLightRim {
-                                        SortDropdown(
-                                            selectedOrder = currentSortOrder,
-                                            onOrderSelected = onSortOrderSelected,
-                                            availableOrders = availableSortOrders,
-                                            iconOnly = true,
-                                            expanded = showHeaderSort,
-                                            onExpandedChange = { showHeaderSort = it },
-                                            morphState = sortHeaderMorph,
-                                        )
-                                        if (!categoryPopup && !workspaceOverview) IconButton(onClick = onSettingsClick, modifier = Modifier.size(48.dp)) {
-                                            Icon(
-                                                Icons.Rounded.Settings,
-                                                contentDescription = "Settings",
-                                                tint = if (activeRoute is DetailRoute.Settings) MaterialTheme.colorScheme.onPrimaryContainer
-                                                    else MaterialTheme.colorScheme.onSurface,
-                                            )
+                                    if (isSyncActive) {
+                                        val count = dropboxSyncingItems.size
+                                        Surface(
+                                            onClick = { showSyncDetailsDialog = true },
+                                            shape = CircleShape,
+                                            color = if (LocalSolidHeaders.current) Color.Transparent else advancedUiSurfaceColor(
+                                                liquidGlass = true,
+                                                originalColor = MaterialTheme.colorScheme.primaryContainer,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                enabled = advancedUi
+                                            ),
+                                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier
+                                                .headerMorphAnchor(syncDetailsMorph)
+                                                .height(38.dp)
+                                                .advancedUiBlur(
+                                                    liquidGlass = true,
+                                                    hazeState = hazeState,
+                                                    shape = CircleShape,
+                                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                                    enabled = advancedUi && !LocalSolidHeaders.current
+                                                )
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 12.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(14.dp),
+                                                    strokeWidth = 2.dp,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = if (count > 0) "$count" else "Syncing",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                            }
                                         }
-                                                                            }
+                                    } else if (showMobileDataSyncButton) {
+                                        Surface(
+                                            onClick = {
+                                                settingsViewModel.syncWithDropbox(silent = false, forceMobileData = false)
+                                            },
+                                            shape = CircleShape,
+                                            color = if (LocalSolidHeaders.current) Color.Transparent else advancedUiSurfaceColor(
+                                                liquidGlass = true,
+                                                originalColor = MaterialTheme.colorScheme.primaryContainer,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                enabled = advancedUi
+                                            ),
+                                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier
+                                                .height(38.dp)
+                                                .advancedUiBlur(
+                                                    liquidGlass = true,
+                                                    hazeState = hazeState,
+                                                    shape = CircleShape,
+                                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                                                    enabled = advancedUi && !LocalSolidHeaders.current
+                                                )
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 12.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Rounded.CloudUpload,
+                                                    contentDescription = "Sync Now",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "Sync",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                            }
+                                        }
+                                    }
+                                    if (isTabletUi && !categoryPopup && onToggleSidePanelCollapse != null) {
+                                        CircleIconButton(
+                                            onClick = {
+                                                isCreateMenuOpen = false
+                                                if (isSearchActive) {
+                                                    focusManager.clearFocus()
+                                                    keyboardController?.hide()
+                                                }
+                                                onToggleSidePanelCollapse.invoke()
+                                            },
+                                            icon = Icons.AutoMirrored.Rounded.ViewSidebar,
+                                            contentDescription = "Collapse side panel",
+                                            containerColor = if (LocalSolidHeaders.current) Color.Transparent else headerButtonBackground,
+                                            contentColor = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = if (LocalSolidHeaders.current) Color.Transparent else advancedUiSurfaceColor(
+                                            originalColor = settingsButtonBaseColor.copy(alpha = settingsButtonBackgroundAlpha),
+                                            translucentAlpha = settingsButtonBackgroundAlpha * AdvancedUiHeaderSurfaceAlpha,
+                                            tintAlpha = 0.15f * settingsButtonBackgroundAlpha,
+                                            enabled = advancedUi,
+                                            liquidGlass = true,
+                                        ),
+                                        modifier = Modifier.headerMorphAnchor(sortHeaderMorph).advancedUiBlur(
+                                            hazeState = hazeState,
+                                            shape = CircleShape,
+                                            blurRadius = 24.dp * settingsButtonBackgroundAlpha,
+                                            enabled = advancedUi && !LocalSolidHeaders.current,
+                                            liquidGlass = true,
+                                        ),
+                                        shadowElevation = if (advancedUi || LocalSolidHeaders.current) 0.dp else 4.dp,
+                                        tonalElevation = 0.dp,
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            WithoutButtonLightRim {
+                                            SortDropdown(
+                                                selectedOrder = currentSortOrder,
+                                                onOrderSelected = onSortOrderSelected,
+                                                availableOrders = availableSortOrders,
+                                                iconOnly = true,
+                                                expanded = showHeaderSort,
+                                                onExpandedChange = { showHeaderSort = it },
+                                                morphState = sortHeaderMorph,
+                                            )
+                                            if (!categoryPopup && !workspaceOverview) IconButton(onClick = onSettingsClick, modifier = Modifier.size(48.dp)) {
+                                                Icon(
+                                                    Icons.Rounded.Settings,
+                                                    contentDescription = "Settings",
+                                                    tint = if (activeRoute is DetailRoute.Settings) MaterialTheme.colorScheme.onPrimaryContainer
+                                                        else MaterialTheme.colorScheme.onSurface,
+                                                )
+                                            }
+                                                                                }
+                                        }
                                     }
                                 }
                             }
-                        }
-                    )
-
-                if (hasTabBar) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                            .padding(bottom = 8.dp)
-                    ) {
-                        MainScreenTabBar(
-                            selectedTab = selectedTab,
-                            onTabSelected = { settingsViewModel.onEvent(NoteEvent.UpdateLastSelectedTab(it)) },
-                            showNotesTab = showNotesTab,
-                            showListsTab = showListsTab,
-                            hasTextNotes = notes.any { it.type == NoteType.TEXT },
-                            hasDrawings = notes.any { it.type == NoteType.DRAWING },
-                            hasChecklists = listsWithCounts.any { it.list.type == ListType.CHECKLIST },
-                            hasRatings = listsWithCounts.any { it.list.type == ListType.RATING },
-                            hasUpcoming = listsWithCounts.any { it.list.type == ListType.UPCOMING },
-                            hideUncreatedTabs = hideUncreatedTabs,
-                            showTabLabels = showTabLabels,
-                            tabOrder = tabOrder
                         )
+
+                    if (hasTabBar) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                                .padding(bottom = 8.dp)
+                        ) {
+                            MainScreenTabBar(
+                                selectedTab = selectedTab,
+                                onTabSelected = { settingsViewModel.onEvent(NoteEvent.UpdateLastSelectedTab(it)) },
+                                showNotesTab = showNotesTab,
+                                showListsTab = showListsTab,
+                                hasTextNotes = notes.any { it.type == NoteType.TEXT },
+                                hasDrawings = notes.any { it.type == NoteType.DRAWING },
+                                hasChecklists = listsWithCounts.any { it.list.type == ListType.CHECKLIST },
+                                hasRatings = listsWithCounts.any { it.list.type == ListType.RATING },
+                                hasUpcoming = listsWithCounts.any { it.list.type == ListType.UPCOMING },
+                                hideUncreatedTabs = hideUncreatedTabs,
+                                showTabLabels = showTabLabels,
+                                tabOrder = tabOrder
+                            )
+                        }
                     }
                 }
-            }
+                }
 
             AnimatedVisibility(
                 visible = isCreateMenuOpen,

@@ -73,6 +73,7 @@ class MainActivity : ComponentActivity() {
             val customSecondaryColor by settingsViewModel.customSecondaryColorState.collectAsStateWithLifecycle()
             val customAccentColor by settingsViewModel.customAccentColorState.collectAsStateWithLifecycle()
             val isOledMode by settingsViewModel.isOledModeState.collectAsStateWithLifecycle()
+            val solidHeaders by settingsViewModel.solidHeaders.collectAsStateWithLifecycle()
             val advancedUi by settingsViewModel.advancedUiState.collectAsStateWithLifecycle()
             val advancedUiStyle by settingsViewModel.advancedUiStyleState.collectAsStateWithLifecycle()
             val liquidGlassFrosting by settingsViewModel.liquidGlassFrostingState.collectAsStateWithLifecycle()
@@ -138,6 +139,7 @@ class MainActivity : ComponentActivity() {
                 appFont = appFont
             ) {
                 androidx.compose.runtime.CompositionLocalProvider(
+                    LocalSolidHeaders provides solidHeaders,
                     LocalAdvancedUiEnabled provides advancedUi,
                     LocalAdvancedUiStyle provides advancedUiStyle,
                     LocalButtonLightRimAvailable provides (advancedUi && advancedUiStyle == AdvancedUiStyle.LIQUID_GLASS),

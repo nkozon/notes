@@ -7,14 +7,10 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -24,16 +20,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.text.SimpleDateFormat
+import java.text.DateFormat
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -43,7 +37,6 @@ fun BackupRestoreScreen(
     onNavigateUp: () -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
 
     val lastBackupTime by viewModel.lastBackupTimeState.collectAsStateWithLifecycle()
     val autoBackupEnabled by viewModel.autoBackupEnabled.collectAsStateWithLifecycle()
@@ -53,7 +46,7 @@ fun BackupRestoreScreen(
 
     val scrollState = rememberScrollState()
     val headerState = rememberScrollAwareHeaderState(scrollState)
-    var activeOperationMessage by remember { mutableStateOf<String?>(null) }
+    val operation by viewModel.localBackup.collectAsStateWithLifecycle()
 
     val backupUri = remember(backupUriString) {
         backupUriString?.let { Uri.parse(it) }
@@ -61,20 +54,9 @@ fun BackupRestoreScreen(
 
     // Picker for creating a single backup file (Manual Local Backup)
     val createDocumentLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/zip")
-    ) { uri ->
-        uri?.let { targetUri ->
-            activeOperationMessage = "Creating Backup..."
-            viewModel.createLocalBackup(targetUri, context.contentResolver) { success, error ->
-                activeOperationMessage = null
-                if (success) {
-                    Toast.makeText(context, "Backup created successfully", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "Backup failed: ${error ?: "Unknown error"}", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-    }
+        contract = ActivityResultContracts.CreateDocument("application/zip"),
+        onResult = viewModel::saveLocalBackup
+    )
 
     // Picker for selecting a folder (Local Auto Backup)
     val openDocumentTreeLauncher = rememberLauncherForActivityResult(
@@ -93,19 +75,7 @@ fun BackupRestoreScreen(
     // Picker for restoring from a local file (supports modern .notesbackup/.zip and legacy .json)
     val openDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        uri?.let { fileUri ->
-            activeOperationMessage = "Restoring Data..."
-            viewModel.restoreLocalBackup(fileUri, context.contentResolver) { success, error ->
-                activeOperationMessage = null
-                if (success) {
-                    Toast.makeText(context, "Restored successfully", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "Restore failed: ${error ?: "Unknown error"}", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-    }
+    ) { uri -> uri?.let(viewModel::previewLocalRestore) }
 
     val hazeState = dev.chrisbanes.haze.rememberHazeState()
     val advancedUi = LocalAdvancedUiEnabled.current
@@ -117,242 +87,207 @@ fun BackupRestoreScreen(
             modifier = Modifier.nestedScroll(headerState.nestedScrollConnection),
             topBar = {
                 SettingsTopAppBar(
-                    title = "Full Backup & Restore",
+                    title = "Backup & Restore",
                     onNavigateUp = onNavigateUp,
                     headerState = headerState
                 )
             }
         ) { padding ->
-        val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        val topAlpha by remember {
-            derivedStateOf {
-                (scrollState.value / 100f).coerceIn(0f, 1f)
+            val bottomPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+            val topAlpha by remember {
+                derivedStateOf {
+                    (scrollState.value / 100f).coerceIn(0f, 1f)
+                }
             }
-        }
 
-        val isAtEnd by remember {
-            derivedStateOf {
-                !scrollState.canScrollForward
+            val isAtEnd by remember {
+                derivedStateOf {
+                    !scrollState.canScrollForward
+                }
             }
-        }
 
-        val bottomFadeAlpha by animateFloatAsState(
-            targetValue = if (isAtEnd) 0f else 1f,
-            animationSpec = tween(durationMillis = 200),
-            label = "bottomFadeAlpha"
-        )
+            val bottomFadeAlpha by animateFloatAsState(
+                targetValue = if (isAtEnd) 0f else 1f,
+                animationSpec = tween(durationMillis = 200),
+                label = "bottomFadeAlpha"
+            )
 
-        Box(modifier = Modifier.fillMaxSize()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .advancedUiSource(hazeState, advancedUi)
-                    .verticalScroll(scrollState)
-                    .padding(horizontal = 16.dp)
-                    .padding(top = padding.calculateTopPadding() + 8.dp, bottom = bottomPadding + 16.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
-            ) {
-                // Estimated Data Size Card
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                    )
+            Box(modifier = Modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .advancedUiSource(hazeState, advancedUi)
+                        .verticalScroll(scrollState)
+                        .padding(horizontal = 16.dp)
+                        .padding(top = padding.calculateTopPadding() + 8.dp, bottom = bottomPadding + 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(24.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            shape = CircleShape,
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        BackupAction(
+                            title = "Create backup",
+                            description = "Choose notes and lists to save to a file",
+                            icon = Icons.Rounded.Backup,
+                            shape = RoundedCornerShape(28.dp, 28.dp, 6.dp, 6.dp),
                             color = MaterialTheme.colorScheme.primaryContainer,
-                            modifier = Modifier.size(44.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    Icons.Rounded.PieChart,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
+                            onClick = viewModel::chooseLocalBackupItems
+                        )
+                        BackupAction(
+                            title = "Restore from file",
+                            description = "Review items in a backup or legacy JSON file",
+                            icon = Icons.Rounded.Restore,
+                            shape = RoundedCornerShape(6.dp, 6.dp, 28.dp, 28.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            onClick = { openDocumentLauncher.launch(arrayOf("*/*")) }
+                        )
+                        val lastBackup = remember(lastBackupTime) {
+                            if (lastBackupTime == 0L) "No backups yet"
+                            else "Last backup ${DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(lastBackupTime))}"
                         }
-                        Spacer(Modifier.width(16.dp))
-                        Column {
-                            Text(
-                                text = "Estimated Backup Size",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                text = "~${viewModel.backupEngine.formatSize(estimatedBackupSize)} (compressed)",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
-
-                // Local Manual Backup & Restore Section
-                val lastBackupFormatted = remember(lastBackupTime) {
-                    if (lastBackupTime == 0L) {
-                        "Never"
-                    } else {
-                        val date = Date(lastBackupTime)
-                        SimpleDateFormat("dd/MM/yyyy 'at' HH:mm", Locale.getDefault()).format(date)
-                    }
-                }
-
-                SettingsSection(title = "Local Backup & Restore") {
-                    SettingsItemContainer(index = 0, total = 2, onClick = {
-                        createDocumentLauncher.launch("notes_backup_${System.currentTimeMillis()}.notesbackup")
-                    }) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Rounded.FileDownload, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(16.dp))
-                            Column {
-                                Text("Backup to File", style = MaterialTheme.typography.titleMedium)
-                                Text(
-                                    text = "Create a compressed archive (.notesbackup)",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = "Last: $lastBackupFormatted",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-                                )
-                            }
-                        }
-                    }
-                    SettingsItemContainer(index = 1, total = 2, onClick = {
-                        openDocumentLauncher.launch(arrayOf("application/zip", "application/octet-stream", "application/json", "*/*"))
-                    }) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Rounded.FileUpload, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(16.dp))
-                            Column {
-                                Text("Restore Data", style = MaterialTheme.typography.titleMedium)
-                                Text(
-                                    text = "Import archive or legacy JSON backup file",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Local Automatic Backup Section
-                SettingsSection(title = "Local Automatic Backup") {
-                    SettingsItemContainer(index = 0, total = 2) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Auto Backup",
-                                    style = MaterialTheme.typography.titleMedium
-                                )
-                                Text(
-                                    text = "Save changes to folder when app is closed",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Switch(
-                                checked = autoBackupEnabled,
-                                onCheckedChange = { isEnabled -> 
-                                    if (isEnabled && (backupUri == null)) {
-                                        Toast.makeText(context, "Please select a backup folder first", Toast.LENGTH_LONG).show()
-                                    } else {
-                                        viewModel.onEvent(NoteEvent.UpdateAutoBackupEnabled(isEnabled))
-                                    }
-                                }
-                            )
-                        }
+                        Text(
+                            "$lastBackup  ·  Full library ~${viewModel.backupEngine.formatSize(estimatedBackupSize)}",
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
 
-                    SettingsItemContainer(index = 1, total = 2, onClick = { 
-                        openDocumentTreeLauncher.launch(null) 
-                    }) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Rounded.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(16.dp))
-                            Column {
-                                Text("Backup Folder", style = MaterialTheme.typography.titleMedium)
-                                Text(
-                                    text = backupUri?.path?.split(":")?.lastOrNull() ?: "No folder selected",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1
-                                )
-                                if (backupUri == null) {
+                    // Local Automatic Backup Section
+                    SettingsSection(title = "Automatic backup") {
+                        SettingsItemContainer(index = 0, total = 2) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "Required for local auto backup",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.error
+                                        text = "Auto Backup",
+                                        style = MaterialTheme.typography.titleMedium
+                                    )
+                                    Text(
+                                        text = "Back up your full library when you leave the app",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
+                                Switch(
+                                    checked = autoBackupEnabled,
+                                    onCheckedChange = { isEnabled ->
+                                        if (isEnabled && (backupUri == null)) {
+                                            Toast.makeText(context, "Please select a backup folder first", Toast.LENGTH_LONG).show()
+                                        } else {
+                                            viewModel.onEvent(NoteEvent.UpdateAutoBackupEnabled(isEnabled))
+                                        }
+                                    }
+                                )
+                            }
+                        }
+
+                        SettingsItemContainer(index = 1, total = 2, onClick = {
+                            openDocumentTreeLauncher.launch(null)
+                        }) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Rounded.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Spacer(Modifier.width(16.dp))
+                                Column {
+                                    Text("Backup Folder", style = MaterialTheme.typography.titleMedium)
+                                    Text(
+                                        text = backupUri?.path?.split(":")?.lastOrNull() ?: "No folder selected",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1
+                                    )
+                                    if (backupUri == null) {
+                                        Text(
+                                            text = "Required for local auto backup",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
-                }
 
-                if (hasPendingChanges && autoBackupEnabled) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Rounded.Sync, contentDescription = null, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                "You have unsaved changes that will be backed up locally when leaving the app.",
-                                style = MaterialTheme.typography.bodySmall
+                    if (hasPendingChanges && autoBackupEnabled) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
                             )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Rounded.Sync, contentDescription = null, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(12.dp))
+                                Text(
+                                    "You have unsaved changes that will be backed up locally when leaving the app.",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(16.dp))
                 }
-                
-                Spacer(modifier = Modifier.height(16.dp))
+
+                SystemBarGradients(
+                    modifier = Modifier.zIndex(1f),
+                    topAlpha = { topAlpha },
+                    bottomAlpha = { bottomFadeAlpha }
+                )
             }
 
-            SystemBarGradients(
-                modifier = Modifier.zIndex(1f),
-                topAlpha = { topAlpha },
-                bottomAlpha = { bottomFadeAlpha }
-            )
-        }
-
-        activeOperationMessage?.let { msg ->
-            BackupLoadingDialog(
-                title = msg,
-                subTitle = if (msg.contains("Restor", ignoreCase = true)) {
-                    "Please wait while your notes, lists, and media are safely restored..."
-                } else {
-                    "Please wait while your notes, lists, and media are compressed..."
+            when (val state = operation) {
+                is LocalBackupState.Picking -> BackupSelectionDialog(
+                    picker = state,
+                    onSelectionChange = viewModel::updateBackupSelection,
+                    onDismiss = viewModel::dismissLocalBackup,
+                    onConfirm = {
+                        viewModel.confirmBackupSelection()
+                        if (!state.restoring) {
+                            createDocumentLauncher.launch("notes_backup_${System.currentTimeMillis()}.notesbackup")
+                        }
+                    }
+                )
+                is LocalBackupState.Busy -> BackupLoadingDialog(title = state.title)
+                is LocalBackupState.Message -> LaunchedEffect(state) {
+                    Toast.makeText(context, state.text, Toast.LENGTH_LONG).show()
+                    viewModel.dismissLocalBackup()
                 }
-            )
+                LocalBackupState.Idle, is LocalBackupState.Destination -> Unit
+            }
         }
     }
 }
+
+@Composable
+private fun BackupAction(
+    title: String,
+    description: String,
+    icon: ImageVector,
+    shape: Shape,
+    color: Color,
+    onClick: () -> Unit
+) {
+    Surface(onClick = onClick, shape = shape, color = color, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(20.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleLarge)
+                Text(description, style = MaterialTheme.typography.bodyMedium)
+            }
+            Icon(Icons.Rounded.ChevronRight, contentDescription = null)
+        }
+    }
 }

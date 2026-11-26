@@ -389,65 +389,71 @@ fun EntryDialog(
             decorFitsSystemWindows = false
         )
     ) {
+        val editorScroll = rememberScrollState()
+        val solidHeader = LocalSolidHeaders.current
+        val headerHaze = dev.chrisbanes.haze.rememberHazeState()
         Scaffold(
             topBar = {
-                TopAppBar(
-                    title = {
-                        Text(
-                            text = titlePrefix ?: if (entry == null) "Add Entry" else "Edit Entry",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = onDismiss) {
-                            Icon(
-                                imageVector = Icons.Rounded.Close,
-                                contentDescription = "Close"
-                            )
-                        }
-                    },
-                    actions = {
-                        Button(
-                            onClick = {
-                                if (title.text.isNotBlank()) {
-                                    val finalRating = ((rating * 10).roundToInt() / 10f)
-                                    onConfirm(
-                                        title.text,
-                                        finalRating,
-                                        selectedTagIds.toList(),
-                                        linkedEntryId,
-                                        dueDate,
-                                        remindMe,
-                                        progress.status == EntryProgressStatus.WATCHING,
-                                        progress.status == EntryProgressStatus.PAUSED,
-                                        progress.current.toIntOrNull(),
-                                        progress.total.toIntOrNull(),
-                                        progress.unit.takeIf { progress.status != EntryProgressStatus.NONE && it.isNotBlank() }
-                                    )
-                                }
-                            },
-                            enabled = title.text.isNotBlank(),
-                            shape = CircleShape,
-                            modifier = Modifier.padding(end = 8.dp)
-                        ) {
+                SolidHeader(isAtTop = !editorScroll.canScrollBackward, haze = headerHaze) {
+                    TopAppBar(
+                        title = {
                             Text(
-                                text = if (entry == null) "Add" else "Save",
-                                fontWeight = FontWeight.Bold
+                                text = titlePrefix ?: if (entry == null) "Add Entry" else "Edit Entry",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.SemiBold
                             )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface
+                        },
+                        navigationIcon = {
+                            IconButton(onClick = onDismiss) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Close,
+                                    contentDescription = "Close"
+                                )
+                            }
+                        },
+                        actions = {
+                            Button(
+                                onClick = {
+                                    if (title.text.isNotBlank()) {
+                                        val finalRating = ((rating * 10).roundToInt() / 10f)
+                                        onConfirm(
+                                            title.text,
+                                            finalRating,
+                                            selectedTagIds.toList(),
+                                            linkedEntryId,
+                                            dueDate,
+                                            remindMe,
+                                            progress.status == EntryProgressStatus.WATCHING,
+                                            progress.status == EntryProgressStatus.PAUSED,
+                                            progress.current.toIntOrNull(),
+                                            progress.total.toIntOrNull(),
+                                            progress.unit.takeIf { progress.status != EntryProgressStatus.NONE && it.isNotBlank() }
+                                        )
+                                    }
+                                },
+                                enabled = title.text.isNotBlank(),
+                                shape = CircleShape,
+                                modifier = Modifier.padding(end = 8.dp)
+                            ) {
+                                Text(
+                                    text = if (entry == null) "Add" else "Save",
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = if (solidHeader) Color.Transparent else MaterialTheme.colorScheme.surface
+                        )
                     )
-                )
+                }
             },
             containerColor = MaterialTheme.colorScheme.surface
         ) { innerPadding ->
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding),
+                    .advancedUiSource(headerHaze, solidHeader && LocalAdvancedUiEnabled.current)
+                    .then(if (solidHeader) Modifier else Modifier.padding(innerPadding)),
                 contentAlignment = Alignment.TopCenter
             ) {
                 Column(
@@ -455,7 +461,8 @@ fun EntryDialog(
                         .fillMaxWidth()
                         .widthIn(max = 640.dp)
                         .imePadding()
-                        .verticalScroll(rememberScrollState())
+                        .verticalScroll(editorScroll)
+                        .then(if (solidHeader) Modifier.padding(innerPadding) else Modifier)
                         .padding(horizontal = 20.dp, vertical = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
@@ -694,8 +701,12 @@ fun EntryDialog(
                                                 Spacer(modifier = Modifier.height(24.dp))
                                             }
 
-                                            // 2. Fixed Header Background Gradient
-                                            Box(
+                                            // Header background for the linked-entry picker
+                                            if (solidHeader) SolidHeader(isAtTop = !scrollState.canScrollBackward, haze = null,
+                                                color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                                                Spacer(Modifier.fillMaxWidth().height(headerHeight))
+                                            }
+                                            else if (!solidHeader) Box(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .height(headerHeight + 24.dp)
@@ -752,7 +763,7 @@ fun EntryDialog(
                                             }
 
                                             // 4. Bottom Gradient Fade
-                                            Box(
+                                            if (!solidHeader) Box(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .height(32.dp)

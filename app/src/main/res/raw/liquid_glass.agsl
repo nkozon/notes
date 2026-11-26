@@ -23,11 +23,33 @@ half4 main(float2 position) {
     // falloff keeps the full edge depth and eases into the center without a band boundary.
     float inwardDistance = min(distance, 0.0) / max(edgeWidth, 1.0);
     float edge = exp(-0.5 * inwardDistance * inwardDistance);
+    // Opposite sides of a pill have opposite normals. Average the slope over
+    // a bevel-width neighborhood inside the lens so they meet smoothly at its
+    // center. Keep the half-pixel derivative at the rim for a crisp highlight.
+    float radius = max(0.5, min(-distance * 0.5, edgeWidth));
     float2 gradient = float2(
-        distanceToGlass(position + float2(0.5, 0.0)) - distanceToGlass(position - float2(0.5, 0.0)),
-        distanceToGlass(position + float2(0.0, 0.5)) - distanceToGlass(position - float2(0.0, 0.5))
-    );
+        distanceToGlass(position + float2(radius, 0.0)) - distanceToGlass(position - float2(radius, 0.0)),
+        distanceToGlass(position + float2(0.0, radius)) - distanceToGlass(position - float2(0.0, radius))
+    ) / (2.0 * radius);
+    // Ease the averaged slope back to unit length where only one edge contributes.
+    gradient *= 1.5 - 0.5 * min(dot(gradient, gradient), 1.0);
     float3 normal = normalize(float3(gradient * edge, sqrt(max(1.0 - edge * edge, 0.001))));
+    // At a square corner the nearest edge switches along a diagonal. Blend the
+    // two perpendicular bevels independently there so the sampled image stays smooth.
+    float2 fromStart = (position - body.xy) / edgeWidth;
+    float2 fromEnd = body.zw / edgeWidth - fromStart;
+    float4 sides = float4(fromStart, fromEnd); // left, top, right, bottom
+    float4 nearSide = 1.0 - smoothstep(2.0, 4.0, sides);
+    float4 nearCorner = nearSide.xzzx * nearSide.yyww;
+    float squareWeight = min(dot(nearCorner, 1.0 - step(float4(0.001), corners)), 1.0);
+    if (squareWeight > 0.0) {
+        float4 bevel = exp(-0.5 * sides * sides);
+        float2 slope = bevel.zw - bevel.xy;
+        float2 upright = max(1.0 - slope * slope, 0.001);
+        float3 squareNormal = normalize(float3(slope, sqrt(upright.x * upright.y)));
+        normal = normalize(mix(normal, squareNormal, squareWeight));
+        gradient = mix(gradient, slope, squareWeight);
+    }
     float3 ray = refract(float3(0.0, 0.0, -1.0), normal, 1.0 / 1.5);
     float2 displacement = ray.xy / max(-ray.z, 0.1) * edgeWidth * refractionDepth * strength;
     float2 samplePosition = clamp(position + displacement, float2(0.5), textureSize - 0.5);

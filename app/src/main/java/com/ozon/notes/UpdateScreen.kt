@@ -186,7 +186,7 @@ fun UpdateDialog(
                         }
 
                         // Gradient fading overlay at bottom of scrollable area
-                        Box(
+                        if (!LocalSolidHeaders.current) Box(
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .fillMaxWidth()

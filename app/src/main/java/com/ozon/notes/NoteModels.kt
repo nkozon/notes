@@ -47,7 +47,6 @@ sealed class DetailRoute {
     data class List(val id: String, val initialEntryId: String? = null) : DetailRoute()
     data object BackupRestore : DetailRoute()
     data object CloudSync : DetailRoute()
-    data object GranularBackup : DetailRoute()
     data object Settings : DetailRoute()
     data object Theme : DetailRoute()
     data object TabsSettings : DetailRoute()

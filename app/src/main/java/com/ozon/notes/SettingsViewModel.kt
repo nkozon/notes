@@ -1,6 +1,5 @@
 package com.ozon.notes
 
-import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
 import android.util.Log
@@ -13,8 +12,6 @@ import kotlinx.coroutines.flow.*
 import kotlinx.serialization.ExperimentalSerializationApi
 import java.io.File
 import java.io.IOException
-import java.io.InputStream
-import java.io.OutputStream
 
 enum class InitialSyncDialogType {
     NONE,
@@ -59,6 +56,13 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
 
     val isOledModeState: StateFlow<Boolean> = repository.getIsOledMode()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val solidHeaders = repository.getSolidHeaders()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    fun setSolidHeaders(enabled: Boolean) {
+        viewModelScope.launch { repository.setSolidHeaders(enabled) }
+    }
 
     val advancedUiState: StateFlow<Boolean> = repository.getAdvancedUi()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
@@ -445,121 +449,108 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
         }
     }
 
-    fun createLocalBackup(uri: Uri, contentResolver: ContentResolver, onComplete: (Boolean, String?) -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
+    private val _localBackup = MutableStateFlow<LocalBackupState>(LocalBackupState.Idle)
+    internal val localBackup = _localBackup.asStateFlow()
+    private var restoreChoice: CompletableDeferred<BackupSelection?>? = null
+
+    private suspend fun libraryItems() = withContext(Dispatchers.IO) {
+        backupItems(repository.getAllNotes().first(), repository.getAllLists().first())
+    }
+
+    private fun launchBackupOperation(title: String, action: suspend () -> Unit) {
+        _localBackup.value = LocalBackupState.Busy(title)
+        viewModelScope.launch {
             try {
-                val stream = contentResolver.openOutputStream(uri)
-                    ?: throw IOException("Failed to open destination file for writing")
-                stream.use { out ->
-                    backupEngine.createBackup(out)
-                }
-                repository.setLastBackupTime(System.currentTimeMillis())
-                repository.setHasPendingChanges(false)
-                updateEstimatedBackupSize()
-                withContext(Dispatchers.Main) {
-                    onComplete(true, null)
-                }
+                action()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                Log.e("SettingsViewModel", "Local backup failed", e)
-                withContext(Dispatchers.Main) {
-                    onComplete(false, e.localizedMessage ?: "Unknown error")
+                Log.e("SettingsViewModel", title, e)
+                val reason = when (e) {
+                    is kotlinx.serialization.SerializationException -> "This file is not a readable Notes backup."
+                    is SecurityException -> "File access was denied. Choose the file again."
+                    else -> e.localizedMessage ?: "Please try again."
                 }
+                _localBackup.value = LocalBackupState.Message("Couldn’t finish. $reason")
             }
         }
     }
 
-    fun restoreLocalBackup(uri: Uri, contentResolver: ContentResolver, onComplete: (Boolean, String?) -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val stream = contentResolver.openInputStream(uri)
-                    ?: throw IOException("Failed to open backup file for reading")
-                val success = stream.use { input ->
-                    backupEngine.restoreBackup(input, isMerge = false)
-                }
-                if (success) {
-                    updateEstimatedBackupSize()
-                    withContext(Dispatchers.Main) {
-                        onComplete(true, null)
+    internal fun chooseLocalBackupItems() = launchBackupOperation("Reading your library") {
+        _localBackup.value = LocalBackupState.Picking(libraryItems(), restoring = false)
+    }
+
+    internal fun previewLocalRestore(uri: Uri) = launchBackupOperation("Reading backup") {
+        val restored = withContext(Dispatchers.IO) {
+            val resolver = repository.getContext().contentResolver
+            val input = resolver.openInputStream(uri) ?: throw IOException("Couldn’t open this backup.")
+            input.use {
+                backupEngine.withBackupData(it) { data ->
+                    data.validateIdentifiers()
+                    val items = backupItems(data.notes, data.lists).markMatchingTitles(libraryItems())
+                    // Keep validated data and its staged media alive until this exact preview is confirmed.
+                    val selection = withContext(Dispatchers.Main) {
+                        val choice = CompletableDeferred<BackupSelection?>()
+                        restoreChoice = choice
+                        try {
+                            _localBackup.value = LocalBackupState.Picking(items, restoring = true)
+                            choice.await()
+                        } finally {
+                            if (restoreChoice === choice) restoreChoice = null
+                        }
                     }
-                } else {
-                    withContext(Dispatchers.Main) {
-                        onComplete(false, "Invalid or unreadable backup file")
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("SettingsViewModel", "Local restore failed", e)
-                withContext(Dispatchers.Main) {
-                    onComplete(false, e.localizedMessage ?: "Unknown error")
+                    if (selection == null) return@withBackupData false
+                    repository.importBackupData(data.restoreCopies(selection))
+                    true
                 }
             }
+        }
+        if (restored) {
+            updateEstimatedBackupSize()
+            _localBackup.value = LocalBackupState.Message("Selected items restored")
         }
     }
 
-    fun exportGranularNote(noteId: String, uri: Uri, contentResolver: ContentResolver, onComplete: (Boolean, String?) -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val stream = contentResolver.openOutputStream(uri)
-                    ?: throw IOException("Failed to open destination file for writing")
-                val success = stream.use { out ->
-                    backupEngine.exportNote(noteId, out)
-                }
-                withContext(Dispatchers.Main) {
-                    onComplete(success, if (success) null else "Note export failed")
-                }
-            } catch (e: Exception) {
-                Log.e("SettingsViewModel", "Note export failed", e)
-                withContext(Dispatchers.Main) {
-                    onComplete(false, e.localizedMessage ?: "Export failed")
-                }
-            }
+    internal fun updateBackupSelection(selected: Set<BackupItem>) {
+        val picker = _localBackup.value as? LocalBackupState.Picking ?: return
+        _localBackup.value = picker.copy(selected = selected)
+    }
+
+    internal fun confirmBackupSelection() {
+        val picker = _localBackup.value as? LocalBackupState.Picking ?: return
+        if (picker.selected.isEmpty()) return
+        val selection = BackupSelection(picker.selected)
+        if (picker.restoring) {
+            _localBackup.value = LocalBackupState.Busy("Restoring selected items")
+            restoreChoice?.complete(selection)
+        } else {
+            _localBackup.value = LocalBackupState.Destination(selection)
         }
     }
 
-    fun exportGranularList(listId: String, uri: Uri, contentResolver: ContentResolver, onComplete: (Boolean, String?) -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val stream = contentResolver.openOutputStream(uri)
-                    ?: throw IOException("Failed to open destination file for writing")
-                val success = stream.use { out ->
-                    backupEngine.exportList(listId, out)
-                }
-                withContext(Dispatchers.Main) {
-                    onComplete(success, if (success) null else "List export failed")
-                }
-            } catch (e: Exception) {
-                Log.e("SettingsViewModel", "List export failed", e)
-                withContext(Dispatchers.Main) {
-                    onComplete(false, e.localizedMessage ?: "Export failed")
-                }
+    internal fun saveLocalBackup(uri: Uri?) {
+        val destination = _localBackup.value as? LocalBackupState.Destination
+        if (uri == null) {
+            dismissLocalBackup()
+            return
+        }
+        if (destination == null) {
+            _localBackup.value = LocalBackupState.Message("Choose the items to back up again.")
+            return
+        }
+        launchBackupOperation("Creating backup") {
+            withContext(Dispatchers.IO) {
+                val resolver = repository.getContext().contentResolver
+                val output = resolver.openOutputStream(uri, "wt") ?: throw IOException("Couldn’t open this file for writing.")
+                output.use { repository.writeLocalBackup(it, destination.selection) }
             }
+            _localBackup.value = LocalBackupState.Message("Backup saved")
         }
     }
 
-    fun importGranularBackup(uri: Uri, contentResolver: ContentResolver, onComplete: (Boolean, String?) -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val stream = contentResolver.openInputStream(uri)
-                    ?: throw IOException("Failed to open backup file for reading")
-                val success = stream.use { input ->
-                    backupEngine.restoreBackup(input, isMerge = true)
-                }
-                if (success) {
-                    updateEstimatedBackupSize()
-                    withContext(Dispatchers.Main) {
-                        onComplete(true, null)
-                    }
-                } else {
-                    withContext(Dispatchers.Main) {
-                        onComplete(false, "Could not import backup data")
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e("SettingsViewModel", "Granular import failed", e)
-                withContext(Dispatchers.Main) {
-                    onComplete(false, e.localizedMessage ?: "Import failed")
-                }
-            }
-        }
+    internal fun dismissLocalBackup() {
+        restoreChoice?.complete(null)
+        _localBackup.value = LocalBackupState.Idle
     }
 
     fun onEvent(event: NoteEvent) {
@@ -625,14 +616,6 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
                 repository.clearAllData()
                 updateEstimatedBackupSize()
             }
-            is NoteEvent.BackupData -> viewModelScope.launch { 
-                val data = repository.getBackupData()
-                event.onDataReady(data) 
-            }
-            is NoteEvent.RestoreData -> viewModelScope.launch { 
-                repository.restoreBackupData(event.data)
-                updateEstimatedBackupSize()
-            }
             is NoteEvent.TriggerAutoBackup -> triggerAutoBackup()
             is NoteEvent.CheckForUpdate -> checkForUpdate()
             is NoteEvent.InstallUpdate -> {
@@ -640,18 +623,6 @@ class SettingsViewModel(private val repository: NoteRepository) : ViewModel() {
                 if (id != null) {
                     startDownloadProgressPolling(id)
                 }
-            }
-            is NoteEvent.ExportNote -> viewModelScope.launch {
-                val data = repository.getNoteBackup(event.noteId)
-                if (data != null) event.onDataReady(data)
-            }
-            is NoteEvent.ExportList -> viewModelScope.launch {
-                val data = repository.getListBackup(event.listId)
-                if (data != null) event.onDataReady(data)
-            }
-            is NoteEvent.ImportGranular -> viewModelScope.launch {
-                repository.importBackupData(event.data)
-                updateEstimatedBackupSize()
             }
             else -> { /* Other events handled by other viewmodels */ }
         }

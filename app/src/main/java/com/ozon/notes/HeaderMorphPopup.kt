@@ -224,6 +224,10 @@ fun HeaderMorphPopup(
                 val initialRadius = if (expanded) minOf(compactWidth, compactHeight) / 2f else anchor.height / 2f
                 val radius = androidx.compose.ui.util.lerp(initialRadius, 28.dp.toPx(), progress)
                 val shape = RoundedCornerShape(radius.toDp())
+                val surfaceX = bounds.left.roundToInt()
+                val surfaceY = bounds.top.roundToInt()
+                val surfaceWidth = bounds.width.roundToInt().coerceAtLeast(1)
+                val surfaceHeight = bounds.height.roundToInt().coerceAtLeast(1)
                 val surface = subcompose("surface") {
                     Surface(
                         modifier = Modifier.shadow(8.dp, shape, clip = false)
@@ -232,17 +236,33 @@ fun HeaderMorphPopup(
                         color = advancedUiSurfaceColor(containerColor, enabled = advanced, liquidGlass = true),
                         contentColor = MaterialTheme.colorScheme.onSurface,
                     ) {}
-                }.single().measure(Constraints.fixed(bounds.width.roundToInt().coerceAtLeast(1), bounds.height.roundToInt().coerceAtLeast(1)))
+                }.single().measure(Constraints.fixed(surfaceWidth, surfaceHeight))
                 layout(constraints.maxWidth, constraints.maxHeight) {
-                    surface.placeWithLayer(bounds.left.roundToInt(), bounds.top.roundToInt()) {
+                    surface.placeWithLayer(surfaceX, surfaceY) {
                         // Hand back to the actual pill before moving home. An opaque popup
                         // otherwise covers its icons until removal, causing the final snap.
                         alpha = state.surfaceAlpha
                     }
-                    menu.placeWithLayer(target.left.roundToInt(), target.top.roundToInt()) {
+                    // Scale uniformly so text and icons keep their proportions.
+                    val contentScale = minOf(
+                        surfaceWidth.toFloat() / menu.width.coerceAtLeast(1),
+                        surfaceHeight.toFloat() / menu.height.coerceAtLeast(1),
+                    )
+                    val contentCenter = Offset(menu.width / 2f, menu.height / 2f)
+                    val halfWidth = surfaceWidth / (2f * contentScale)
+                    val halfHeight = surfaceHeight / (2f * contentScale)
+                    val clipBounds = Rect(
+                        contentCenter.x - halfWidth, contentCenter.y - halfHeight,
+                        contentCenter.x + halfWidth, contentCenter.y + halfHeight,
+                    )
+                    menu.placeWithLayer(surfaceX, surfaceY) {
+                        translationX = (surfaceWidth - menu.width) / 2f
+                        translationY = (surfaceHeight - menu.height) / 2f
+                        scaleX = contentScale
+                        scaleY = contentScale
                         alpha = ((progress - 0.15f) / 0.65f).coerceIn(0f, 1f)
                         clip = true
-                        this.shape = MorphContentClip(bounds.translate(-target.left, -target.top), radius)
+                        this.shape = MorphContentClip(clipBounds, radius / contentScale)
                     }
                 }
             }

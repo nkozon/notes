@@ -136,6 +136,8 @@ private fun MainTabItem(
     val backgroundColor by animateColorAsState(
         targetValue = if (isSelected) {
             MaterialTheme.colorScheme.primaryContainer
+        } else if (LocalSolidHeaders.current) {
+            Color.Transparent
         } else {
             MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.8f)
         },
@@ -165,7 +167,7 @@ private fun MainTabItem(
     )
     val tabShape = RoundedCornerShape(cornerRadius)
 
-    val advancedUi = LocalAdvancedUiEnabled.current
+    val advancedUi = LocalAdvancedUiEnabled.current && !LocalSolidHeaders.current
     val hazeState = LocalHazeState.current
 
     Surface(
@@ -189,7 +191,7 @@ private fun MainTabItem(
             tint = MaterialTheme.colorScheme.primary,
             enabled = advancedUi
         ),
-        tonalElevation = if (advancedUi) 0.dp else (if (isSelected) 2.dp else 0.dp)
+        tonalElevation = if (advancedUi || LocalSolidHeaders.current) 0.dp else (if (isSelected) 2.dp else 0.dp)
     ) {
         Row(
             modifier = Modifier

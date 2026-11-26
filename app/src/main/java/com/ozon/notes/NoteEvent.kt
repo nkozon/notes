@@ -34,8 +34,6 @@ sealed interface NoteEvent {
     data class UpdateNoteSortOrder(val sortOrder: ListSortOrder) : NoteEvent
     data class UpdateListsSortOrder(val sortOrder: ListSortOrder) : NoteEvent
     data object ClearAllData : NoteEvent
-    data class BackupData(val onDataReady: (com.ozon.notes.BackupData) -> Unit) : NoteEvent
-    data class RestoreData(val data: com.ozon.notes.BackupData) : NoteEvent
     data class UpdateChecklistBehavior(val behavior: ChecklistBehavior) : NoteEvent
     data class UpdateShowEntryCount(val show: Boolean) : NoteEvent
     data class UpdateShowNotesTab(val show: Boolean) : NoteEvent
@@ -74,9 +72,5 @@ sealed interface NoteEvent {
     data object CheckForUpdate : NoteEvent
     data class InstallUpdate(val url: String, val version: String) : NoteEvent
     
-    // Granular Backup
-    data class ExportNote(val noteId: String, val onDataReady: (com.ozon.notes.BackupData) -> Unit) : NoteEvent
-    data class ExportList(val listId: String, val onDataReady: (com.ozon.notes.BackupData) -> Unit) : NoteEvent
-    data class ImportGranular(val data: com.ozon.notes.BackupData) : NoteEvent
     data class DeleteCompletedEntries(val listId: String) : NoteEvent
 }

@@ -17,6 +17,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.decodeFromStream
 import kotlinx.serialization.json.encodeToStream
 import java.io.File
+import java.io.OutputStream
 import okhttp3.MediaType.Companion.toMediaType
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
@@ -533,66 +534,10 @@ class RoomNoteRepository(
         BackupData(notes, lists, entries, tags, deletions)
     }
 
-    override suspend fun getNoteBackup(noteId: String): BackupData? = withContext(Dispatchers.IO) {
-        val note = getNoteById(noteId) ?: return@withContext null
-
-        var drawingData = note.drawingData
-        if (drawingData != null) {
-            // Handle PDF base64 if it's a PDF drawing
-            val updatedPdfInfo = drawingData.pdfInfo?.let { info ->
-                val file = File(info.localPath)
-                if (file.exists()) {
-                    val bytes = file.readBytes()
-                    info.copy(base64Data = Base64.encodeToString(bytes, Base64.DEFAULT))
-                } else info
-            }
-
-            // Handle image base64 if there are images
-            val updatedImages = drawingData.images.map { img ->
-                val file = File(img.path)
-                if (file.exists()) {
-                    val bytes = file.readBytes()
-                    img.copy(base64Data = Base64.encodeToString(bytes, Base64.DEFAULT))
-                } else img
-            }
-
-            drawingData = drawingData.copy(pdfInfo = updatedPdfInfo, images = updatedImages)
-        }
-
-        val pdfRestoredNote = note.copy(drawingData = drawingData)
-        BackupData(notes = listOf(pdfRestoredNote), lists = emptyList(), entries = emptyList(), tags = emptyList())
-    }
-
-    override suspend fun getListBackup(listId: String): BackupData? = withContext(Dispatchers.IO) {
-        val listEntity = database.listDao().getListById(listId) ?: return@withContext null
-        val list = listEntity.toDomain()
-
-        val allTags = database.tagDao().getAllTagsList().map { it.toDomain() }
-        val crossRefs = database.entryTagCrossRefDao().getAllCrossRefsList().groupBy { it.entryId }
-
-        val entries = database.listDao().getEntriesForListSync(listId).map { entity ->
-            val tagIds = crossRefs[entity.id]?.map { it.tagId } ?: emptyList()
-            val desc = readFile("${entity.id}.desc") ?: entity.description
-            entity.toDomain(tagIds).copy(description = desc)
-        }
-
-        // Filter tags to only those used in this list or defined for this list
-        val relevantTagIds = entries.flatMap { it.tagIds }.toSet()
-        val relevantTags = allTags.filter { it.listId == listId || it.id in relevantTagIds }
-
-        BackupData(notes = emptyList(), lists = listOf(list), entries = entries, tags = relevantTags)
-    }
-
-    private fun validateBackup(data: BackupData) {
-        fun validateIds(ids: List<String>) {
-            ids.forEach(::requireSafeBackupId)
-            require(ids.size == ids.toSet().size) { "Duplicate backup identifiers" }
-        }
-        validateIds(data.notes.map { it.id })
-        validateIds(data.lists.map { it.id })
-        validateIds(data.entries.map { it.id })
-        validateIds(data.tags.map { it.id })
-        data.deletedItems.forEach { requireSafeBackupId(it.id) }
+    override suspend fun writeLocalBackup(output: OutputStream, selection: BackupSelection) = withStorageLock {
+        val fullBackup = backupEngine.createBackup(output, selection)
+        setLastBackupTime(System.currentTimeMillis())
+        if (fullBackup) setHasPendingChanges(false)
     }
 
     private suspend fun prepareBackupNotes(data: BackupData, files: RestoreFiles): List<NoteEntity> {
@@ -657,7 +602,7 @@ class RoomNoteRepository(
 
     override suspend fun restoreBackupData(data: BackupData) = withContext(Dispatchers.IO) {
         withStorageLock {
-            validateBackup(data)
+            data.validateIdentifiers()
             RestoreFiles(context.filesDir).use { files ->
                 val processedNotes = prepareBackupNotes(data, files)
 
@@ -753,7 +698,7 @@ class RoomNoteRepository(
 
     override suspend fun importBackupData(data: BackupData) = withContext(Dispatchers.IO) {
         withStorageLock {
-            validateBackup(data)
+            data.validateIdentifiers()
             RestoreFiles(context.filesDir).use { files ->
                 val processedNotes = prepareBackupNotes(data, files)
 
@@ -834,7 +779,7 @@ class RoomNoteRepository(
             val mergedListIds = data.lists.map { it.id }.toSet()
             val mergedEntryIds = data.entries.map { it.id }.toSet()
             val mergedTagIds = data.tags.map { it.id }.toSet()
-            validateBackup(data)
+            data.validateIdentifiers()
             RestoreFiles(context.filesDir).use { files ->
                 val processedNotes = prepareBackupNotes(data, files)
 
@@ -1018,6 +963,13 @@ class RoomNoteRepository(
     override suspend fun setIsOledMode(enabled: Boolean) {
         prefs.edit().putBoolean("is_oled_mode", enabled).apply()
         _isOledMode.value = enabled
+    }
+
+    private val solidHeaders = MutableStateFlow(prefs.getBoolean("solid_headers", false))
+    override fun getSolidHeaders(): Flow<Boolean> = solidHeaders
+    override suspend fun setSolidHeaders(enabled: Boolean) {
+        prefs.edit().putBoolean("solid_headers", enabled).apply()
+        solidHeaders.value = enabled
     }
 
     private val _advancedUi = MutableStateFlow(prefs.getBoolean("advanced_ui_enabled", false))

@@ -1,12 +1,22 @@
 package com.ozon.notes
 
+import android.os.Build
+import android.view.RoundedCorner
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.foundation.shape.AbsoluteRoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
@@ -25,6 +35,8 @@ import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.isSpecified
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeInput
@@ -35,6 +47,49 @@ import dev.chrisbanes.haze.blur.HazeColorEffect
 import dev.chrisbanes.haze.blur.hazeBlur
 import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.isActive
+
+internal val LocalSolidHeaders = compositionLocalOf { false }
+
+internal fun android.view.View.screenCornerShape(topOnly: Boolean = false): Shape {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return RectangleShape
+    val insets = rootWindowInsets ?: return RectangleShape
+    fun radius(position: Int) = insets.getRoundedCorner(position)?.radius?.toFloat() ?: 0f
+    return AbsoluteRoundedCornerShape(
+        topLeft = radius(RoundedCorner.POSITION_TOP_LEFT),
+        topRight = radius(RoundedCorner.POSITION_TOP_RIGHT),
+        bottomLeft = if (topOnly) 0f else radius(RoundedCorner.POSITION_BOTTOM_LEFT),
+        bottomRight = if (topOnly) 0f else radius(RoundedCorner.POSITION_BOTTOM_RIGHT),
+    )
+}
+
+@Composable
+internal fun SolidHeader(
+    isAtTop: Boolean,
+    haze: HazeState? = LocalHazeState.current,
+    color: Color = MaterialTheme.colorScheme.surfaceContainer,
+    content: @Composable () -> Unit
+) {
+    if (!LocalSolidHeaders.current) {
+        content()
+        return
+    }
+    val opacity = animateFloatAsState(if (isAtTop) 0f else 1f, tween(220), label = "Header background")
+    val effects = LocalAdvancedUiEnabled.current && haze != null
+    val view = LocalView.current
+    var headerShape by remember(view) { mutableStateOf<Shape>(RectangleShape) }
+    Box(modifier = Modifier.onGloballyPositioned {
+        headerShape = view.screenCornerShape(topOnly = true)
+    }, propagateMinConstraints = true) {
+        if (opacity.value > 0f) {
+            Box(Modifier.matchParentSize()
+                .graphicsLayer { alpha = opacity.value }
+                .advancedUiBlur(haze, shape = headerShape, backgroundColor = color,
+                    enabled = effects, liquidGlass = true, contentShadow = false)
+                .background(advancedUiSurfaceColor(color, enabled = effects, liquidGlass = true), headerShape))
+        }
+        content()
+    }
+}
 
 val LocalAdvancedUiEnabled = compositionLocalOf { false }
 val LocalHazeState = compositionLocalOf<HazeState?> { null }

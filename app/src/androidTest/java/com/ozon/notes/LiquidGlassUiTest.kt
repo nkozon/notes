@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PixelMap
 import androidx.compose.ui.graphics.toPixelMap
@@ -56,6 +57,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 class LiquidGlassUiTest {
     @get:Rule val compose = createComposeRule()
@@ -157,6 +159,38 @@ class LiquidGlassUiTest {
         val frosted = compose.onNodeWithTag("glass").captureToImage().toPixelMap()
         assertTrue("Frosting must reduce backdrop contrast", contrast(frosted) < contrast(clear) * 0.5f)
         assertEquals(Color.Magenta, frosted[frosted.width / 2, frosted.height / 2])
+    }
+
+    @Test
+    @SdkSuppress(minSdkVersion = 33)
+    fun pillRefractsASmoothBackdropContinuouslyAcrossItsCenter() {
+        var strength by mutableFloatStateOf(0f)
+        compose.setContent {
+            val haze = rememberHazeState()
+            CompositionLocalProvider(LocalLiquidGlassFrosting provides 0.3f) {
+                Box(Modifier.size(220.dp, 128.dp)) {
+                    Canvas(Modifier.fillMaxSize().advancedUiSource(haze)) {
+                        drawRect(Brush.verticalGradient(
+                            colors = listOf(Color.Black, Color.White),
+                            startY = 44.dp.toPx(), endY = 84.dp.toPx()
+                        ))
+                    }
+                    Box(Modifier.align(Alignment.Center).size(144.dp, 48.dp).testTag("pill")
+                        .liquidGlassBackdrop(haze, RoundedCornerShape(50), Color.Black, strength))
+                }
+            }
+        }
+        // A nearest-edge normal reverses abruptly here, repeating a strip of the ramp.
+        fun centerRise(pixels: PixelMap): Float {
+            val y = pixels.height / 2
+            val radius = (pixels.height / 48f).roundToInt().coerceAtLeast(1)
+            return pixels[pixels.width / 2, y + radius].red - pixels[pixels.width / 2, y - radius].red
+        }
+        val undistorted = centerRise(compose.onNodeWithTag("pill").captureToImage().toPixelMap())
+        compose.runOnIdle { strength = 1f }
+        val refracted = centerRise(compose.onNodeWithTag("pill").captureToImage().toPixelMap())
+        assertTrue("Center gradient flattened: $refracted (reference $undistorted)",
+            undistorted > 0.02f && refracted > undistorted * 0.65f)
     }
 
     @Test

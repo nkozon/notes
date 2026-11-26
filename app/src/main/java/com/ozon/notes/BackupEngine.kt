@@ -78,26 +78,45 @@ class BackupEngine(
      * Creates a modular compressed ZIP archive containing individual note/list files,
      * separate media attachments without Base64 overhead, and a manifest.
      */
-    suspend fun createBackup(outputStream: OutputStream) = withContext(Dispatchers.IO) {
-        val notes = database.noteDao().getAllNotesList().map { entity ->
+    internal suspend fun createBackup(
+        outputStream: OutputStream,
+        selection: BackupSelection? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        val allNotes = database.noteDao().getAllNotesList()
+        val allLists = database.listDao().getAllListsList()
+        val selectedNotes = allNotes.filter { selection == null || it.id in selection.noteIds }
+        val selectedLists = allLists.filter { selection == null || it.id in selection.listIds }
+        if (selection != null) {
+            require(selectedNotes.size == selection.noteIds.size && selectedLists.size == selection.listIds.size) {
+                "Your library changed. Choose the items to back up again."
+            }
+        }
+        val isFullBackup = selectedNotes.size == allNotes.size && selectedLists.size == allLists.size
+        val notes = selectedNotes.map { entity ->
             val id = entity.id
             val content = readFile("${id}.content") ?: entity.content
             val html = readFile("${id}.html") ?: entity.contentHtml
-            var drawingData = readDrawingData(id) ?: entity.drawingData?.let {
+            val drawingData = readDrawingData(id) ?: entity.drawingData?.let {
                 try { json.decodeFromString<DrawingData>(it) } catch (e: Exception) { null }
             }
             entity.toDomain().copy(content = content, contentHtml = html, drawingData = drawingData)
         }
 
-        val lists = database.listDao().getAllListsList().map { it.toDomain() }
-        val tags = database.tagDao().getAllTagsList().map { it.toDomain() }
+        val lists = selectedLists.map { it.toDomain() }
+        val tags = database.tagDao().getAllTagsList()
+            .filter { selection == null || it.listId in selection.listIds }
+            .map { it.toDomain() }
         val crossRefs = database.entryTagCrossRefDao().getAllCrossRefsList().groupBy { it.entryId }
-        val entries = database.listDao().getAllEntriesList().map { entity ->
-            val tagIds = crossRefs[entity.id]?.map { it.tagId } ?: emptyList()
-            val desc = readFile("${entity.id}.desc") ?: entity.description
-            entity.toDomain(tagIds).copy(description = desc)
-        }
-        val deletions = database.deletedItemDao().getAllDeletedItems().map { it.toDomain() }
+        val entries = database.listDao().getAllEntriesList()
+            .filter { selection == null || it.listId in selection.listIds }
+            .map { entity ->
+                val tagIds = crossRefs[entity.id]?.map { it.tagId }.orEmpty()
+                val desc = readFile("${entity.id}.desc") ?: entity.description
+                entity.toDomain(tagIds).copy(description = desc)
+            }
+        val deletions = if (isFullBackup) {
+            database.deletedItemDao().getAllDeletedItems().map { it.toDomain() }
+        } else emptyList()
 
         val backupData = BackupData(
             notes = notes,
@@ -108,6 +127,7 @@ class BackupEngine(
         )
 
         createBackupFromData(backupData, outputStream)
+        isFullBackup
     }
 
     /**
@@ -145,7 +165,7 @@ class BackupEngine(
             // 1. Manifest
             val manifest = BackupManifest(
                 version = 2,
-                appVersion = "1.10.3",
+                appVersion = BuildConfig.VERSION_NAME,
                 timestamp = System.currentTimeMillis(),
                 noteCount = cleanedNotes.size,
                 listCount = data.lists.size,
@@ -234,149 +254,14 @@ class BackupEngine(
 
 
     /**
-     * Exports a single note as a standalone ZIP archive.
-     */
-    suspend fun exportNote(noteId: String, outputStream: OutputStream): Boolean = withContext(Dispatchers.IO) {
-        val note = repository.getNoteById(noteId) ?: return@withContext false
-        val mediaFilesToInclude = mutableMapOf<String, File>()
-
-        var drawingData = note.drawingData
-        if (drawingData != null) {
-            val updatedPdfInfo = drawingData.pdfInfo?.let { info ->
-                val file = File(info.localPath)
-                if (file.exists()) {
-                    val mediaZipPath = "media/${file.name}"
-                    mediaFilesToInclude[mediaZipPath] = file
-                    info.copy(localPath = mediaZipPath, base64Data = null)
-                } else info
-            }
-            val updatedImages = drawingData.images.map { img ->
-                val file = File(img.path)
-                if (file.exists()) {
-                    val mediaZipPath = "media/${file.name}"
-                    mediaFilesToInclude[mediaZipPath] = file
-                    img.copy(path = mediaZipPath, base64Data = null)
-                } else img
-            }
-            drawingData = drawingData.copy(pdfInfo = updatedPdfInfo, images = updatedImages)
-        }
-        val cleanedNote = note.copy(drawingData = drawingData)
-
-        ZipOutputStream(BufferedOutputStream(outputStream)).use { zipOut ->
-            val manifest = BackupManifest(
-                version = 1,
-                appVersion = "1.10.3",
-                timestamp = System.currentTimeMillis(),
-                noteCount = 1,
-                mediaCount = mediaFilesToInclude.size
-            )
-            zipOut.putNextEntry(ZipEntry("manifest.json"))
-            zipOut.write(json.encodeToString(manifest).toByteArray(Charsets.UTF_8))
-            zipOut.closeEntry()
-
-            zipOut.putNextEntry(ZipEntry("notes/${cleanedNote.id}.json"))
-            zipOut.write(json.encodeToString(cleanedNote).toByteArray(Charsets.UTF_8))
-            zipOut.closeEntry()
-
-            if (cleanedNote.content.isNotEmpty()) {
-                zipOut.putNextEntry(ZipEntry("notes/${cleanedNote.id}.content"))
-                zipOut.write(cleanedNote.content.toByteArray(Charsets.UTF_8))
-                zipOut.closeEntry()
-            }
-
-            cleanedNote.contentHtml?.let { html ->
-                if (html.isNotEmpty()) {
-                    zipOut.putNextEntry(ZipEntry("notes/${cleanedNote.id}.html"))
-                    zipOut.write(html.toByteArray(Charsets.UTF_8))
-                    zipOut.closeEntry()
-                }
-            }
-
-            cleanedNote.drawingData?.let { drawing ->
-                zipOut.putNextEntry(ZipEntry("notes/${cleanedNote.id}.drawing"))
-                zipOut.write(json.encodeToString(drawing).toByteArray(Charsets.UTF_8))
-                zipOut.closeEntry()
-            }
-
-            mediaFilesToInclude.forEach { (zipPath, file) ->
-                zipOut.putNextEntry(ZipEntry(zipPath))
-                file.inputStream().use { fileIn -> fileIn.copyTo(zipOut) }
-                zipOut.closeEntry()
-            }
-
-            zipOut.finish()
-        }
-        true
-    }
-
-    /**
-     * Exports a single list as a standalone ZIP archive.
-     */
-    suspend fun exportList(listId: String, outputStream: OutputStream): Boolean = withContext(Dispatchers.IO) {
-        val listEntity = database.listDao().getListById(listId) ?: return@withContext false
-        val list = listEntity.toDomain()
-        val allTags = database.tagDao().getAllTagsList().map { it.toDomain() }
-        val crossRefs = database.entryTagCrossRefDao().getAllCrossRefsList().groupBy { it.entryId }
-        val entries = database.listDao().getEntriesForListSync(listId).map { entity ->
-            val tagIds = crossRefs[entity.id]?.map { it.tagId } ?: emptyList()
-            val desc = readFile("${entity.id}.desc") ?: entity.description
-            entity.toDomain(tagIds).copy(description = desc)
-        }
-        val relevantTagIds = entries.flatMap { it.tagIds }.toSet()
-        val relevantTags = allTags.filter { it.listId == listId || it.id in relevantTagIds }
-        val bundle = ExportedListBundle(list, entries, relevantTags)
-
-        ZipOutputStream(BufferedOutputStream(outputStream)).use { zipOut ->
-            val manifest = BackupManifest(
-                version = 1,
-                appVersion = "1.10.3",
-                timestamp = System.currentTimeMillis(),
-                listCount = 1,
-                entryCount = entries.size,
-                tagCount = relevantTags.size
-            )
-            zipOut.putNextEntry(ZipEntry("manifest.json"))
-            zipOut.write(json.encodeToString(manifest).toByteArray(Charsets.UTF_8))
-            zipOut.closeEntry()
-
-            zipOut.putNextEntry(ZipEntry("lists/${list.id}.json"))
-            zipOut.write(json.encodeToString(bundle).toByteArray(Charsets.UTF_8))
-            zipOut.closeEntry()
-
-            entries.forEach { entry ->
-                entry.description?.let { desc ->
-                    if (desc.isNotEmpty()) {
-                        zipOut.putNextEntry(ZipEntry("lists/${entry.id}.desc"))
-                        zipOut.write(desc.toByteArray(Charsets.UTF_8))
-                        zipOut.closeEntry()
-                    }
-                }
-            }
-
-            zipOut.finish()
-        }
-        true
-    }
-
-    /**
      * Restores backup from an input stream.
      * Automatically detects whether the input stream is a modern ZIP archive or a legacy JSON file,
      * ensuring full backwards compatibility.
      */
     suspend fun restoreBackup(inputStream: InputStream, isMerge: Boolean = false): Boolean = withContext(Dispatchers.IO) {
         try {
-            val bufferedStream = if (inputStream is BufferedInputStream) inputStream else BufferedInputStream(inputStream)
-            bufferedStream.mark(16)
-            val header = ByteArray(4)
-            val bytesRead = bufferedStream.read(header)
-            bufferedStream.reset()
-
-            val isZip = bytesRead >= 2 && header[0] == 0x50.toByte() && header[1] == 0x4B.toByte() // PK magic bytes
-
-            if (isZip) {
-                restoreFromZip(bufferedStream, isMerge)
-            } else {
-                restoreFromLegacyJson(bufferedStream, isMerge)
+            withBackupData(inputStream) { data ->
+                if (isMerge) repository.importBackupData(data) else repository.restoreBackupData(data)
             }
             true
         } catch (e: CancellationException) {
@@ -387,21 +272,15 @@ class BackupEngine(
         }
     }
 
-    private suspend fun restoreFromLegacyJson(inputStream: InputStream, isMerge: Boolean) {
-        val legacyData = json.decodeFromStream<BackupData>(inputStream)
-        if (!isMerge) {
-            repository.restoreBackupData(legacyData)
-        } else {
-            repository.importBackupData(legacyData)
+    internal suspend fun <T> withBackupData(input: InputStream, action: suspend (BackupData) -> T): T =
+        withContext(Dispatchers.IO) {
+            val stream = input.buffered()
+            stream.mark(2)
+            val isZip = stream.read() == 0x50 && stream.read() == 0x4B
+            stream.reset()
+            if (isZip) withBackupFromZip(stream, action)
+            else action(json.decodeFromStream<BackupData>(stream))
         }
-    }
-
-    private suspend fun restoreFromZip(inputStream: InputStream, isMerge: Boolean) {
-        withBackupFromZip(inputStream) { backupData ->
-            if (!isMerge) repository.restoreBackupData(backupData)
-            else repository.importBackupData(backupData)
-        }
-    }
 
     /**
      * Reads and parses a modern ZIP backup archive into BackupData,

@@ -360,7 +360,7 @@ fun ListDetailScreen(
 
     val isAtTop by remember {
         derivedStateOf {
-            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= 10
+            !listState.canScrollBackward
         }
     }
 
@@ -443,165 +443,167 @@ fun ListDetailScreen(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             floatingActionButtonPosition = androidx.compose.material3.FabPosition.Center,
             topBar = {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .statusBarsPadding()
-                        .height(headerHeight)
-                        .padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        Surface(
-                            shape = CircleShape,
-                            color = pillContainerColor,
-                            shadowElevation = if (advancedUi) 0.dp else 4.dp,
-                            tonalElevation = if (advancedUi) 0.dp else 4.dp,
-                            modifier = Modifier
-                                .headerMorphAnchor(titleHeaderMorph)
-                                .advancedUiBlur(
+                SolidHeader(isAtTop) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .statusBarsPadding()
+                            .height(headerHeight)
+                            .padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            Surface(
+                                shape = CircleShape,
+                                color = if (LocalSolidHeaders.current) Color.Transparent else pillContainerColor,
+                                shadowElevation = if (advancedUi || LocalSolidHeaders.current) 0.dp else 4.dp,
+                                tonalElevation = if (advancedUi || LocalSolidHeaders.current) 0.dp else 4.dp,
+                                modifier = Modifier
+                                    .headerMorphAnchor(titleHeaderMorph)
+                                    .advancedUiBlur(
+                                        liquidGlass = true,
+                                        hazeState = hazeState,
+                                        shape = CircleShape,
+                                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f * pillBackgroundAlpha),
+                                        blurRadius = 24.dp * pillBackgroundAlpha,
+                                        enabled = advancedUi && !LocalSolidHeaders.current
+                                    )
+                                    .clip(CircleShape)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    WithoutButtonLightRim {
+                                    IconButton(
+                                        onClick = onNavigateUp,
+                                        modifier = Modifier.size(40.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                            contentDescription = "Back",
+                                            tint = backButtonContentColor
+                                        )
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f, fill = false)
+                                            .padding(start = 2.dp, end = 12.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { showRenameListDialog = true },
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        Text(
+                                            text = currentList.title,
+                                            style = MaterialTheme.typography.titleLarge.copy(
+                                                fontWeight = FontWeight.SemiBold
+                                            ),
+                                            color = titleContentColor,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                                                }
+                                }
+                            }
+                        }
+                        Box {
+                            Surface(
+                                shape = CircleShape,
+                                color = if (LocalSolidHeaders.current) Color.Transparent else pillContainerColor,
+                                shadowElevation = if (advancedUi || LocalSolidHeaders.current) 0.dp else 4.dp,
+                                tonalElevation = if (advancedUi || LocalSolidHeaders.current) 0.dp else 4.dp,
+                                modifier = Modifier.headerMorphAnchor(moreHeaderMorph).advancedUiBlur(
                                     liquidGlass = true,
                                     hazeState = hazeState,
                                     shape = CircleShape,
                                     tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f * pillBackgroundAlpha),
                                     blurRadius = 24.dp * pillBackgroundAlpha,
-                                    enabled = advancedUi
-                                )
-                                .clip(CircleShape)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                    enabled = advancedUi && !LocalSolidHeaders.current
+                                ).clip(CircleShape)
                             ) {
-                                WithoutButtonLightRim {
-                                IconButton(
-                                    onClick = onNavigateUp,
-                                    modifier = Modifier.size(40.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
-                                        contentDescription = "Back",
-                                        tint = backButtonContentColor
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    WithoutButtonLightRim {
+                                    SortDropdown(
+                                        selectedOrder = sortOrder,
+                                        onOrderSelected = { checklistViewModel.onEvent(NoteEvent.UpdateListSortOrder(it)) },
+                                        availableOrders = availableSortOrders,
+                                        iconOnly = true,
+                                        expanded = showHeaderSort,
+                                        onExpandedChange = {
+                                            showHeaderSort = it
+                                            if (it) { showHeaderFilter = false; showMoreMenu = false }
+                                        },
+                                        morphState = moreHeaderMorph,
                                     )
-                                }
-
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f, fill = false)
-                                        .padding(start = 2.dp, end = 12.dp)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable { showRenameListDialog = true },
-                                    contentAlignment = Alignment.CenterStart
-                                ) {
-                                    Text(
-                                        text = currentList.title,
-                                        style = MaterialTheme.typography.titleLarge.copy(
-                                            fontWeight = FontWeight.SemiBold
-                                        ),
-                                        color = titleContentColor,
-                                        maxLines = 1,
-                                        softWrap = false,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                    TagFilterDropdown(
+                                        selectedTagIds = selectedFilterTagIds,
+                                        allTags = allTags,
+                                        filterMode = tagFilterMode,
+                                        onTagToggle = { checklistViewModel.onEvent(NoteEvent.ToggleFilterTag(it)) },
+                                        onModeToggle = { checklistViewModel.onEvent(NoteEvent.UpdateTagFilterMode(it)) },
+                                        onClearAll = { checklistViewModel.onEvent(NoteEvent.ClearFilterTags) },
+                                        onReorderTags = { checklistViewModel.onEvent(NoteEvent.ReorderTags(listId, it)) },
+                                        onDeleteTag = { checklistViewModel.onEvent(NoteEvent.DeleteTag(it)) },
+                                        expanded = showHeaderFilter,
+                                        onExpandedChange = {
+                                            showHeaderFilter = it
+                                            if (it) { showHeaderSort = false; showMoreMenu = false }
+                                        },
+                                        morphState = moreHeaderMorph,
                                     )
+                                    IconButton(onClick = {
+                                        showHeaderSort = false
+                                        showHeaderFilter = false
+                                        showMoreMenu = true
+                                    }) {
+                                        Icon(
+                                            Icons.Rounded.MoreVert,
+                                            contentDescription = "More options",
+                                            tint = backButtonContentColor
+                                        )
+                                    }
+                                                                }
                                 }
-                                                            }
                             }
-                        }
-                    }
-                    Box {
-                        Surface(
-                            shape = CircleShape,
-                            color = pillContainerColor,
-                            shadowElevation = if (advancedUi) 0.dp else 4.dp,
-                            tonalElevation = if (advancedUi) 0.dp else 4.dp,
-                            modifier = Modifier.headerMorphAnchor(moreHeaderMorph).advancedUiBlur(
-                                liquidGlass = true,
-                                hazeState = hazeState,
-                                shape = CircleShape,
-                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f * pillBackgroundAlpha),
-                                blurRadius = 24.dp * pillBackgroundAlpha,
-                                enabled = advancedUi
-                            ).clip(CircleShape)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                WithoutButtonLightRim {
-                                SortDropdown(
-                                    selectedOrder = sortOrder,
-                                    onOrderSelected = { checklistViewModel.onEvent(NoteEvent.UpdateListSortOrder(it)) },
-                                    availableOrders = availableSortOrders,
-                                    iconOnly = true,
-                                    expanded = showHeaderSort,
-                                    onExpandedChange = {
-                                        showHeaderSort = it
-                                        if (it) { showHeaderFilter = false; showMoreMenu = false }
-                                    },
-                                    morphState = moreHeaderMorph,
-                                )
-                                TagFilterDropdown(
-                                    selectedTagIds = selectedFilterTagIds,
-                                    allTags = allTags,
-                                    filterMode = tagFilterMode,
-                                    onTagToggle = { checklistViewModel.onEvent(NoteEvent.ToggleFilterTag(it)) },
-                                    onModeToggle = { checklistViewModel.onEvent(NoteEvent.UpdateTagFilterMode(it)) },
-                                    onClearAll = { checklistViewModel.onEvent(NoteEvent.ClearFilterTags) },
-                                    onReorderTags = { checklistViewModel.onEvent(NoteEvent.ReorderTags(listId, it)) },
-                                    onDeleteTag = { checklistViewModel.onEvent(NoteEvent.DeleteTag(it)) },
-                                    expanded = showHeaderFilter,
-                                    onExpandedChange = {
-                                        showHeaderFilter = it
-                                        if (it) { showHeaderSort = false; showMoreMenu = false }
-                                    },
-                                    morphState = moreHeaderMorph,
-                                )
-                                IconButton(onClick = {
-                                    showHeaderSort = false
-                                    showHeaderFilter = false
-                                    showMoreMenu = true
-                                }) {
-                                    Icon(
-                                        Icons.Rounded.MoreVert,
-                                        contentDescription = "More options",
-                                        tint = backButtonContentColor
-                                    )
-                                }
-                                                            }
-                            }
-                        }
-                        AdvancedUiDropdownMenu(
-                            expanded = showMoreMenu,
-                            onDismissRequest = { showMoreMenu = false },
-                            morphState = moreHeaderMorph,
-                            morphWidth = 220.dp,
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Export as TXT") },
-                                leadingIcon = { Icon(Icons.Rounded.FileDownload, contentDescription = null) },
-                                enabled = !preparingExport && pendingExportText == null,
-                                onClick = {
-                                    showMoreMenu = false
-                                    preparingExport = true
-                                    coroutineScope.launch {
-                                        try {
-                                            pendingExportText = withContext(Dispatchers.Default) {
-                                                checklistViewModel.exportListText(currentList)
+                            AdvancedUiDropdownMenu(
+                                expanded = showMoreMenu,
+                                onDismissRequest = { showMoreMenu = false },
+                                morphState = moreHeaderMorph,
+                                morphWidth = 220.dp,
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Export as TXT") },
+                                    leadingIcon = { Icon(Icons.Rounded.FileDownload, contentDescription = null) },
+                                    enabled = !preparingExport && pendingExportText == null,
+                                    onClick = {
+                                        showMoreMenu = false
+                                        preparingExport = true
+                                        coroutineScope.launch {
+                                            try {
+                                                pendingExportText = withContext(Dispatchers.Default) {
+                                                    checklistViewModel.exportListText(currentList)
+                                                }
+                                                val fileName = currentList.title
+                                                    .replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_")
+                                                    .trim().ifBlank { "list" }
+                                                exportLauncher.launch("$fileName.txt")
+                                            } catch (error: CancellationException) {
+                                                throw error
+                                            } catch (error: Exception) {
+                                                pendingExportText = null
+                                                snackbarHostState.showSnackbar("Could not export list")
+                                            } finally {
+                                                preparingExport = false
                                             }
-                                            val fileName = currentList.title
-                                                .replace(Regex("[\\\\/:*?\"<>|\\p{Cntrl}]"), "_")
-                                                .trim().ifBlank { "list" }
-                                            exportLauncher.launch("$fileName.txt")
-                                        } catch (error: CancellationException) {
-                                            throw error
-                                        } catch (error: Exception) {
-                                            pendingExportText = null
-                                            snackbarHostState.showSnackbar("Could not export list")
-                                        } finally {
-                                            preparingExport = false
                                         }
                                     }
-                                }
-                            )
+                                )
+                            }
                         }
                     }
                 }
@@ -1965,7 +1967,7 @@ fun ListDetailScreen(
                                 }
 
                                 // Right Side Top Progressive Blur & Gradient
-                                if (advancedUi) {
+                                if (advancedUi && !LocalSolidHeaders.current) {
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -1981,7 +1983,7 @@ fun ListDetailScreen(
                                     )
                                 }
 
-                                Box(
+                                if (!LocalSolidHeaders.current) Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(48.dp)
@@ -1998,7 +2000,7 @@ fun ListDetailScreen(
                                 )
 
                                 // Right Side Bottom Progressive Blur
-                                if (advancedUi) {
+                                if (advancedUi && !LocalSolidHeaders.current) {
                                     Box(
                                         modifier = Modifier
                                             .align(Alignment.BottomCenter)
@@ -2019,13 +2021,13 @@ fun ListDetailScreen(
                                         .align(Alignment.BottomCenter)
                                         .fillMaxWidth()
                                         .height(120.dp)
-                                        .background(
+                                        .then(if (LocalSolidHeaders.current) Modifier else Modifier.background(
                                             Brush.verticalGradient(
                                                 0.4f to Color.Transparent,
                                                 0.8f to containerColor.copy(alpha = 0.95f),
                                                 1.0f to containerColor
                                             )
-                                        )
+                                        ))
                                         .padding(start = 0.dp, end = 24.dp, bottom = 24.dp),
                                     contentAlignment = Alignment.BottomCenter
                                 ) {
@@ -2280,7 +2282,7 @@ fun ListDetailScreen(
                             }
 
                             // Mobile Top Progressive Blur & Gradient
-                            if (advancedUi) {
+                            if (advancedUi && !LocalSolidHeaders.current) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -2296,7 +2298,7 @@ fun ListDetailScreen(
                                 )
                             }
 
-                            Box(
+                            if (!LocalSolidHeaders.current) Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(64.dp)
@@ -2313,7 +2315,7 @@ fun ListDetailScreen(
                             )
 
                             // Mobile Bottom Progressive Blur
-                            if (advancedUi) {
+                            if (advancedUi && !LocalSolidHeaders.current) {
                                 Box(
                                     modifier = Modifier
                                         .align(Alignment.BottomCenter)
@@ -2334,13 +2336,13 @@ fun ListDetailScreen(
                                     .align(Alignment.BottomCenter)
                                     .fillMaxWidth()
                                     .height(180.dp) 
-                                    .background(
+                                    .then(if (LocalSolidHeaders.current) Modifier else Modifier.background(
                                         Brush.verticalGradient(
                                             0.4f to Color.Transparent,
                                             0.8f to containerColor.copy(alpha = 0.95f),
                                             1.0f to containerColor 
                                         )
-                                    )
+                                    ))
                                     .padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
                                 contentAlignment = Alignment.BottomCenter
                             ) {
@@ -3211,7 +3213,11 @@ private fun RenameListDialog(
         val focusRequester = remember { FocusRequester() }
         val keyboardController = LocalSoftwareKeyboardController.current
         val settled = LocalHeaderMorphSettled.current
-        Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Column(
+            // The popup adds 8 dp below the content, and the button touch target adds 4 dp.
+            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
             Text(
                 if (list.type == ListType.RATING) "Edit Rating List" else "Rename List",
                 style = MaterialTheme.typography.headlineSmall,
@@ -3227,9 +3233,14 @@ private fun RenameListDialog(
             if (list.type == ListType.RATING) {
                 RatingListActiveSectionSelector(sectionName = sectionName, onSectionNameChange = { sectionName = it })
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 TextButton(onClick = onDismiss) { Text("Cancel") }
-                TextButton(
+                Button(
+                    shape = CircleShape,
                     enabled = newTitle.text.isNotBlank(),
                     onClick = { onConfirm(list, newTitle.text, sectionName.takeIf { list.type == ListType.RATING && it.isNotBlank() }) },
                 ) { Text("Save") }

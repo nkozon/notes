@@ -8,6 +8,8 @@ import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -360,7 +362,18 @@ fun ThemeScreen(
 
                 // Layout Section
                 SettingsSection(title = "Layout") {
-                    SettingsItemContainer(index = 0, total = 1) {
+                    SettingsItemContainer(index = 0, total = 2) {
+                        Row(Modifier.fillMaxWidth().toggleable(LocalSolidHeaders.current, role = Role.Switch,
+                            onValueChange = viewModel::setSolidHeaders).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f).padding(end = 16.dp)) {
+                                Text("Solid header bars", style = MaterialTheme.typography.titleMedium)
+                                Text("Use full-width headers and hide the top and bottom fades. Drawing keeps its own toolbar.",
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(checked = LocalSolidHeaders.current, onCheckedChange = null)
+                        }
+                    }
+                    SettingsItemContainer(index = 1, total = 2) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text("Tablet Mode", style = MaterialTheme.typography.titleMedium)
                             Text(

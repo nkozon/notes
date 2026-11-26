@@ -524,6 +524,7 @@ fun SystemBarGradients(
     bottomAlpha: () -> Float = { 1f },
     blurRadius: Dp = 10.dp
 ) {
+    if (LocalSolidHeaders.current) return
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navigationBarHeight = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val hazeState = LocalHazeState.current

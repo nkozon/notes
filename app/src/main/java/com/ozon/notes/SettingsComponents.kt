@@ -44,7 +44,7 @@ class ScrollAwareHeaderState(
 @Composable
 fun rememberScrollAwareHeaderState(scrollState: ScrollState): ScrollAwareHeaderState {
     val isAtTop = remember(scrollState) {
-        derivedStateOf { scrollState.value <= 10 }
+        derivedStateOf { !scrollState.canScrollBackward }
     }
     val nestedScrollConnection = remember { object : NestedScrollConnection {} }
     return remember(isAtTop, nestedScrollConnection) {
@@ -56,7 +56,7 @@ fun rememberScrollAwareHeaderState(scrollState: ScrollState): ScrollAwareHeaderS
 fun rememberScrollAwareHeaderState(lazyListState: LazyListState): ScrollAwareHeaderState {
     val isAtTop = remember(lazyListState) {
         derivedStateOf {
-            lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset <= 10
+            !lazyListState.canScrollBackward
         }
     }
     val nestedScrollConnection = remember { object : NestedScrollConnection {} }
@@ -73,7 +73,21 @@ fun SettingsTopAppBar(
     headerState: ScrollAwareHeaderState,
     actions: @Composable RowScope.() -> Unit = {}
 ) {
-    val isAtTop by headerState.isAtTop
+    if (LocalSolidHeaders.current) {
+        SolidHeader(headerState.isAtTop.value) {
+            TopAppBar(
+                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateUp) {
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = actions,
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
+            )
+        }
+        return
+    }
 
     val pillBackgroundAlpha by animateFloatAsState(
         targetValue = 1f,

@@ -1,43 +1,30 @@
 package com.ozon.notes
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.material3.*
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
 import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.layout.*
 import androidx.compose.material3.adaptive.navigation.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.util.VelocityTracker
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavGraphBuilder
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
@@ -69,6 +56,8 @@ fun MainAdaptiveScreen(
     }
 }
 
+private const val listDetailRoute = "listDetail/{listId}?entryId={entryId}"
+
 @Composable
 private fun MobileNavHost(
     notesViewModel: NotesViewModel,
@@ -86,22 +75,42 @@ private fun MobileNavHost(
             navController.navigate(route)
         }
     }
+    val visibleEntries by navController.visibleEntries.collectAsStateWithLifecycle()
+    val view = LocalView.current
+    var pageShape by remember(view) { mutableStateOf<Shape>(view.screenCornerShape()) }
+    fun NavGraphBuilder.page(route: String, content: @Composable (NavBackStackEntry) -> Unit) {
+        composable(route) { entry ->
+            SlidingPage(if (visibleEntries.size > 1) pageShape else RectangleShape) {
+                content(entry)
+            }
+        }
+    }
+    val pushMotion = tween<Float>(440, easing = FastOutSlowInEasing)
+    val popMotion = tween<Float>(360, easing = FastOutSlowInEasing)
+    val recededAlpha = 0.50f
     NavHost(
         navController = navController,
         startDestination = "notes",
-        modifier = Modifier.fillMaxSize(),
-        enterTransition = { slideInHorizontally(initialOffsetX = { it }) + fadeIn() },
-        exitTransition = { slideOutHorizontally(targetOffsetX = { -it }) + fadeOut() },
-        popEnterTransition = { slideInHorizontally(initialOffsetX = { -it }) + fadeIn() },
-        popExitTransition = { slideOutHorizontally(targetOffsetX = { it }) + fadeOut() }
+        modifier = Modifier.fillMaxSize()
+            .onGloballyPositioned { pageShape = view.screenCornerShape() }
+            .clipToBounds()
+            .background(Color.Black),
+        enterTransition = { slideInHorizontally(tween(440, easing = FastOutSlowInEasing)) { it } },
+        exitTransition = {
+            scaleOut(pushMotion, targetScale = 0.90f) + fadeOut(pushMotion, targetAlpha = recededAlpha)
+        },
+        popEnterTransition = {
+            scaleIn(popMotion, initialScale = 0.90f) + fadeIn(popMotion, initialAlpha = recededAlpha)
+        },
+        popExitTransition = { slideOutHorizontally(tween(360, easing = FastOutSlowInEasing)) { it } }
     ) {
-        composable("notes") {
+        page("notes") {
             NoteListScreen(
                 notesViewModel = notesViewModel,
                 settingsViewModel = settingsViewModel,
                 onAddClick = { id -> navController.navigate("addEdit/$id") },
                 onAddDrawingClick = { id -> navController.navigate("drawing/$id") },
-                onNoteClick = { noteId, type -> 
+                onNoteClick = { noteId, type ->
                     if (type == NoteType.DRAWING) navController.navigate("drawing/$noteId")
                     else navController.navigate("addEdit/$noteId")
                 },
@@ -110,7 +119,7 @@ private fun MobileNavHost(
                 showAllCategories = mobileCombinedView
             )
         }
-        composable("settings") {
+        page("settings") {
             SettingsScreen(
                 viewModel = settingsViewModel,
                 onNavigateToTheme = { navController.navigate("theme") },
@@ -120,59 +129,52 @@ private fun MobileNavHost(
                 onNavigateToMoviePosters = { navController.navigate("moviePosters") },
                 onNavigateToCloudSync = { navController.navigate("cloudSync") },
                 onNavigateToBackupRestore = { navController.navigate("backupRestore") },
-                onNavigateToGranularBackup = { navController.navigate("granularBackup") },
                 onNavigateToAbout = { navController.navigate("about") },
                 onNavigateUp = { navController.popBackStack() }
             )
         }
-        composable("theme") {
+        page("theme") {
             ThemeScreen(viewModel = settingsViewModel, onNavigateUp = { navController.popBackStack() })
         }
-        composable("tabs") {
+        page("tabs") {
             MainScreenTabsScreen(viewModel = settingsViewModel, onNavigateUp = { navController.popBackStack() })
         }
-        composable("listPreferences") {
+        page("listPreferences") {
             ListPreferencesScreen(viewModel = settingsViewModel, onNavigateUp = { navController.popBackStack() })
         }
-        composable("drawingSettings") {
+        page("drawingSettings") {
             DrawingSettingsScreen(viewModel = settingsViewModel, onNavigateUp = { navController.popBackStack() })
         }
-        composable("moviePosters") {
+        page("moviePosters") {
             MoviePostersScreen(viewModel = settingsViewModel, onNavigateUp = { navController.popBackStack() })
         }
-        composable("cloudSync") {
+        page("cloudSync") {
             DropboxSyncScreen(viewModel = settingsViewModel, onNavigateUp = { navController.popBackStack() })
         }
-        composable("backupRestore") {
+        page("backupRestore") {
             BackupRestoreScreen(viewModel = settingsViewModel, onNavigateUp = { navController.popBackStack() })
         }
-        composable("granularBackup") {
-            GranularBackupScreen(
-                notesViewModel = notesViewModel, 
-                settingsViewModel = settingsViewModel, 
-                onNavigateUp = { navController.popBackStack() }
-            )
-        }
-        composable("about") {
+        page("about") {
             AboutScreen(onNavigateUp = { navController.popBackStack() })
         }
-        composable("addEdit/{noteId}") { backStackEntry ->
+        page("addEdit/{noteId}") { backStackEntry ->
             AddNoteScreen(
                 noteId = backStackEntry.arguments?.getString("noteId"),
                 viewModel = notesViewModel,
                 onNavigateUp = { navController.popBackStack() }
             )
         }
-        composable("listDetail/{listId}?entryId={entryId}") { backStackEntry ->
+        page(listDetailRoute) { backStackEntry ->
+            val listId = backStackEntry.arguments?.getString("listId") ?: return@page
             ListDetailScreen(
-                listId = backStackEntry.arguments?.getString("listId") ?: return@composable,
+                listId = listId,
                 initialEntryId = backStackEntry.arguments?.getString("entryId"),
                 checklistViewModel = checklistViewModel,
                 settingsViewModel = settingsViewModel,
                 onNavigateUp = { navController.popBackStack() }
             )
         }
-        composable("drawing/{noteId}") { backStackEntry ->
+        page("drawing/{noteId}") { backStackEntry ->
             DrawingNoteScreen(
                 noteId = backStackEntry.arguments?.getString("noteId"),
                 notesViewModel = notesViewModel,
@@ -180,5 +182,15 @@ private fun MobileNavHost(
                 onNavigateUp = { navController.popBackStack() }
             )
         }
+    }
+}
+
+@Composable
+private fun SlidingPage(pageShape: Shape, content: @Composable () -> Unit) {
+    Box(Modifier.fillMaxSize().graphicsLayer {
+        shape = pageShape
+        clip = pageShape != RectangleShape
+    }.background(MaterialTheme.colorScheme.background)) {
+        content()
     }
 }

@@ -3,14 +3,14 @@ package com.ozon.notes
 import androidx.room.Room
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
+import java.io.OutputStream
 import android.content.Context
 
 interface NoteRepository : NotesRepository, ChecklistRepository {
     suspend fun clearAllData()
 
     suspend fun getBackupData(): BackupData
-    suspend fun getNoteBackup(noteId: String): BackupData?
-    suspend fun getListBackup(listId: String): BackupData?
+    suspend fun writeLocalBackup(output: OutputStream, selection: BackupSelection)
     suspend fun restoreBackupData(data: BackupData)
     suspend fun importBackupData(data: BackupData)
 
@@ -29,6 +29,8 @@ interface NoteRepository : NotesRepository, ChecklistRepository {
     suspend fun setCustomAccentColor(color: Int?)
     fun getIsOledMode(): Flow<Boolean>
     suspend fun setIsOledMode(enabled: Boolean)
+    fun getSolidHeaders(): Flow<Boolean>
+    suspend fun setSolidHeaders(enabled: Boolean)
     fun getAdvancedUi(): Flow<Boolean>
     suspend fun setAdvancedUi(enabled: Boolean)
     fun getAdvancedUiStyle(): Flow<AdvancedUiStyle>

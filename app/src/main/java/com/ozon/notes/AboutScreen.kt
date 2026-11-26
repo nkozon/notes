@@ -69,27 +69,29 @@ fun AboutScreen(
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
-            TopAppBar(
-                title = { },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    scrolledContainerColor = Color.Transparent
-                ),
-                navigationIcon = {
-                    Box(modifier = Modifier.padding(start = 16.dp)) {
-                        CircleIconButton(
-                            onClick = onNavigateUp,
-                            icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                            contentDescription = "Back",
-                            containerColor = backButtonContainerColor,
-                            contentColor = backButtonContentColor
-                        )
+            SolidHeader(isAtTop = !scrollState.canScrollBackward) {
+                TopAppBar(
+                    title = { },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        scrolledContainerColor = Color.Transparent
+                    ),
+                    navigationIcon = {
+                        Box(modifier = Modifier.padding(start = 16.dp)) {
+                            CircleIconButton(
+                                onClick = onNavigateUp,
+                                icon = Icons.AutoMirrored.Rounded.ArrowBack,
+                                contentDescription = "Back",
+                                containerColor = if (LocalSolidHeaders.current) Color.Transparent else backButtonContainerColor,
+                                contentColor = backButtonContentColor
+                            )
+                        }
                     }
-                }
-            )
+                )
+            }
         }
     ) { padding ->
-        val topPadding = if (isTabletUi) 0.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val topPadding = if (LocalSolidHeaders.current) padding.calculateTopPadding() else if (isTabletUi) 0.dp else WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         val bottomPadding = if (isTabletUi) 0.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val topAlpha by remember {
             derivedStateOf {
